@@ -1,0 +1,354 @@
+# Agent Client API
+
+The `Wraith` and `WraithAgent` classes are the primary interface for building with Wraith. They handle all communication with the managed TEE infrastructure.
+
+## `Wraith` Class
+
+### Constructor
+
+```typescript
+import { Wraith } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({
+  apiKey: "wraith_live_abc123",
+});
+```
+
+#### `WraithConfig`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `apiKey` | `string` | Yes | Your Wraith platform API key |
+| `baseUrl` | `string` | No | Override the API base URL (defaults to `https://api.wraith.dev`) |
+| `ai` | `object` | No | Bring your own AI model configuration |
+| `ai.provider` | `"gemini" \| "openai" \| "claude"` | No | AI provider name |
+| `ai.apiKey` | `string` | No | Your AI provider API key |
+
+### `wraith.createAgent(config)`
+
+Create a new agent with a `.wraith` name and stealth keys.
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+const agent = await wraith.createAgent({
+  name: "alice",
+  chain: Chain.Horizen,
+  wallet: "0xYourWallet",
+  signature: "0xSignatureFromWallet",
+});
+```
+
+#### `AgentConfig`
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Agent name (becomes `name.wraith`) |
+| `chain` | `Chain \| Chain[]` | Yes | Target chain(s) for the agent |
+| `wallet` | `string` | Yes | Owner wallet address |
+| `signature` | `string` | Yes | EIP-191 signature proving wallet ownership |
+| `message` | `string` | No | Message that was signed (for verification) |
+
+Returns a `WraithAgent` instance.
+
+### `wraith.agent(agentId)`
+
+Connect to an existing agent by ID. Does not make a network call.
+
+```typescript
+const agent = wraith.agent("agent-uuid-here");
+```
+
+### `wraith.getAgentByWallet(walletAddress)`
+
+Look up an agent by its owner wallet address.
+
+```typescript
+const agent = await wraith.getAgentByWallet("0xYourWallet");
+```
+
+### `wraith.getAgentByName(name)`
+
+Look up an agent by its `.wraith` name.
+
+```typescript
+const agent = await wraith.getAgentByName("alice");
+```
+
+### `wraith.listAgents()`
+
+List all agents associated with your API key.
+
+```typescript
+const agents = await wraith.listAgents();
+// AgentInfo[]
+```
+
+---
+
+## `WraithAgent` Class
+
+Returned by `wraith.createAgent()`, `wraith.getAgentByWallet()`, and `wraith.getAgentByName()`. Provides all agent operations.
+
+### `agent.info`
+
+The agent's identity information.
+
+```typescript
+interface AgentInfo {
+  id: string;
+  name: string;
+  chains: Chain[];
+  addresses: Record<Chain, string>;
+  metaAddresses: Record<Chain, string>;
+}
+```
+
+```typescript
+console.log(agent.info.id);                          // "uuid-..."
+console.log(agent.info.name);                        // "alice"
+console.log(agent.info.chains);                      // [Chain.Horizen]
+console.log(agent.info.addresses[Chain.Horizen]);     // "0x..."
+console.log(agent.info.metaAddresses[Chain.Horizen]); // "st:eth:0x..."
+```
+
+### `agent.chat(message, conversationId?)`
+
+Natural language interaction with the AI agent.
+
+```typescript
+const response = await agent.chat("send 0.1 ETH to bob.wraith");
+```
+
+#### Parameters
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `message` | `string` | Yes | Natural language message |
+| `conversationId` | `string` | No | Continue an existing conversation |
+
+#### Returns `ChatResponse`
+
+```typescript
+interface ChatResponse {
+  response: string;
+  toolCalls?: ToolCall[];
+  conversationId: string;
+}
+
+interface ToolCall {
+  name: string;
+  status: string;
+  detail?: string;
+}
+```
+
+```typescript
+const res = await agent.chat("send 0.1 ETH to bob.wraith");
+console.log(res.response);      // "Payment sent — 0.1 ETH to bob.wraith..."
+console.log(res.toolCalls);     // [{ name: "send_payment", status: "success" }]
+console.log(res.conversationId); // "conv-uuid"
+
+// Continue the conversation
+const followUp = await agent.chat("what was the tx hash?", res.conversationId);
+```
+
+### `agent.getStatus()`
+
+Get the agent's current status including balance and stats.
+
+```typescript
+const status = await agent.getStatus();
+```
+
+### `agent.getBalance()`
+
+Get the agent's balance across all assets.
+
+```typescript
+const balance = await agent.getBalance();
+console.log(balance.native);  // "1.5"
+console.log(balance.tokens);  // { ZEN: "100.0", USDC: "50.0" }
+```
+
+#### Returns `Balance`
+
+```typescript
+interface Balance {
+  native: string;
+  tokens: Record<string, string>;
+}
+```
+
+### `agent.scanPayments()`
+
+Scan for incoming stealth payments via the AI agent.
+
+```typescript
+const payments = await agent.scanPayments();
+// Payment[]
+```
+
+#### Returns `Payment[]`
+
+```typescript
+interface Payment {
+  stealthAddress: string;
+  balance: string;
+  ephemeralPubKey: string;
+}
+```
+
+### `agent.exportKey(signature, message)`
+
+Export the agent's private key. Requires a fresh wallet signature for verification.
+
+```typescript
+const sig = await wallet.signMessage("Export private key for agent " + agent.info.id);
+const { secret } = await agent.exportKey(sig, "Export private key for agent " + agent.info.id);
+console.log(secret); // "0x..."
+```
+
+### `agent.getConversations()`
+
+List all conversations with this agent.
+
+```typescript
+const conversations = await agent.getConversations();
+// Conversation[]
+```
+
+#### Returns `Conversation[]`
+
+```typescript
+interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+### `agent.getMessages(conversationId)`
+
+Get messages from a specific conversation.
+
+```typescript
+const messages = await agent.getMessages("conv-uuid");
+// [{ role: "user", text: "..." }, { role: "agent", text: "..." }]
+```
+
+### `agent.deleteConversation(conversationId)`
+
+Delete a conversation and its messages.
+
+```typescript
+await agent.deleteConversation("conv-uuid");
+```
+
+### `agent.getNotifications()`
+
+Get notifications for this agent.
+
+```typescript
+const { notifications, unreadCount } = await agent.getNotifications();
+```
+
+#### Returns
+
+```typescript
+interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+}
+```
+
+### `agent.markNotificationsRead()`
+
+Mark all notifications as read.
+
+```typescript
+await agent.markNotificationsRead();
+```
+
+### `agent.clearNotifications()`
+
+Delete all notifications.
+
+```typescript
+await agent.clearNotifications();
+```
+
+---
+
+## AI-Powered Tools
+
+When you use `agent.chat()`, the AI agent has access to these tools:
+
+| Tool | What It Does |
+|---|---|
+| `send_payment` | Send a stealth payment to a meta-address or `.wraith` name |
+| `pay_agent` | Pay another agent by `.wraith` name |
+| `scan_payments` | Scan for incoming stealth payments |
+| `get_balance` | Check wallet balance (native + tokens) |
+| `create_invoice` | Create a payment invoice with a shareable link |
+| `check_invoices` | Check invoice payment statuses |
+| `withdraw` | Withdraw from a specific stealth address |
+| `withdraw_all` | Withdraw from all stealth addresses |
+| `schedule_payment` | Schedule a recurring payment |
+| `list_schedules` | List scheduled payments |
+| `cancel_schedule` | Cancel a scheduled payment |
+| `resolve_name` | Look up a `.wraith` name |
+| `register_name` | Register a `.wraith` name on-chain |
+| `get_agent_info` | Get full agent identity and TEE status |
+| `fund_wallet` | Request testnet tokens from faucet |
+| `privacy_check` | Run a privacy analysis with scoring |
+
+### Example: Invoicing
+
+```typescript
+const res = await agent.chat("create an invoice for 1.0 ETH with memo consulting fee");
+console.log(res.response);
+// "Invoice created — [Pay 1.0 ETH](https://pay.wraith.dev/invoice/...)"
+```
+
+### Example: Privacy Check
+
+```typescript
+const res = await agent.chat("run a privacy check");
+console.log(res.response);
+// "Privacy Score: 85/100
+//  Issues:
+//  - (medium) 7 unspent stealth addresses — consider consolidating
+//  Best Practices:
+//  - Use a fresh destination for each withdrawal
+//  - Space withdrawals at least 1 hour apart"
+```
+
+---
+
+## Authentication
+
+Every request includes:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Authorization` | `Bearer wraith_...` | Platform API key |
+| `X-AI-Provider` | `"openai"` / `"claude"` / `"gemini"` | Optional — for bring your own model |
+| `X-AI-Key` | `sk-...` | Optional — your AI provider key |
+
+## Error Handling
+
+All methods throw on failure. The error message comes from the server:
+
+```typescript
+try {
+  await agent.chat("send 100 ETH to bob.wraith");
+} catch (err) {
+  console.error(err.message); // "Insufficient balance"
+}
+```
