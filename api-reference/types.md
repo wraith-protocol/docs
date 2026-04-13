@@ -1,0 +1,402 @@
+# TypeScript Types Reference
+
+All types exported from `@wraith-protocol/sdk`.
+
+## Agent Client Types
+
+Exported from `@wraith-protocol/sdk`:
+
+```typescript
+import type {
+  WraithConfig,
+  AgentConfig,
+  AgentInfo,
+  ChatResponse,
+  ToolCall,
+  Balance,
+  Payment,
+  Invoice,
+  Schedule,
+  TxResult,
+  PrivacyReport,
+  Notification,
+  Conversation,
+} from "@wraith-protocol/sdk";
+```
+
+### `Chain`
+
+```typescript
+enum Chain {
+  Horizen = "horizen",
+  Ethereum = "ethereum",
+  Polygon = "polygon",
+  Base = "base",
+  Stellar = "stellar",
+  Solana = "solana",
+  All = "all",
+}
+```
+
+### `WraithConfig`
+
+```typescript
+interface WraithConfig {
+  apiKey: string;
+  baseUrl?: string;
+  ai?: {
+    provider: "gemini" | "openai" | "claude";
+    apiKey: string;
+  };
+}
+```
+
+### `AgentConfig`
+
+```typescript
+interface AgentConfig {
+  name: string;
+  chain: Chain | Chain[];
+  wallet: string;
+  signature: string;
+  message?: string;
+}
+```
+
+### `AgentInfo`
+
+```typescript
+interface AgentInfo {
+  id: string;
+  name: string;
+  chains: Chain[];
+  addresses: Record<Chain, string>;
+  metaAddresses: Record<Chain, string>;
+}
+```
+
+### `ChatResponse`
+
+```typescript
+interface ChatResponse {
+  response: string;
+  toolCalls?: ToolCall[];
+  conversationId: string;
+}
+```
+
+### `ToolCall`
+
+```typescript
+interface ToolCall {
+  name: string;
+  status: string;
+  detail?: string;
+}
+```
+
+### `Balance`
+
+```typescript
+interface Balance {
+  native: string;
+  tokens: Record<string, string>;
+}
+```
+
+### `Payment`
+
+```typescript
+interface Payment {
+  stealthAddress: string;
+  balance: string;
+  ephemeralPubKey: string;
+}
+```
+
+### `Invoice`
+
+```typescript
+interface Invoice {
+  id: string;
+  agentName: string;
+  amount: string;
+  asset: string;
+  memo: string;
+  status: "pending" | "paid";
+  txHash: string | null;
+  paymentLink: string;
+  createdAt: string;
+}
+```
+
+### `Schedule`
+
+```typescript
+interface Schedule {
+  id: string;
+  recipient: string;
+  amount: string;
+  asset: string;
+  interval: "daily" | "weekly" | "monthly";
+  status: "active" | "paused" | "cancelled";
+  nextRun: string;
+}
+```
+
+### `TxResult`
+
+```typescript
+interface TxResult {
+  txHash: string;
+  txLink: string;
+}
+```
+
+### `PrivacyReport`
+
+```typescript
+interface PrivacyReport {
+  score: number;
+  issues: Array<{
+    severity: "info" | "low" | "medium" | "high" | "critical";
+    issue: string;
+    recommendation: string;
+  }>;
+  bestPractices: string[];
+}
+```
+
+### `Notification`
+
+```typescript
+interface Notification {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  read: boolean;
+  createdAt: string;
+}
+```
+
+### `Conversation`
+
+```typescript
+interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+---
+
+## EVM Chain Types
+
+Exported from `@wraith-protocol/sdk/chains/evm`:
+
+```typescript
+import type {
+  HexString,
+  StealthKeys,
+  StealthMetaAddress,
+  GeneratedStealthAddress,
+  Announcement,
+  MatchedAnnouncement,
+} from "@wraith-protocol/sdk/chains/evm";
+```
+
+### `HexString`
+
+```typescript
+type HexString = `0x${string}`;
+```
+
+### `StealthKeys`
+
+```typescript
+interface StealthKeys {
+  spendingKey: HexString;      // 32-byte private key
+  viewingKey: HexString;       // 32-byte private key
+  spendingPubKey: HexString;   // 33-byte compressed public key
+  viewingPubKey: HexString;    // 33-byte compressed public key
+}
+```
+
+### `StealthMetaAddress`
+
+```typescript
+interface StealthMetaAddress {
+  spendingPubKey: HexString;   // 33-byte compressed public key
+  viewingPubKey: HexString;    // 33-byte compressed public key
+}
+```
+
+### `GeneratedStealthAddress`
+
+```typescript
+interface GeneratedStealthAddress {
+  stealthAddress: HexString;   // 20-byte EVM address
+  ephemeralPubKey: HexString;  // 33-byte compressed public key
+  viewTag: number;             // 0-255
+}
+```
+
+### `Announcement`
+
+```typescript
+interface Announcement {
+  schemeId: bigint;
+  stealthAddress: HexString;
+  caller: HexString;
+  ephemeralPubKey: HexString;
+  metadata: HexString;         // first byte is view tag
+}
+```
+
+### `MatchedAnnouncement`
+
+```typescript
+interface MatchedAnnouncement extends Announcement {
+  stealthPrivateKey: HexString;
+}
+```
+
+---
+
+## Stellar Chain Types
+
+Exported from `@wraith-protocol/sdk/chains/stellar`:
+
+```typescript
+import type {
+  HexString,
+  StealthKeys,
+  StealthMetaAddress,
+  GeneratedStealthAddress,
+  Announcement,
+  MatchedAnnouncement,
+} from "@wraith-protocol/sdk/chains/stellar";
+```
+
+### `StealthKeys`
+
+```typescript
+interface StealthKeys {
+  spendingKey: Uint8Array;       // 32-byte seed
+  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
+  viewingKey: Uint8Array;        // 32-byte seed
+  viewingScalar: bigint;         // clamped scalar
+  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
+  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
+}
+```
+
+### `GeneratedStealthAddress`
+
+```typescript
+interface GeneratedStealthAddress {
+  stealthAddress: string;        // Stellar G... address
+  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
+  viewTag: number;               // 0-255
+}
+```
+
+### `Announcement`
+
+```typescript
+interface Announcement {
+  schemeId: number;
+  stealthAddress: string;        // G... address
+  caller: string;                // G... address
+  ephemeralPubKey: string;       // hex-encoded 32 bytes
+  metadata: string;              // hex-encoded, first byte = view tag
+}
+```
+
+### `MatchedAnnouncement`
+
+```typescript
+interface MatchedAnnouncement extends Announcement {
+  stealthPrivateScalar: bigint;
+  stealthPubKeyBytes: Uint8Array;
+}
+```
+
+---
+
+## Chain Connector Types
+
+Internal types used by the TEE server. Documented here for developers building custom chain connectors.
+
+### `ChainConnector`
+
+```typescript
+interface ChainConnector {
+  readonly chain: string;
+  readonly nativeAsset: string;
+  readonly addressFormat: "evm" | "stellar" | "solana";
+
+  deriveKeys(seed: Uint8Array): Promise<DerivedKeys>;
+  sendPayment(params: SendPaymentParams): Promise<TxResult>;
+  scanPayments(stealthKeys: ChainStealthKeys): Promise<DetectedPayment[]>;
+  getBalance(address: string): Promise<ChainBalance>;
+  withdraw(params: WithdrawParams): Promise<TxResult>;
+  withdrawAll(params: WithdrawAllParams): Promise<WithdrawAllResult>;
+  registerName(name: string, stealthKeys: ChainStealthKeys): Promise<TxResult>;
+  resolveName(name: string): Promise<ResolvedName | null>;
+  fundWallet(address: string): Promise<TxResult>;
+  getExplorerUrl(type: "tx" | "address", value: string): string;
+}
+```
+
+### `DerivedKeys`
+
+```typescript
+interface DerivedKeys {
+  address: string;
+  stealthKeys: ChainStealthKeys;
+  metaAddress: string;
+}
+```
+
+### `ChainBalance`
+
+```typescript
+interface ChainBalance {
+  native: string;
+  tokens: Record<string, string>;
+}
+```
+
+### `DetectedPayment`
+
+```typescript
+interface DetectedPayment {
+  stealthAddress: string;
+  balance: string;
+  ephemeralPubKey: string;
+}
+```
+
+### `WithdrawAllResult`
+
+```typescript
+interface WithdrawAllResult {
+  results: Array<{ address: string } & (TxResult | { error: string })>;
+  count: number;
+  totalWithdrawn: string;
+}
+```
+
+### `ResolvedName`
+
+```typescript
+interface ResolvedName {
+  name: string;
+  metaAddress: string;
+  address?: string;
+}
+```
