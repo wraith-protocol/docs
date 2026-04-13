@@ -18,7 +18,7 @@ The core protocol is complete: stealth address cryptography, smart contracts, AI
 - [x] **Scheduled payments** — recurring stealth payments with daily/weekly/monthly intervals. Pause, resume, and cancel support.
 - [x] **Privacy analysis** — scoring engine that detects timing patterns, identical amounts, address correlation, and consolidation risks. The AI agent warns proactively.
 
-## Phase 2 — Unified Platform (in progress)
+## Phase 2 — Unified Platform (done)
 
 Consolidating the chain-specific implementations into a single SDK and multichain TEE server.
 
@@ -26,10 +26,11 @@ Consolidating the chain-specific implementations into a single SDK and multichai
 - [x] **EVM chain crypto module (`@wraith-protocol/sdk/chains/evm`)** — secp256k1 stealth address primitives. Key derivation, stealth address generation, scanning, spending, meta-address encoding, and name signing.
 - [x] **Stellar chain crypto module (`@wraith-protocol/sdk/chains/stellar`)** — ed25519 stealth address primitives. X25519 ECDH, domain-separated hashing, scalar math, and raw scalar signing.
 - [x] **Agent client SDK** — `Wraith` and `WraithAgent` classes with `Chain` enum. Supports single-chain, multichain (`Chain[]`), and all-chain (`Chain.All`) agent creation.
-- [ ] **Spectre TEE server** — multichain NestJS server with the `ChainConnector` interface. One deployment handles all chains. Chain-specific logic is pluggable — the agent core, AI engine, storage, and tools are chain-agnostic.
-- [ ] **EVM chain connector** — single `EVMConnector` class covering all EVM chains. Different chains are just different config (RPC URL + contract addresses). No code changes to add Ethereum, Polygon, Base, etc.
-- [ ] **Stellar chain connector** — `StellarConnector` handling Stellar-specific operations: `createAccount` for new stealth addresses, Soroban contract calls, Horizon balance lookups, and `signWithScalar` for stealth key signing.
-- [ ] **Developer documentation** — this documentation site.
+- [x] **Spectre TEE server** — multichain NestJS server with the `ChainConnector` interface. One deployment handles all chains. Chain-specific logic is pluggable — the agent core, AI engine, storage, and tools are chain-agnostic.
+- [x] **EVM chain connector** — single `EVMConnector` class covering all EVM chains. Different chains are just different config (RPC URL + contract addresses). No code changes to add Ethereum, Polygon, Base, etc.
+- [x] **Stellar chain connector** — `StellarConnector` handling Stellar-specific operations: `createAccount` for new stealth addresses, Soroban contract calls, Horizon balance lookups, and `signWithScalar` for stealth key signing.
+- [x] **Smart contracts** — EVM (Solidity) and Stellar (Soroban/Rust) contracts for announcer, registry, sender, and names. Full test suites.
+- [x] **Developer documentation** — documentation site with SDK reference, architecture guides, and API reference.
 
 ## Phase 3 — Platform Launch
 
