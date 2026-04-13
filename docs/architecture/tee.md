@@ -1,0 +1,196 @@
+# TEE Security Model
+
+Wraith runs inside Trusted Execution Environment (TEE) hardware. Agent private keys are derived deterministically inside Intel TDX enclaves and never stored on disk or exported without authorization.
+
+## What Is a TEE?
+
+A TEE is a hardware-isolated compute environment. Code and data inside the enclave are protected from the host operating system, hypervisor, and even the hardware operator. Intel TDX (Trust Domain Extensions) provides:
+
+- **Memory encryption** — data in enclave memory is encrypted at the hardware level
+- **Code integrity** — the enclave can prove it's running specific, unmodified code
+- **Remote attestation** — clients can verify the enclave's identity and integrity remotely
+
+Wraith uses [Phala Network](https://phala.network) for TEE deployment, which provides the DStack SDK for deterministic key derivation.
+
+## Key Derivation
+
+Agent keys are derived deterministically from the TEE's hardware root secret. They are never stored — re-derived on demand for every operation.
+
+### Derivation Path
+
+```
+wraith/agent/{agentId}/horizen   -> secp256k1 keys for Horizen
+wraith/agent/{agentId}/stellar   -> ed25519 keys for Stellar
+wraith/agent/{agentId}/solana    -> ed25519 keys for Solana
+```
+
+The path includes the chain identifier to prevent key collision. The same agent gets different keys on different chains.
+
+### Implementation
+
+```typescript
+class TeeService {
+  async deriveAgentPrivateKey(agentId: string, chain: string): Promise<Uint8Array> {
+    // DStack derives key from hardware root secret + path
+    const raw = await dstack.getKey(`wraith/agent/${agentId}/${chain}`);
+    return sha256(raw);
+  }
+
+  async deriveAgentKeypair(agentId: string, chain: string) {
+    const connector = this.chainRegistry.get(chain);
+    const seed = await this.deriveAgentPrivateKey(agentId, chain);
+    return connector.deriveKeys(seed);
+  }
+}
+```
+
+### Per-Chain Key Derivation
+
+The chain connector determines how the raw seed becomes usable keys:
+
+**EVM (secp256k1):**
+```
+seed -> SHA-256 -> privateKeyToAccount -> sign STEALTH_SIGNING_MESSAGE
+     -> deriveStealthKeys(signature) -> { spendingKey, viewingKey, pubKeys }
+     -> encodeStealthMetaAddress(spendPub, viewPub) -> "st:eth:0x..."
+```
+
+**Stellar (ed25519):**
+```
+seed -> SHA-256 -> use as ed25519 seed -> sign STEALTH_SIGNING_MESSAGE
+     -> deriveStealthKeys(signature) -> { spendingKey, spendingScalar, viewingKey, ... }
+     -> encodeStealthMetaAddress(spendPub, viewPub) -> "st:xlm:..."
+```
+
+## Security Properties
+
+### Keys Are Never Stored
+
+Every time an operation needs agent keys (sending a payment, scanning, withdrawing), the keys are re-derived from the TEE root secret. No private key material touches disk at any point.
+
+```typescript
+// Every chat message re-derives keys
+async chat(agentId: string, message: string) {
+  const agent = await this.db.agents.findOneBy({ id: agentId });
+  const stealthKeys = await this.tee.deriveAgentKeypair(agent.id, agent.chain);
+  // Use keys for this operation, then they're garbage collected
+}
+```
+
+### Wallet Ownership Verification
+
+Agent creation requires an EIP-191 signature (EVM) or ed25519 signature (Stellar) from the owner wallet. This proves the creator controls the wallet without revealing any private key.
+
+```typescript
+// Verification flow
+const recoveredAddress = recoverMessageAddress({
+  message: body.message,
+  signature: body.signature,
+});
+if (recoveredAddress !== body.wallet) {
+  throw new UnauthorizedException("Signature does not match wallet");
+}
+```
+
+### Key Export
+
+Exporting an agent's private key requires a fresh wallet signature:
+
+```typescript
+const { secret } = await agent.exportKey(
+  freshSignature,
+  "Export private key for agent " + agent.info.id
+);
+```
+
+The TEE verifies the signature matches the owner wallet before releasing the key. Without the wallet, nobody — including Wraith — can export the key.
+
+### Remote Attestation
+
+Clients can verify the TEE is running authentic, unmodified code:
+
+```typescript
+// GET /tee/attest/{agentId}
+const attestation = await fetch(`${baseUrl}/tee/attest/${agentId}`);
+// Returns cryptographic proof of code integrity
+```
+
+This proves:
+- The code inside the TEE matches the published source
+- Keys were derived by the legitimate Wraith software
+- No unauthorized modifications have been made
+
+## Privacy Properties
+
+### Stealth Addresses
+
+Every payment goes to a fresh one-time stealth address. On-chain observers see random addresses with no link to the sender or receiver.
+
+```
+Payment 1 -> 0xabc123...  (stealth address #1)
+Payment 2 -> 0xdef456...  (stealth address #2)
+Payment 3 -> 0x789012...  (stealth address #3)
+
+On-chain: three unrelated addresses received funds
+Reality: all three belong to the same agent
+```
+
+### View Tags
+
+View tags enable efficient scanning. Each announcement includes a 1-byte tag derived from the shared secret. The recipient can reject ~255/256 non-matching announcements by checking just the tag — without computing the full stealth address.
+
+### AI Privacy Guardian
+
+The agent proactively monitors for privacy risks:
+
+- **Timing analysis** — warns if transactions happen too close together
+- **Amount patterns** — flags identical payment amounts
+- **Address correlation** — warns about withdrawing to a known wallet
+- **Consolidation risk** — alerts when too many stealth addresses are unspent
+
+```typescript
+// The AI agent warns unprompted
+await agent.chat("withdraw all to 0xMyMainWallet");
+// "Privacy concern — withdrawing all stealth addresses to a single
+//  known wallet links every payment to your identity..."
+```
+
+## Deployment
+
+### Docker Build
+
+```bash
+docker buildx build --platform linux/amd64 \
+  -t wraith-tee:latest \
+  --push \
+  -f packages/tee/Dockerfile .
+```
+
+The container must target `linux/amd64` for TEE hardware compatibility.
+
+### Docker Compose
+
+```yaml
+services:
+  app:
+    image: wraith-tee:latest
+    ports: ["3000:3000"]
+    volumes: ["/var/run/dstack.sock:/var/run/dstack.sock"]
+    environment:
+      - DATABASE_URL=postgresql://wraith:${POSTGRES_PASSWORD}@db:5432/wraith
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DEPLOYER_KEY=${DEPLOYER_KEY}
+    depends_on:
+      db: { condition: service_healthy }
+  db:
+    image: postgres:16-alpine
+    volumes: [pgdata:/var/lib/postgresql/data]
+```
+
+The DStack socket (`/var/run/dstack.sock`) connects the container to the TEE hardware for key derivation.
+
+### Deploy to Phala
+
+```bash
+phala deploy --cvm-id <app_id> -c docker-compose.yml
+```
