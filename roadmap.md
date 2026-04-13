@@ -1,0 +1,101 @@
+# Roadmap
+
+## Phase 1 — Foundation (done)
+
+The core protocol is complete: stealth address cryptography, smart contracts, AI agent, and TEE deployment.
+
+- [x] **Stealth address cryptography** — secp256k1 (EVM) and ed25519 (Stellar). Full key derivation, stealth address generation, scanning, and spending.
+- [x] **ERC-5564 and ERC-6538 implementations** — Stealth Address Messenger (announcement format) and Stealth Meta-Address Registry (meta-address storage) standards.
+- [x] **Smart contracts** — Solidity (EVM) and Soroban/Rust (Stellar). Announcer, registry, sender, and name contracts on both chain families.
+- [x] **Atomic send-and-announce (WraithSender)** — transfer funds to a stealth address and publish the announcement in one transaction. No separate steps for the sender.
+- [x] **Batch send and batch withdraw** — multiple stealth addresses in one transaction. Reduces gas cost and simplifies bulk operations.
+- [x] **Gas-sponsored withdrawals via EIP-7702 (WraithWithdrawer)** — a sponsor pays gas on behalf of the stealth address. The stealth address holder doesn't need native tokens for gas.
+- [x] **Human-readable .wraith names** — on-chain name registry mapping names to stealth meta-addresses. Ownership proven via spending key signature. No wallet address stored — fully privacy-preserving.
+- [x] **Subgraph indexing via Goldsky** — real-time indexing of Announcement events for efficient payment scanning on EVM chains.
+- [x] **AI agent system** — Gemini integration with 17 tools. Natural language stealth payments, scanning, withdrawals, invoicing, scheduling, and privacy analysis.
+- [x] **TEE deployment** — Phala TEE (Intel TDX) with DStack key derivation. Agent private keys derived inside the enclave and never stored on disk.
+- [x] **Payment links and invoicing** — shareable payment URLs, QR codes, and payment status tracking. Agents create invoices and get notified when paid.
+- [x] **Scheduled payments** — recurring stealth payments with daily/weekly/monthly intervals. Pause, resume, and cancel support.
+- [x] **Privacy analysis** — scoring engine that detects timing patterns, identical amounts, address correlation, and consolidation risks. The AI agent warns proactively.
+
+## Phase 2 — Unified Platform (in progress)
+
+Consolidating the chain-specific implementations into a single SDK and multichain TEE server.
+
+- [x] **Unified SDK (`@wraith-protocol/sdk`)** — single npm package with three entry points: root (agent client), `chains/evm`, and `chains/stellar`.
+- [x] **EVM chain crypto module (`@wraith-protocol/sdk/chains/evm`)** — secp256k1 stealth address primitives. Key derivation, stealth address generation, scanning, spending, meta-address encoding, and name signing.
+- [x] **Stellar chain crypto module (`@wraith-protocol/sdk/chains/stellar`)** — ed25519 stealth address primitives. X25519 ECDH, domain-separated hashing, scalar math, and raw scalar signing.
+- [x] **Agent client SDK** — `Wraith` and `WraithAgent` classes with `Chain` enum. Supports single-chain, multichain (`Chain[]`), and all-chain (`Chain.All`) agent creation.
+- [ ] **Spectre TEE server** — multichain NestJS server with the `ChainConnector` interface. One deployment handles all chains. Chain-specific logic is pluggable — the agent core, AI engine, storage, and tools are chain-agnostic.
+- [ ] **EVM chain connector** — single `EVMConnector` class covering all EVM chains. Different chains are just different config (RPC URL + contract addresses). No code changes to add Ethereum, Polygon, Base, etc.
+- [ ] **Stellar chain connector** — `StellarConnector` handling Stellar-specific operations: `createAccount` for new stealth addresses, Soroban contract calls, Horizon balance lookups, and `signWithScalar` for stealth key signing.
+- [ ] **Developer documentation** — this documentation site.
+
+## Phase 3 — Platform Launch
+
+Public developer API with managed infrastructure.
+
+- [ ] **Managed API** — developer API keys, authentication, and rate limiting. Developers sign up, get a key, and build.
+- [ ] **Developer dashboard** — usage analytics, agent management, and billing. Monitor API calls, manage agents, and track costs.
+- [ ] **Additional EVM chain deployments** — each new EVM chain is config + contract deployment with no code changes:
+  - Ethereum mainnet
+  - Base
+  - Polygon
+  - Arbitrum
+  - Optimism
+  - Any other EVM chain — same `EVMConnector`, same Solidity contracts
+- [ ] **Cross-chain agent operations** — a single agent operating across multiple chains simultaneously. One `.wraith` name, multiple chain identities, AI routes to the correct chain.
+- [ ] **Mobile SDK compatibility** — ensure `@wraith-protocol/sdk` works in React Native and Expo environments.
+
+### Why EVM expansion is fast
+
+Adding a new EVM chain requires:
+1. Deploy the same 4 Solidity contracts (Announcer, Registry, Sender, Names)
+2. Set up announcement indexing (subgraph or custom indexer)
+3. Register the chain config in the connector registry
+
+No new code. The `EVMConnector` handles all EVM chains with the same logic — only the RPC URL, chain ID, and contract addresses differ.
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+// Adding Arbitrum — same connector, new config
+chainRegistry.register(Chain.Arbitrum, new EVMConnector({
+  chainId: 42161,
+  rpcUrl: "https://arb1.arbitrum.io/rpc",
+  explorerUrl: "https://arbiscan.io",
+  contracts: {
+    announcer: "0x...",
+    registry: "0x...",
+    sender: "0x...",
+    names: "0x...",
+  },
+}));
+```
+
+## Phase 4 — Chain Expansion
+
+New chain families beyond EVM and Stellar. Each requires a new `ChainConnector` implementation and a contract set, but the agent core, AI engine, storage, and tools remain identical.
+
+- [ ] **Non-EVM chain integrations:**
+  - **Solana** — ed25519 (crypto reusable from Stellar module). New Solana programs for announcements and names.
+  - **Starknet** — STARK-friendly curve (special case, different cryptographic primitives). Cairo contracts.
+  - **Sui** — ed25519 (crypto reusable from Stellar module). Move contracts.
+  - **Aptos** — ed25519 (crypto reusable from Stellar module). Move contracts.
+  - **TON** — ed25519 (crypto reusable from Stellar module). FunC/Tact contracts.
+- [ ] **On-chain private messaging** — ECDH encrypted messages using existing stealth meta-address keys. Sender is anonymous. No new key infrastructure needed — the same spending and viewing key pairs used for payments also work for encryption.
+- [ ] **ERC-4337 Paymaster** — alternative to EIP-7702 for smart contract wallet compatibility. Enables gas-sponsored withdrawals on chains or wallets that don't support EIP-7702.
+- [ ] **Mobile app / PWA** — consumer-facing mobile experience for managing stealth payments.
+
+### Non-EVM chain effort
+
+Unlike EVM chains (which are config-only), each new chain family requires:
+1. A new `ChainConnector` class implementing the standard interface
+2. Stealth address contracts deployed on the target chain
+3. Chain-specific transaction building and signing logic
+
+However, the ed25519 cryptographic primitives from `@wraith-protocol/sdk/chains/stellar` are reusable for Solana, Sui, Aptos, and TON — all use the same curve. Only the address encoding, transaction format, and contract layer differ. Starknet is a special case requiring a different curve entirely.
+
+## Phase 5 — Research
+
+- [ ] **FHE-DKSAP** — Fully Homomorphic Encryption-based Dual Key Stealth Address Protocol. Enables trustless outsourced scanning: a third-party scanning service can find incoming transfers for a user without ever seeing the viewing key. The scanning computation happens on encrypted data. This removes the need to run your own scanning infrastructure or trust anyone with your viewing key.
