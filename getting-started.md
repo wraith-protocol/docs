@@ -1,0 +1,149 @@
+# Getting Started
+
+Install the SDK, create your first agent, and send a private payment in under 5 minutes.
+
+## Prerequisites
+
+- Node.js 18+
+- A Wraith API key (sign up at wraith.dev)
+- A wallet with a signing capability (MetaMask, viem, ethers, etc.)
+
+## Install
+
+```bash
+npm install @wraith-protocol/sdk
+```
+
+## Initialize the Client
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({
+  apiKey: "wraith_live_abc123",
+});
+```
+
+The `Wraith` client handles all communication with the managed TEE infrastructure. You never touch servers, keys, or chain-specific crypto directly.
+
+## Create an Agent
+
+An agent is your identity on the Wraith network. It has a `.wraith` name, an on-chain address, and stealth keys — all derived inside TEE hardware.
+
+```typescript
+// 1. Sign a message with the owner wallet to prove ownership
+const message = "Sign to create Wraith agent";
+const signature = await wallet.signMessage(message);
+
+// 2. Create the agent
+const agent = await wraith.createAgent({
+  name: "alice",
+  chain: Chain.Horizen,
+  wallet: "0xYourWalletAddress",
+  signature: signature,
+  message: message,
+});
+
+console.log(agent.info.id);                          // UUID
+console.log(agent.info.addresses[Chain.Horizen]);     // "0x..."
+console.log(agent.info.metaAddresses[Chain.Horizen]); // "st:eth:0x..."
+```
+
+The agent is now live. It has:
+- A `.wraith` name (`alice.wraith`) registered on-chain
+- A stealth meta-address for receiving private payments
+- An AI agent inside the TEE ready to process commands
+
+## Fund the Agent
+
+On testnet, the agent is automatically funded via faucet. You can also request funds manually:
+
+```typescript
+const response = await agent.chat("fund my wallet");
+// Agent requests testnet tokens from the faucet
+```
+
+## Send a Payment
+
+Use natural language to send a stealth payment:
+
+```typescript
+const response = await agent.chat("send 0.1 ETH to bob.wraith");
+
+console.log(response.response);
+// "Payment sent — 0.1 ETH to bob.wraith via stealth address 0x7a3f..."
+
+console.log(response.toolCalls);
+// [{ name: "send_payment", status: "success", detail: "..." }]
+```
+
+Behind the scenes, the agent:
+1. Resolves `bob.wraith` to a stealth meta-address
+2. Generates a one-time stealth address from the meta-address
+3. Sends ETH to the stealth address
+4. Publishes an announcement so `bob.wraith` can detect the payment
+
+## Scan for Incoming Payments
+
+```typescript
+const response = await agent.chat("scan for incoming payments");
+// Agent scans the chain for announcements matching your stealth keys
+```
+
+## Check Balance
+
+```typescript
+const response = await agent.chat("what's my balance?");
+// Agent reports native + token balances
+```
+
+Or programmatically:
+
+```typescript
+const balance = await agent.getBalance();
+console.log(balance.native);  // "1.5"
+console.log(balance.tokens);  // { ZEN: "100.0", USDC: "50.0" }
+```
+
+## Withdraw
+
+Move funds from stealth addresses to a destination:
+
+```typescript
+const response = await agent.chat("withdraw all to 0xMyWallet");
+// Agent warns about privacy risks before executing
+```
+
+## Connect to an Existing Agent
+
+If you already have an agent, reconnect without creating a new one:
+
+```typescript
+// By agent ID
+const agent = wraith.agent("agent-uuid-here");
+
+// By owner wallet
+const agent = await wraith.getAgentByWallet("0xYourWallet");
+
+// By .wraith name
+const agent = await wraith.getAgentByName("alice");
+```
+
+## Error Handling
+
+All methods throw on failure. Errors include the server's error message:
+
+```typescript
+try {
+  await agent.chat("send 100 ETH to bob.wraith");
+} catch (err) {
+  console.error(err.message); // "Insufficient balance"
+}
+```
+
+## Next Steps
+
+- [Single-Chain Agent Guide](guides/single-chain-agent.md) — deeper walkthrough
+- [Multichain Agent Guide](guides/multichain-agent.md) — deploy across multiple chains
+- [Bring Your Own Model](guides/bring-your-own-model.md) — use OpenAI or Claude instead of Gemini
+- [SDK Reference](sdk/agent-client.md) — full API documentation
