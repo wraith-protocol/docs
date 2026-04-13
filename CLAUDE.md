@@ -35,7 +35,66 @@ contracts/
 api-reference/
   endpoints.md                    # Full HTTP API reference
   types.md                        # TypeScript types reference
+roadmap.md                        # Full roadmap with phases
 ```
+
+## Roadmap Content
+
+The `roadmap.md` should have 5 phases with detail under each item. Use checkboxes for status.
+
+### Phase 1 — Foundation (done)
+- [x] Stealth address cryptography — secp256k1 (EVM) and ed25519 (Stellar)
+- [x] ERC-5564 (Stealth Address Messenger) and ERC-6538 (Stealth Meta-Address Registry) implementations
+- [x] Smart contracts — Solidity (EVM) and Soroban/Rust (Stellar)
+- [x] Atomic send-and-announce (WraithSender) — transfer + announcement in one transaction
+- [x] Batch send and batch withdraw — multiple stealth addresses in one transaction
+- [x] Gas-sponsored withdrawals via EIP-7702 (WraithWithdrawer)
+- [x] Human-readable .wraith names — on-chain name registry, spending key ownership, no wallet address stored
+- [x] Subgraph indexing via Goldsky — real-time announcement indexing
+- [x] AI agent system — Gemini integration, 17 tools, natural language stealth payments
+- [x] TEE deployment — Phala TEE (Intel TDX), DStack key derivation, keys never stored
+- [x] Payment links and invoicing — shareable URLs, QR codes, payment status tracking
+- [x] Scheduled payments — recurring stealth payments with pause/resume/cancel
+- [x] Privacy analysis — scoring engine, timing pattern detection, address correlation warnings
+
+### Phase 2 — Unified Platform (in progress)
+- [x] Unified SDK (`@wraith-protocol/sdk`) — single package, three entry points
+- [x] EVM chain crypto module (`@wraith-protocol/sdk/chains/evm`)
+- [x] Stellar chain crypto module (`@wraith-protocol/sdk/chains/stellar`)
+- [x] Agent client SDK — Wraith/WraithAgent classes, Chain enum with `All` option
+- [ ] Spectre TEE server — multichain NestJS server with chain connector architecture
+- [ ] EVM chain connector — single connector covering all EVM chains via config
+- [ ] Stellar chain connector
+- [ ] Developer documentation
+
+### Phase 3 — Platform Launch
+- [ ] Managed API — developer API keys, authentication, rate limiting
+- [ ] Developer dashboard — usage analytics, agent management, billing
+- [ ] Additional EVM chain deployments — each is config + contract deployment, no code changes:
+  - Ethereum mainnet
+  - Base
+  - Polygon
+  - Arbitrum
+  - Optimism
+  - (any EVM chain — same connector, same contracts)
+- [ ] Cross-chain agent operations — single agent operating across multiple chains simultaneously
+- [ ] Mobile SDK compatibility — ensure `@wraith-protocol/sdk` works in React Native / Expo
+
+### Phase 4 — Chain Expansion
+- [ ] Non-EVM chain integrations — each requires a new chain connector and contract set, but the agent core, AI, storage, and tools stay identical:
+  - Solana (ed25519 — crypto reusable from Stellar, new Solana programs)
+  - Starknet (STARK-friendly curve, Cairo contracts)
+  - Sui (ed25519 — crypto reusable, Move contracts)
+  - Aptos (ed25519 — crypto reusable, Move contracts)
+  - TON (ed25519 — crypto reusable, FunC/Tact contracts)
+- [ ] On-chain private messaging — ECDH encrypted messages using existing stealth meta-address keys, sender anonymous, no new key infrastructure
+- [ ] ERC-4337 Paymaster — alternative to EIP-7702 for smart contract wallet compatibility
+- [ ] Mobile app / PWA — consumer-facing mobile experience
+
+### Phase 5 — Research
+- [ ] FHE-DKSAP — Fully Homomorphic Encryption-based Dual Key Stealth Address Protocol for trustless outsourced scanning. A scanning service finds incoming transfers without ever seeing the viewing key.
+
+Explain why EVM chain expansion is fast (same connector, same contracts, just config) vs non-EVM chains needing new connectors and contract sets. Note that ed25519 crypto from Stellar is reusable for Solana, Sui, Aptos, and TON. Starknet is a special case with a different curve.
 
 ## Audience
 
