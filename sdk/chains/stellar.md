@@ -1,0 +1,377 @@
+# Stellar Crypto Primitives
+
+Low-level stealth address functions for Stellar using ed25519. Import from `@wraith-protocol/sdk/chains/stellar`.
+
+Most developers should use the [Agent Client](../agent-client.md) instead. These primitives are for power users building custom stealth address integrations on Stellar.
+
+## Installation
+
+```bash
+npm install @wraith-protocol/sdk
+# Stellar SDK is an optional peer dependency — install it too
+npm install @stellar/stellar-sdk
+```
+
+## Import
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  computeSharedSecret,
+  computeViewTag,
+  checkStealthAddress,
+  scanAnnouncements,
+  deriveStealthPrivateScalar,
+  signStellarTransaction,
+  signWithScalar,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  seedToScalar,
+  hashToScalar,
+  deriveStealthPubKey,
+  pubKeyToStellarAddress,
+  bytesToHex,
+  hexToBytes,
+  STEALTH_SIGNING_MESSAGE,
+  SCHEME_ID,
+  META_ADDRESS_PREFIX,
+  L,
+} from "@wraith-protocol/sdk/chains/stellar";
+```
+
+## Types
+
+```typescript
+interface StealthKeys {
+  spendingKey: Uint8Array;       // 32-byte seed
+  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
+  viewingKey: Uint8Array;        // 32-byte seed
+  viewingScalar: bigint;         // clamped scalar
+  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
+  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
+}
+
+interface GeneratedStealthAddress {
+  stealthAddress: string;        // Stellar G... address
+  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
+  viewTag: number;               // 0-255
+}
+
+interface Announcement {
+  schemeId: number;
+  stealthAddress: string;        // G... address
+  caller: string;                // G... address
+  ephemeralPubKey: string;       // hex-encoded 32 bytes
+  metadata: string;              // hex-encoded, first byte = view tag
+}
+
+interface MatchedAnnouncement extends Announcement {
+  stealthPrivateScalar: bigint;
+  stealthPubKeyBytes: Uint8Array;
+}
+```
+
+## Key Differences from EVM
+
+| Aspect | EVM | Stellar |
+|---|---|---|
+| Curve | secp256k1 | ed25519 |
+| Key format | `HexString` (0x-prefixed) | `Uint8Array` (raw bytes) |
+| ECDH | `secp256k1.getSharedSecret` | X25519 (Montgomery form) |
+| Address format | `0x...` (20 bytes) | `G...` (56 chars) |
+| Pub key size | 33 bytes (compressed) | 32 bytes |
+| Meta-address | `st:eth:0x{66}{66}` | `st:xlm:{64}{64}` |
+| Hash function | keccak256 | SHA-256 (domain-separated) |
+| Private key output | hex string | bigint scalar |
+| Signing | secp256k1 ECDSA | ed25519 with raw scalar |
+
+## Constants
+
+```typescript
+const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: Stellar\nNote: This signature is used for key derivation only and does not authorize any transaction.";
+const SCHEME_ID = 1;
+const META_ADDRESS_PREFIX = "st:xlm:";
+const L = 2n**252n + 27742317777372353535851937790883648493n;  // ed25519 group order
+```
+
+---
+
+## Functions
+
+### `deriveStealthKeys(signature)`
+
+Derive spending and viewing key pairs from a 64-byte ed25519 signature.
+
+```typescript
+const signature = stellarKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(signature);
+
+console.log(keys.spendingKey);       // Uint8Array (32-byte seed)
+console.log(keys.spendingScalar);    // bigint (clamped scalar)
+console.log(keys.viewingKey);        // Uint8Array (32-byte seed)
+console.log(keys.viewingScalar);     // bigint (clamped scalar)
+console.log(keys.spendingPubKey);    // Uint8Array (32-byte public key)
+console.log(keys.viewingPubKey);     // Uint8Array (32-byte public key)
+```
+
+**Algorithm:**
+1. `spendingKey = SHA-256("wraith:spending:" || signature)` — 32-byte seed
+2. `viewingKey = SHA-256("wraith:viewing:" || signature)` — 32-byte seed
+3. Each seed is expanded via `seedToScalar()` (SHA-512 + clamping)
+4. Public keys derived via `ed25519.getPublicKey(seed)`
+
+Domain-separated hashing is used instead of the EVM approach of splitting `r`/`s` components, because ed25519 signature components don't have the same independence.
+
+### `seedToScalar(seed)`
+
+Convert a 32-byte ed25519 seed to its clamped scalar. Mirrors standard ed25519 private key expansion.
+
+```typescript
+const scalar = seedToScalar(seed);
+// bigint — the clamped scalar used for point multiplication
+```
+
+**Algorithm:**
+1. `h = SHA-512(seed)` — 64 bytes
+2. `a = h[0:32]` — lower half
+3. Clamp: `a[0] &= 248; a[31] &= 127; a[31] |= 64`
+4. Interpret as little-endian bigint
+
+### `computeSharedSecret(privateKey, publicKey)`
+
+Compute an ECDH shared secret using X25519 (Montgomery form conversion).
+
+```typescript
+const shared = computeSharedSecret(keys.viewingKey, ephemeralPubKey);
+// Uint8Array (32 bytes)
+```
+
+ed25519 keys are converted to X25519 (Montgomery form) before performing Diffie-Hellman:
+1. `privX = edwardsToMontgomeryPriv(privateKey)`
+2. `pubX = edwardsToMontgomeryPub(publicKey)`
+3. `shared = x25519.getSharedSecret(privX, pubX)`
+
+### `computeViewTag(sharedSecret)`
+
+Compute the view tag from a shared secret.
+
+```typescript
+const tag = computeViewTag(sharedSecret);
+// number (0-255)
+```
+
+`SHA-256("wraith:tag:" || sharedSecret)[0]`
+
+### `hashToScalar(sharedSecret)`
+
+Hash a shared secret to a scalar value for stealth address derivation.
+
+```typescript
+const scalar = hashToScalar(sharedSecret);
+// bigint (reduced mod L)
+```
+
+`SHA-256("wraith:scalar:" || sharedSecret)` interpreted as little-endian bigint, reduced mod L.
+
+### `generateStealthAddress(spendingPubKey, viewingPubKey, ephemeralSeed?)`
+
+Generate a one-time stealth address for a Stellar recipient.
+
+```typescript
+const result = generateStealthAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey
+);
+
+console.log(result.stealthAddress);  // "G..." (Stellar address)
+console.log(result.ephemeralPubKey); // Uint8Array (32 bytes)
+console.log(result.viewTag);        // 0-255
+```
+
+**Algorithm:**
+1. Generate random ephemeral ed25519 seed
+2. Compute shared secret via X25519 ECDH
+3. `viewTag = computeViewTag(sharedSecret)`
+4. `hScalar = hashToScalar(sharedSecret)`
+5. `stealthPoint = spendingPubKey + hScalar * G` (ed25519 point addition)
+6. Encode as Stellar `G...` address via `StrKey.encodeEd25519PublicKey`
+
+### `checkStealthAddress(ephemeralPubKey, viewingKey, spendingPubKey, viewTag)`
+
+Check if an announcement belongs to you.
+
+```typescript
+const result = checkStealthAddress(
+  ephemeralPubKey,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  viewTag
+);
+
+if (result.isMatch) {
+  console.log(result.stealthAddress);     // "G..."
+  console.log(result.hashScalar);         // bigint
+  console.log(result.stealthPubKeyBytes); // Uint8Array
+}
+```
+
+### `scanAnnouncements(announcements, viewingKey, spendingPubKey, spendingScalar)`
+
+Scan announcements and return matches with their private scalars.
+
+```typescript
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+for (const m of matched) {
+  console.log(m.stealthAddress);         // "G..."
+  console.log(m.stealthPrivateScalar);   // bigint
+  console.log(m.stealthPubKeyBytes);     // Uint8Array
+}
+```
+
+The fourth argument is `spendingScalar` (bigint), not `spendingKey` like in the EVM module.
+
+### `deriveStealthPrivateScalar(spendingScalar, viewingKey, ephemeralPubKey)`
+
+Derive the private scalar for a specific stealth address.
+
+```typescript
+const scalar = deriveStealthPrivateScalar(
+  keys.spendingScalar,
+  keys.viewingKey,
+  ephemeralPubKey
+);
+// bigint — (spendingScalar + hashScalar) mod L
+```
+
+### `signWithScalar(message, scalar, publicKey)`
+
+Sign a message using a raw scalar instead of a seed. Required because stealth private keys are derived scalars that can't be used with `Keypair.fromRawEd25519Seed()`.
+
+```typescript
+const signature = signWithScalar(messageBytes, stealthScalar, stealthPubKey);
+// Uint8Array (64-byte ed25519 signature)
+```
+
+The stealth scalar `(spendingScalar + hashScalar) % L` is not necessarily clamped, so standard Stellar signing functions don't work.
+
+### `signStellarTransaction(txHash, stealthScalar, stealthPubKey)`
+
+Sign a Stellar transaction hash with a stealth private scalar.
+
+```typescript
+const sig = signStellarTransaction(txHash, stealthScalar, stealthPubKey);
+// Uint8Array (64-byte signature)
+// Add this to the transaction envelope before submitting
+```
+
+### `encodeStealthMetaAddress(spendingPubKey, viewingPubKey)`
+
+Encode two 32-byte public keys into a Stellar stealth meta-address.
+
+```typescript
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+// "st:xlm:abc123...def456..."
+```
+
+### `decodeStealthMetaAddress(metaAddress)`
+
+Decode a Stellar meta-address back into its component keys.
+
+```typescript
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress("st:xlm:abc123...def456...");
+// Both are Uint8Array (32 bytes)
+```
+
+### `deriveStealthPubKey(spendingPubKey, hashScalar)`
+
+Derive a stealth public key from a spending public key and hash scalar.
+
+```typescript
+const stealthPub = deriveStealthPubKey(spendingPubKey, hashScalar);
+// Uint8Array (32 bytes)
+```
+
+### `pubKeyToStellarAddress(publicKey)`
+
+Convert a 32-byte ed25519 public key to a Stellar `G...` address.
+
+```typescript
+const address = pubKeyToStellarAddress(publicKeyBytes);
+// "GABC..."
+```
+
+### `bytesToHex(bytes)` / `hexToBytes(hex)`
+
+Utility functions for converting between `Uint8Array` and hex strings.
+
+```typescript
+const hex = bytesToHex(new Uint8Array([0xab, 0xcd]));
+// "abcd"
+
+const bytes = hexToBytes("abcd");
+// Uint8Array [0xab, 0xcd]
+```
+
+---
+
+## End-to-End Flow
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  scanAnnouncements,
+  deriveStealthPrivateScalar,
+  signStellarTransaction,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  pubKeyToStellarAddress,
+  STEALTH_SIGNING_MESSAGE,
+  SCHEME_ID,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// 1. Recipient: derive keys from Stellar wallet signature
+const sig = stellarKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+// 2. Recipient: publish stealth meta-address
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+// Share "st:xlm:..." or register as a .wraith name
+
+// 3. Sender: generate stealth address from meta-address
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaAddress);
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// stealth.stealthAddress is a G... address
+
+// 4. Sender: send XLM via createAccount tx to stealth.stealthAddress
+//    Sender: call Soroban announcer contract
+
+// 5. Recipient: scan announcements (from Soroban events)
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+// 6. Recipient: sign transaction from stealth address
+for (const m of matched) {
+  const txHash = transaction.hash(); // 32-byte tx hash
+  const sig = signStellarTransaction(txHash, m.stealthPrivateScalar, m.stealthPubKeyBytes);
+  transaction.addSignature(pubKeyToStellarAddress(m.stealthPubKeyBytes), sig);
+  // Submit to Horizon
+}
+```
+
+### Stellar-Specific Considerations
+
+- **Account creation:** Stellar requires accounts to exist with a minimum balance (1 XLM). Sending to a new stealth address uses `Operation.createAccount`, not `Operation.payment`.
+- **Announcements:** Come from Soroban contract events via `sorobanServer.getEvents()`, not a subgraph.
+- **Signing:** Must use `signWithScalar()` / `signStellarTransaction()` because stealth scalars aren't valid seeds for `Keypair.fromRawEd25519Seed()`.
