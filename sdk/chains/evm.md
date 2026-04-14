@@ -8,7 +8,7 @@ Most developers should use the [Agent Client](../agent-client.md) instead. These
 
 ```typescript
 import {
-  // Crypto primitives
+  // Stealth kit (crypto)
   deriveStealthKeys,
   generateStealthAddress,
   checkStealthAddress,
@@ -21,10 +21,24 @@ import {
   signNameUpdate,
   signNameRelease,
   metaAddressToBytes,
+  // Builders (transactions)
+  buildSendStealth,
+  buildSendERC20,
+  buildRegisterName,
+  buildUpdateName,
+  buildReleaseName,
+  buildRegisterMetaAddress,
+  buildAnnounce,
+  buildResolveName,
   // Chain data
   fetchAnnouncements,
   getDeployment,
   DEPLOYMENTS,
+  // ABIs (if you need raw encoding)
+  SENDER_ABI,
+  NAMES_ABI,
+  REGISTRY_ABI,
+  ANNOUNCER_ABI,
   // Constants
   STEALTH_SIGNING_MESSAGE,
   SCHEME_ID,
@@ -306,6 +320,154 @@ for (const m of matched) {
   const account = privateKeyToAccount(m.stealthPrivateKey);
   // Sign and submit transactions from account.address
 }
+```
+
+## Transaction Builders
+
+Builders return `{ to, data, value? }` objects — submit with any library (viem, ethers, wagmi, raw RPC).
+
+### `buildSendStealth(params)`
+
+Send ETH privately via stealth address. Uses the WraithSender contract for atomic send + announce.
+
+```typescript
+import { buildSendStealth } from "@wraith-protocol/sdk/chains/evm";
+
+const { transaction, stealthAddress, ephemeralPubKey, viewTag } = buildSendStealth({
+  recipientMetaAddress: "st:eth:0x...",
+  amount: "0.1",
+  chain: "horizen",
+});
+
+// Submit with viem
+await walletClient.sendTransaction(transaction);
+// Or ethers
+await signer.sendTransaction(transaction);
+// Or wagmi
+await sendTransaction(transaction);
+```
+
+Returns: `{ transaction: { to, data, value }, stealthAddress, ephemeralPubKey, viewTag }`
+
+### `buildSendERC20(params)`
+
+Send an ERC-20 token privately. The sender must have approved the WraithSender contract first.
+
+```typescript
+import { buildSendERC20 } from "@wraith-protocol/sdk/chains/evm";
+
+const { transaction } = buildSendERC20({
+  recipientMetaAddress: "st:eth:0x...",
+  token: "0x4b36cb6E...",   // token contract address
+  amount: 1000000n,          // raw token amount (with decimals)
+  chain: "horizen",
+  gasTip: "0.001",           // optional ETH tip for recipient's gas
+});
+
+await walletClient.sendTransaction(transaction);
+```
+
+### `buildRegisterName(params)`
+
+Register a `.wraith` name on-chain. The name is bound to the spending key.
+
+```typescript
+import { buildRegisterName, deriveStealthKeys } from "@wraith-protocol/sdk/chains/evm";
+
+const keys = deriveStealthKeys(signature);
+const tx = buildRegisterName({
+  name: "alice",
+  stealthKeys: keys,
+  chain: "horizen",
+});
+
+await walletClient.sendTransaction(tx);
+```
+
+### `buildUpdateName(params)`
+
+Update a `.wraith` name's meta-address. Must be signed by the current owner.
+
+```typescript
+import { buildUpdateName } from "@wraith-protocol/sdk/chains/evm";
+
+const tx = buildUpdateName({
+  name: "alice",
+  newStealthKeys: newKeys,
+  currentSpendingKey: oldKeys.spendingKey,
+  chain: "horizen",
+});
+
+await walletClient.sendTransaction(tx);
+```
+
+### `buildReleaseName(params)`
+
+Release a `.wraith` name. After release, anyone can register it.
+
+```typescript
+import { buildReleaseName } from "@wraith-protocol/sdk/chains/evm";
+
+const tx = buildReleaseName({
+  name: "alice",
+  spendingKey: keys.spendingKey,
+  chain: "horizen",
+});
+
+await walletClient.sendTransaction(tx);
+```
+
+### `buildRegisterMetaAddress(params)`
+
+Register a stealth meta-address in the ERC-6538 registry. Makes it discoverable by wallet address.
+
+```typescript
+import { buildRegisterMetaAddress } from "@wraith-protocol/sdk/chains/evm";
+
+const tx = buildRegisterMetaAddress({
+  metaAddress: "st:eth:0x...",
+  chain: "horizen",
+});
+
+await walletClient.sendTransaction(tx);
+```
+
+### `buildAnnounce(params)`
+
+Publish a stealth address announcement on-chain. Use this if you're sending assets directly (not via WraithSender) and need to announce separately.
+
+```typescript
+import { buildAnnounce } from "@wraith-protocol/sdk/chains/evm";
+
+const tx = buildAnnounce({
+  stealthAddress: "0x...",
+  ephemeralPubKey: "0x...",
+  viewTag: 42,
+  chain: "horizen",
+});
+
+await walletClient.sendTransaction(tx);
+```
+
+### `buildResolveName(params)`
+
+Build calldata to resolve a `.wraith` name. Returns data for a static call (read-only, no transaction).
+
+```typescript
+import { buildResolveName } from "@wraith-protocol/sdk/chains/evm";
+
+const call = buildResolveName({ name: "alice", chain: "horizen" });
+
+// Use with a static call
+const result = await publicClient.call({ to: call.to, data: call.data });
+```
+
+### Contract ABIs
+
+The raw ABIs are exported if you need to encode calls yourself:
+
+```typescript
+import { SENDER_ABI, NAMES_ABI, REGISTRY_ABI, ANNOUNCER_ABI } from "@wraith-protocol/sdk/chains/evm";
 ```
 
 ## Chain Deployments
