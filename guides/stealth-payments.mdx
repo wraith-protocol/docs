@@ -13,15 +13,50 @@ On most blockchains, addresses are public. If you share your address to receive 
 
 Instead of receiving payments at a single reusable address, each payment goes to a **fresh one-time address** that only you can detect and spend from.
 
-```
-Normal:                          Stealth:
-Alice -> 0xBob                   Alice -> 0xRandom1 (owned by Bob)
-Carol -> 0xBob                   Carol -> 0xRandom2 (owned by Bob)
-Dave  -> 0xBob                   Dave  -> 0xRandom3 (owned by Bob)
+<svg viewBox="0 0 720 240" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', maxWidth: '720px', margin: '24px auto', display: 'block' }}>
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
 
-Observers: "Bob received          Observers: "Three unrelated
-3 payments totaling 5 ETH"        addresses received funds"
-```
+  {/* Left — Normal */}
+  <text x="170" y="20" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="11" letterSpacing="0.05em">NORMAL</text>
+  <rect x="20" y="36" width="100" height="36" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="70" y="58" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Alice</text>
+  <rect x="20" y="80" width="100" height="36" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="70" y="102" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Carol</text>
+  <rect x="20" y="124" width="100" height="36" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="70" y="146" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Dave</text>
+  <line x1="120" y1="54" x2="215" y2="98" stroke="#ee7d77" strokeWidth="1.5" markerEnd="url(#arr2)" />
+  <line x1="120" y1="98" x2="215" y2="98" stroke="#ee7d77" strokeWidth="1.5" markerEnd="url(#arr2)" />
+  <line x1="120" y1="142" x2="215" y2="98" stroke="#ee7d77" strokeWidth="1.5" markerEnd="url(#arr2)" />
+  <rect x="220" y="76" width="120" height="44" fill="#141414" stroke="#ee7d77" strokeWidth="1.5" />
+  <text x="280" y="102" textAnchor="middle" fill="#ee7d77" fontFamily="JetBrains Mono, monospace" fontSize="12">0xBob</text>
+  <text x="170" y="200" textAnchor="middle" fill="#ee7d77" fontFamily="Inter, sans-serif" fontSize="11">"Bob received 3 payments"</text>
+
+  {/* Right — Stealth */}
+  <text x="550" y="20" textAnchor="middle" fill="#22c55e" fontFamily="JetBrains Mono, monospace" fontSize="11" letterSpacing="0.05em">STEALTH</text>
+  <rect x="390" y="36" width="100" height="36" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="440" y="58" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Alice</text>
+  <rect x="390" y="80" width="100" height="36" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="440" y="102" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Carol</text>
+  <rect x="390" y="124" width="100" height="36" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="440" y="146" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Dave</text>
+  <line x1="490" y1="54" x2="585" y2="54" stroke="#22c55e" strokeWidth="1.5" markerEnd="url(#arr2)" />
+  <line x1="490" y1="98" x2="585" y2="98" stroke="#22c55e" strokeWidth="1.5" markerEnd="url(#arr2)" />
+  <line x1="490" y1="142" x2="585" y2="142" stroke="#22c55e" strokeWidth="1.5" markerEnd="url(#arr2)" />
+  <rect x="590" y="36" width="110" height="36" fill="#141414" stroke="#22c55e" strokeWidth="1" />
+  <text x="645" y="58" textAnchor="middle" fill="#22c55e" fontFamily="JetBrains Mono, monospace" fontSize="10">0xRandom1</text>
+  <rect x="590" y="80" width="110" height="36" fill="#141414" stroke="#22c55e" strokeWidth="1" />
+  <text x="645" y="102" textAnchor="middle" fill="#22c55e" fontFamily="JetBrains Mono, monospace" fontSize="10">0xRandom2</text>
+  <rect x="590" y="124" width="110" height="36" fill="#141414" stroke="#22c55e" strokeWidth="1" />
+  <text x="645" y="146" textAnchor="middle" fill="#22c55e" fontFamily="JetBrains Mono, monospace" fontSize="10">0xRandom3</text>
+  <text x="550" y="200" textAnchor="middle" fill="#22c55e" fontFamily="Inter, sans-serif" fontSize="11">"3 unrelated addresses received funds"</text>
+
+  {/* Divider */}
+  <line x1="360" y1="30" x2="360" y2="180" stroke="#444444" strokeWidth="1" strokeDasharray="4,4" />
+</svg>
 
 ## Key Concepts
 
@@ -39,6 +74,58 @@ st:eth:0x{spendingPubKey}{viewingPubKey}
 This two-key design means you can give a third party the viewing key to detect payments on your behalf without giving them the ability to spend.
 
 ### How a Payment Works
+
+<svg viewBox="0 0 720 140" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', maxWidth: '720px', margin: '24px auto', display: 'block' }}>
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  {/* Sender */}
+  <rect x="4" y="42" width="100" height="56" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="54" y="66" textAnchor="middle" fill="#c6c6c7" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="13">Sender</text>
+  <text x="54" y="84" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="10">generates</text>
+
+  {/* Arrow */}
+  <line x1="104" y1="70" x2="148" y2="70" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr3)" />
+
+  {/* Stealth Address */}
+  <rect x="152" y="42" width="120" height="56" fill="#141414" stroke="#c6c6c7" strokeWidth="1.5" />
+  <text x="212" y="64" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="11">Stealth</text>
+  <text x="212" y="80" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="11">Address</text>
+
+  {/* Arrow */}
+  <line x1="272" y1="70" x2="316" y2="70" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr3)" />
+
+  {/* Announce */}
+  <rect x="320" y="42" width="120" height="56" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="380" y="64" textAnchor="middle" fill="#e6e1e5" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="13">Announce</text>
+  <text x="380" y="82" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="10">R + viewTag</text>
+
+  {/* Arrow */}
+  <line x1="440" y1="70" x2="484" y2="70" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr3)" />
+
+  {/* Scan */}
+  <rect x="488" y="42" width="100" height="56" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="538" y="64" textAnchor="middle" fill="#e6e1e5" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="13">Scan</text>
+  <text x="538" y="82" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="10">recipient detects</text>
+
+  {/* Arrow */}
+  <line x1="588" y1="70" x2="632" y2="70" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr3)" />
+
+  {/* Spend */}
+  <rect x="636" y="42" width="80" height="56" fill="#141414" stroke="#22c55e" strokeWidth="1.5" />
+  <text x="676" y="66" textAnchor="middle" fill="#22c55e" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="13">Spend</text>
+  <text x="676" y="84" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="10">derive key</text>
+
+  {/* Labels */}
+  <text x="54" y="125" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="9">ECDH</text>
+  <text x="212" y="125" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="9">send funds</text>
+  <text x="380" y="125" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="9">on-chain</text>
+  <text x="538" y="125" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="9">view tag filter</text>
+  <text x="676" y="125" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="9">withdraw</text>
+</svg>
 
 **Step 1: Sender generates a stealth address**
 

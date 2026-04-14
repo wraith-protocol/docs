@@ -7,18 +7,70 @@ Wraith has three layers: the SDK (client library), the TEE infrastructure (manag
 
 ## System Diagram
 
-```
-Developers
-    |
-    v
-@wraith-protocol/sdk              <-- npm package (client library)
-    |
-    v
-Wraith TEE Infrastructure         <-- managed by Wraith (Phala TEE)
-    |
-    v
-Blockchains                       <-- Horizen, Stellar, Ethereum, ...
-```
+<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', maxWidth: '720px', margin: '24px auto', display: 'block' }}>
+  <defs>
+    <marker id="arr4" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  {/* Developer App */}
+  <rect x="220" y="16" width="280" height="48" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="360" y="46" textAnchor="middle" fill="#e6e1e5" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="14">Developer App</text>
+
+  <line x1="360" y1="64" x2="360" y2="92" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr4)" />
+
+  {/* SDK */}
+  <rect x="220" y="96" width="280" height="48" fill="#141414" stroke="#c6c6c7" strokeWidth="1.5" />
+  <text x="360" y="124" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="13">@wraith-protocol/sdk</text>
+
+  <line x1="360" y1="144" x2="360" y2="172" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr4)" />
+
+  {/* Gateway */}
+  <rect x="220" y="176" width="280" height="48" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="310" y="204" textAnchor="middle" fill="#e6e1e5" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="13">Gateway</text>
+  <text x="440" y="204" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="10">auth · billing · proxy</text>
+
+  <line x1="360" y1="224" x2="360" y2="252" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr4)" />
+
+  {/* Spectre TEE — larger box with internal structure */}
+  <rect x="100" y="256" width="520" height="96" fill="#0e0e0e" stroke="#22c55e" strokeWidth="1.5" />
+  <text x="360" y="278" textAnchor="middle" fill="#22c55e" fontFamily="Space Grotesk, sans-serif" fontWeight="700" fontSize="14">SPECTRE TEE</text>
+
+  {/* Inner boxes */}
+  <rect x="115" y="288" width="95" height="52" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="162" y="310" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="10">AI Engine</text>
+  <text x="162" y="326" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">Gemini / BYOM</text>
+
+  <rect x="220" y="288" width="95" height="52" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="267" y="310" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="10">Tools</text>
+  <text x="267" y="326" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">17 functions</text>
+
+  <rect x="325" y="288" width="95" height="52" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="372" y="310" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="10">Chain</text>
+  <text x="372" y="326" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">Connectors</text>
+
+  <rect x="430" y="288" width="95" height="52" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="477" y="310" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="10">Key Derivation</text>
+  <text x="477" y="326" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">DStack TEE</text>
+
+  <rect x="535" y="288" width="75" height="52" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="572" y="310" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="10">Storage</text>
+  <text x="572" y="326" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">Postgres</text>
+
+  {/* Arrows to chains */}
+  <line x1="250" y1="352" x2="150" y2="388" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr4)" />
+  <line x1="360" y1="352" x2="360" y2="388" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr4)" />
+  <line x1="470" y1="352" x2="570" y2="388" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arr4)" />
+
+  {/* Chains */}
+  <rect x="95" y="392" width="110" height="24" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="150" y="408" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="11">Horizen</text>
+  <rect x="305" y="392" width="110" height="24" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="360" y="408" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="11">Stellar</text>
+  <rect x="515" y="392" width="110" height="24" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="570" y="408" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="11">EVM chains</text>
+</svg>
 
 Developers never run servers, manage keys, or handle chain-specific crypto. They install the SDK, get an API key, and build.
 
@@ -26,24 +78,41 @@ Developers never run servers, manage keys, or handle chain-specific crypto. They
 
 One NestJS server deployment with a chain connector registry. The core agent engine is chain-agnostic. Chain-specific logic lives behind a pluggable interface.
 
-```
-TEE Server
-  |-- Core (chain-agnostic)
-  |    |-- AI Engine (Gemini, or developer's own model)
-  |    |-- Storage (PostgreSQL)
-  |    |-- Session & Conversation Management
-  |    |-- Notifications
-  |    |-- Scheduled Payments
-  |    +-- Tool Orchestration
-  |
-  |-- Chain Connector Registry
-  |    |-- EVMConnector        -> Horizen, Ethereum, Polygon, Base, ...
-  |    |-- StellarConnector    -> Stellar
-  |    +-- SolanaConnector     -> Solana
-  |
-  +-- TEE Key Derivation (DStack)
-       +-- Path: wraith/agent/{agentId}/{chain}
-```
+<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', maxWidth: '720px', margin: '24px auto', display: 'block' }}>
+  {/* Outer TEE box */}
+  <rect x="20" y="10" width="680" height="280" fill="#0e0e0e" stroke="#22c55e" strokeWidth="1.5" />
+  <text x="360" y="36" textAnchor="middle" fill="#22c55e" fontFamily="Space Grotesk, sans-serif" fontWeight="700" fontSize="14">SPECTRE TEE SERVER</text>
+
+  {/* Core section */}
+  <text x="50" y="64" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="0.05em">CORE (CHAIN-AGNOSTIC)</text>
+  <rect x="40" y="74" width="130" height="40" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="105" y="98" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="11">AI Engine</text>
+  <rect x="180" y="74" width="130" height="40" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="245" y="98" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="11">Tool Orchestration</text>
+  <rect x="320" y="74" width="130" height="40" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="385" y="98" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="11">Storage</text>
+  <rect x="460" y="74" width="110" height="40" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="515" y="98" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="11">Notifications</text>
+  <rect x="580" y="74" width="110" height="40" fill="#141414" stroke="#444444" strokeWidth="1" />
+  <text x="635" y="98" textAnchor="middle" fill="#c6c6c7" fontFamily="Inter, sans-serif" fontSize="11">Scheduler</text>
+
+  {/* Connector section */}
+  <text x="50" y="146" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="0.05em">CHAIN CONNECTORS</text>
+  <rect x="40" y="156" width="200" height="44" fill="#141414" stroke="#c6c6c7" strokeWidth="1" />
+  <text x="140" y="176" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">EVMConnector</text>
+  <text x="140" y="192" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">Horizen · Ethereum · Polygon · Base</text>
+  <rect x="250" y="156" width="200" height="44" fill="#141414" stroke="#c6c6c7" strokeWidth="1" />
+  <text x="350" y="176" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">StellarConnector</text>
+  <text x="350" y="192" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">Stellar Testnet · Mainnet</text>
+  <rect x="460" y="156" width="200" height="44" fill="#141414" stroke="#444444" strokeWidth="1" strokeDasharray="4,4" />
+  <text x="560" y="176" textAnchor="middle" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="12">SolanaConnector</text>
+  <text x="560" y="192" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="9">planned</text>
+
+  {/* Key derivation */}
+  <text x="50" y="232" fill="#767575" fontFamily="JetBrains Mono, monospace" fontSize="10" letterSpacing="0.05em">TEE KEY DERIVATION</text>
+  <rect x="40" y="242" width="650" height="36" fill="#141414" stroke="#22c55e" strokeWidth="1" />
+  <text x="365" y="265" textAnchor="middle" fill="#22c55e" fontFamily="JetBrains Mono, monospace" fontSize="12">DStack → wraith/agent/{'{agentId}'}/{'{chain}'}</text>
+</svg>
 
 ## Module Structure
 
