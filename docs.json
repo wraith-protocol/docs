@@ -1,6 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Wraith Protocol",
+  "theme": "maple",
   "logo": {
     "dark": "/assets/images/logo-white.png",
     "light": "/assets/images/logo-black.png"
@@ -9,10 +10,7 @@
   "colors": {
     "primary": "#c6c6c7",
     "light": "#e6e1e5",
-    "dark": "#767575",
-    "background": {
-      "dark": "#0e0e0e"
-    }
+    "dark": "#767575"
   },
   "font": {
     "headings": {
@@ -23,7 +21,6 @@
       "family": "Inter"
     }
   },
-  "theme": "maple",
   "layout": "sidenav",
   "sidebar": {
     "items": "border"
@@ -56,46 +53,68 @@
       "url": "api-reference"
     }
   ],
-  "navigation": [
-    {
-      "group": "Overview",
-      "pages": ["README", "getting-started", "roadmap"]
-    },
-    {
-      "group": "Architecture",
-      "pages": [
-        "architecture/overview",
-        "architecture/chain-connectors",
-        "architecture/tee"
-      ]
-    },
-    {
-      "group": "Contracts",
-      "pages": ["contracts/evm", "contracts/stellar"]
-    },
-    {
-      "group": "SDK",
-      "pages": ["sdk/overview", "sdk/agent-client"]
-    },
-    {
-      "group": "Chain Primitives",
-      "pages": ["sdk/chains/evm", "sdk/chains/stellar"]
-    },
-    {
-      "group": "Guides",
-      "pages": [
-        "guides/stealth-payments",
-        "guides/single-chain-agent",
-        "guides/multichain-agent",
-        "guides/bring-your-own-model",
-        "guides/privacy-best-practices"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": ["api-reference/endpoints", "api-reference/types"]
-    }
-  ],
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["README", "getting-started", "roadmap"]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/chain-connectors",
+              "architecture/tee"
+            ]
+          },
+          {
+            "group": "Contracts",
+            "pages": ["contracts/evm", "contracts/stellar"]
+          }
+        ]
+      },
+      {
+        "tab": "SDK",
+        "groups": [
+          {
+            "group": "SDK",
+            "pages": ["sdk/overview", "sdk/agent-client"]
+          },
+          {
+            "group": "Chain Primitives",
+            "pages": ["sdk/chains/evm", "sdk/chains/stellar"]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/stealth-payments",
+              "guides/single-chain-agent",
+              "guides/multichain-agent",
+              "guides/bring-your-own-model",
+              "guides/privacy-best-practices"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": ["api-reference/endpoints", "api-reference/types"]
+          }
+        ]
+      }
+    ]
+  },
   "footerSocials": {
     "github": "https://github.com/wraith-protocol"
   }
