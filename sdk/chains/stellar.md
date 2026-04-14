@@ -33,6 +33,9 @@ import {
   pubKeyToStellarAddress,
   bytesToHex,
   hexToBytes,
+  fetchAnnouncements,
+  getDeployment,
+  DEPLOYMENTS,
   STEALTH_SIGNING_MESSAGE,
   SCHEME_ID,
   META_ADDRESS_PREFIX,
@@ -373,5 +376,44 @@ for (const m of matched) {
 ### Stellar-Specific Considerations
 
 - **Account creation:** Stellar requires accounts to exist with a minimum balance (1 XLM). Sending to a new stealth address uses `Operation.createAccount`, not `Operation.payment`.
-- **Announcements:** Come from Soroban contract events via `sorobanServer.getEvents()`, not a subgraph.
+- **Announcements:** Come from Soroban contract events via `sorobanServer.getEvents()`, not a subgraph. Use `fetchAnnouncements("stellar")` to handle this automatically.
 - **Signing:** Must use `signWithScalar()` / `signStellarTransaction()` because stealth scalars aren't valid seeds for `Keypair.fromRawEd25519Seed()`.
+
+## Chain Deployments
+
+The SDK ships with deployed contract addresses and RPC URLs for supported Stellar networks.
+
+### `getDeployment(chain)`
+
+```typescript
+const deployment = getDeployment("stellar");
+// {
+//   network: "testnet",
+//   networkPassphrase: "Test SDF Network ; September 2015",
+//   horizonUrl: "https://horizon-testnet.stellar.org",
+//   sorobanUrl: "https://soroban-testnet.stellar.org",
+//   contracts: {
+//     announcer: "CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL",
+//     names: "CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV",
+//   },
+// }
+```
+
+### Supported Stellar Networks
+
+| Network | Status |
+|---|---|
+| Stellar Testnet | Live |
+
+## Fetching Announcements
+
+### `fetchAnnouncements(chain?, sorobanUrl?)`
+
+Fetches all stealth address announcements from the Soroban RPC for the specified network. Handles ledger range detection and pagination automatically.
+
+```typescript
+const announcements = await fetchAnnouncements("stellar");
+// Returns Announcement[] — ready to pass to scanAnnouncements()
+```
+
+This replaces the need to manually query `sorobanServer.getEvents()` and parse XDR-encoded event data.

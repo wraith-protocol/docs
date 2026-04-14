@@ -8,6 +8,7 @@ Most developers should use the [Agent Client](../agent-client.md) instead. These
 
 ```typescript
 import {
+  // Crypto primitives
   deriveStealthKeys,
   generateStealthAddress,
   checkStealthAddress,
@@ -20,6 +21,11 @@ import {
   signNameUpdate,
   signNameRelease,
   metaAddressToBytes,
+  // Chain data
+  fetchAnnouncements,
+  getDeployment,
+  DEPLOYMENTS,
+  // Constants
   STEALTH_SIGNING_MESSAGE,
   SCHEME_ID,
   META_ADDRESS_PREFIX,
@@ -286,8 +292,8 @@ const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 // 4. Sender: send ETH to stealth.stealthAddress
 //    Sender: call announcer contract with (stealth.ephemeralPubKey, stealth.viewTag)
 
-// 5. Recipient: scan announcements
-const announcements: Announcement[] = [/* from subgraph or chain events */];
+// 5. Recipient: fetch and scan announcements
+const announcements = await fetchAnnouncements("horizen");
 const matched = scanAnnouncements(
   announcements,
   keys.viewingKey,
@@ -300,4 +306,61 @@ for (const m of matched) {
   const account = privateKeyToAccount(m.stealthPrivateKey);
   // Sign and submit transactions from account.address
 }
+```
+
+## Chain Deployments
+
+The SDK ships with deployed contract addresses and subgraph URLs for supported chains. No need to deploy contracts yourself.
+
+### `getDeployment(chain)`
+
+Returns the full deployment config for a chain:
+
+```typescript
+const deployment = getDeployment("horizen");
+// {
+//   chainId: 2651420,
+//   name: "Horizen Testnet",
+//   rpcUrl: "https://horizen-testnet.rpc.caldera.xyz/http",
+//   explorerUrl: "https://horizen-testnet.explorer.caldera.xyz",
+//   subgraphUrl: "https://api.goldsky.com/api/public/...",
+//   contracts: {
+//     announcer: "0x8AE65c05E7eb48B9bA652781Bc0a3DBA09A484F3",
+//     registry: "0x953E6cEdcdfAe321796e7637d33653F6Ce05c527",
+//     sender: "0x226C5eb4e139D9fa01cc09eA318638b090b12095",
+//     names: "0x3d46f709a99A3910f52bD292211Eb5D557F882D6",
+//   },
+// }
+```
+
+### `DEPLOYMENTS`
+
+Access all deployments directly:
+
+```typescript
+import { DEPLOYMENTS } from "@wraith-protocol/sdk/chains/evm";
+console.log(Object.keys(DEPLOYMENTS)); // ["horizen"]
+```
+
+### Supported EVM Chains
+
+| Chain | Chain ID | Status |
+|---|---|---|
+| Horizen Testnet | 2651420 | Live |
+
+## Fetching Announcements
+
+### `fetchAnnouncements(chain, subgraphUrl?)`
+
+Fetches all stealth address announcements from the Goldsky subgraph for the specified chain. Handles pagination automatically.
+
+```typescript
+const announcements = await fetchAnnouncements("horizen");
+// Returns Announcement[] — ready to pass to scanAnnouncements()
+```
+
+Override the subgraph URL if needed:
+
+```typescript
+const announcements = await fetchAnnouncements("horizen", "https://my-custom-subgraph.com/graphql");
 ```
