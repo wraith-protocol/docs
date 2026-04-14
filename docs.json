@@ -60,7 +60,7 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": ["README", "getting-started", "roadmap"]
+            "pages": ["introduction", "getting-started", "roadmap"]
           },
           {
             "group": "Architecture",
