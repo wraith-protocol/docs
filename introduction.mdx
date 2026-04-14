@@ -7,51 +7,7 @@ Wraith is a multichain stealth address platform. Send and receive private paymen
 
 ## How It Works
 
-<svg viewBox="0 0 720 420" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', maxWidth: '720px', margin: '24px auto', display: 'block' }}>
-  <defs>
-    <marker id="arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
-    </marker>
-  </defs>
-
-  {/* Your App */}
-  <rect x="220" y="16" width="280" height="56" fill="#141414" stroke="#444444" strokeWidth="1" />
-  <text x="360" y="50" textAnchor="middle" fill="#e6e1e5" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="15">Your App</text>
-
-  {/* Arrow 1 */}
-  <line x1="360" y1="72" x2="360" y2="108" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arrow)" />
-
-  {/* SDK */}
-  <rect x="170" y="112" width="380" height="56" fill="#141414" stroke="#c6c6c7" strokeWidth="1.5" />
-  <text x="360" y="138" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontWeight="500" fontSize="13">@wraith-protocol/sdk</text>
-  <text x="360" y="157" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="11">npm package — crypto + agent client</text>
-
-  {/* Arrow 2 */}
-  <line x1="360" y1="168" x2="360" y2="204" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arrow)" />
-
-  {/* Gateway */}
-  <rect x="170" y="208" width="380" height="56" fill="#141414" stroke="#444444" strokeWidth="1" />
-  <text x="360" y="234" textAnchor="middle" fill="#e6e1e5" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="14">Gateway</text>
-  <text x="360" y="253" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="11">auth · rate limiting · billing · proxy</text>
-
-  {/* Arrow 3 */}
-  <line x1="360" y1="264" x2="360" y2="300" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arrow)" />
-
-  {/* Spectre TEE */}
-  <rect x="170" y="304" width="380" height="56" fill="#141414" stroke="#22c55e" strokeWidth="1.5" />
-  <text x="360" y="330" textAnchor="middle" fill="#22c55e" fontFamily="Space Grotesk, sans-serif" fontWeight="600" fontSize="14">Spectre TEE</text>
-  <text x="360" y="349" textAnchor="middle" fill="#767575" fontFamily="Inter, sans-serif" fontSize="11">AI agent · key derivation · chain ops · attestation</text>
-
-  {/* Arrow 4 — fan out */}
-  <line x1="280" y1="360" x2="160" y2="396" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arrow)" />
-  <line x1="360" y1="360" x2="360" y2="396" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arrow)" />
-  <line x1="440" y1="360" x2="560" y2="396" stroke="#767575" strokeWidth="1.5" markerEnd="url(#arrow)" />
-
-  {/* Chains */}
-  <text x="145" y="413" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Horizen</text>
-  <text x="360" y="413" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">Stellar</text>
-  <text x="575" y="413" textAnchor="middle" fill="#c6c6c7" fontFamily="JetBrains Mono, monospace" fontSize="12">EVM chains</text>
-</svg>
+![Architecture](/assets/diagrams/architecture.svg)
 
 You install the SDK, get an API key, and build. No servers to run. No keys to manage. No chain-specific crypto to implement.
 

@@ -1,0 +1,49 @@
+<svg viewBox="0 0 720 130" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="130" fill="transparent" />
+
+  <defs>
+    <marker id="arr-flow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <!-- Sender -->
+  <rect x="4" y="20" width="100" height="56" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="54" y="44" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Sender</text>
+  <text x="54" y="62" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">generates</text>
+
+  <line x1="104" y1="48" x2="148" y2="48" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-flow)" />
+
+  <!-- Stealth Address -->
+  <rect x="152" y="20" width="120" height="56" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="212" y="44" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">Stealth</text>
+  <text x="212" y="60" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">Address</text>
+
+  <line x1="272" y1="48" x2="316" y2="48" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-flow)" />
+
+  <!-- Announce -->
+  <rect x="320" y="20" width="120" height="56" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="380" y="44" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Announce</text>
+  <text x="380" y="62" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">R + viewTag</text>
+
+  <line x1="440" y1="48" x2="484" y2="48" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-flow)" />
+
+  <!-- Scan -->
+  <rect x="488" y="20" width="100" height="56" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="538" y="44" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Scan</text>
+  <text x="538" y="62" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">recipient detects</text>
+
+  <line x1="588" y1="48" x2="632" y2="48" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-flow)" />
+
+  <!-- Spend -->
+  <rect x="636" y="20" width="80" height="56" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="676" y="44" text-anchor="middle" fill="#22c55e" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Spend</text>
+  <text x="676" y="62" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">derive key</text>
+
+  <!-- Bottom labels -->
+  <text x="54" y="105" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">ECDH</text>
+  <text x="212" y="105" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">send funds</text>
+  <text x="380" y="105" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">on-chain event</text>
+  <text x="538" y="105" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">view tag filter</text>
+  <text x="676" y="105" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">withdraw</text>
+</svg>

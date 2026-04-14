@@ -1,0 +1,59 @@
+<svg viewBox="0 0 720 230" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="230" fill="transparent" />
+
+  <defs>
+    <marker id="arr-red" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#ee7d77" />
+    </marker>
+    <marker id="arr-green" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- Left: Normal -->
+  <text x="170" y="18" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.05em">NORMAL</text>
+
+  <rect x="20" y="32" width="100" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="70" y="55" text-anchor="middle" fill="#c4c7c5" font-family="Inter, sans-serif" font-size="12">Alice</text>
+  <rect x="20" y="76" width="100" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="70" y="99" text-anchor="middle" fill="#c4c7c5" font-family="Inter, sans-serif" font-size="12">Carol</text>
+  <rect x="20" y="120" width="100" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="70" y="143" text-anchor="middle" fill="#c4c7c5" font-family="Inter, sans-serif" font-size="12">Dave</text>
+
+  <line x1="120" y1="50" x2="218" y2="94" stroke="#ee7d77" stroke-width="1.5" marker-end="url(#arr-red)" />
+  <line x1="120" y1="94" x2="218" y2="94" stroke="#ee7d77" stroke-width="1.5" marker-end="url(#arr-red)" />
+  <line x1="120" y1="138" x2="218" y2="94" stroke="#ee7d77" stroke-width="1.5" marker-end="url(#arr-red)" />
+
+  <rect x="222" y="72" width="120" height="44" fill="#141414" stroke="#ee7d77" stroke-width="1.5" />
+  <text x="282" y="99" text-anchor="middle" fill="#ee7d77" font-family="JetBrains Mono, monospace" font-size="12">0xBob</text>
+
+  <text x="170" y="195" text-anchor="middle" fill="#ee7d77" font-family="Inter, sans-serif" font-size="11">"Bob received 3 payments"</text>
+  <text x="170" y="212" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">All linked to one address</text>
+
+  <!-- Divider -->
+  <line x1="360" y1="24" x2="360" y2="175" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+
+  <!-- Right: Stealth -->
+  <text x="550" y="18" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.05em">STEALTH</text>
+
+  <rect x="390" y="32" width="100" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="440" y="55" text-anchor="middle" fill="#c4c7c5" font-family="Inter, sans-serif" font-size="12">Alice</text>
+  <rect x="390" y="76" width="100" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="440" y="99" text-anchor="middle" fill="#c4c7c5" font-family="Inter, sans-serif" font-size="12">Carol</text>
+  <rect x="390" y="120" width="100" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="440" y="143" text-anchor="middle" fill="#c4c7c5" font-family="Inter, sans-serif" font-size="12">Dave</text>
+
+  <line x1="490" y1="50" x2="588" y2="50" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr-green)" />
+  <line x1="490" y1="94" x2="588" y2="94" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr-green)" />
+  <line x1="490" y1="138" x2="588" y2="138" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr-green)" />
+
+  <rect x="592" y="32" width="108" height="36" fill="#141414" stroke="#22c55e" stroke-width="1" />
+  <text x="646" y="55" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="10">0xRandom1</text>
+  <rect x="592" y="76" width="108" height="36" fill="#141414" stroke="#22c55e" stroke-width="1" />
+  <text x="646" y="99" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="10">0xRandom2</text>
+  <rect x="592" y="120" width="108" height="36" fill="#141414" stroke="#22c55e" stroke-width="1" />
+  <text x="646" y="143" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="10">0xRandom3</text>
+
+  <text x="550" y="195" text-anchor="middle" fill="#22c55e" font-family="Inter, sans-serif" font-size="11">"3 unrelated addresses received funds"</text>
+  <text x="550" y="212" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">No link between them</text>
+</svg>
