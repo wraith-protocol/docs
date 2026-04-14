@@ -133,56 +133,7 @@ Wraith extends these with:
 
 ## Visual Flow
 
-```
-                  SETUP (one time)
-    +----------------------------------------------+
-    |  Wallet signs message                         |
-    |       |                                       |
-    |       v                                       |
-    |  Derive spending key + viewing key            |
-    |       |                                       |
-    |       v                                       |
-    |  Encode stealth meta-address                  |
-    |  "st:eth:0x{spend}{view}"                     |
-    |       |                                       |
-    |       v                                       |
-    |  Register as alice.wraith on-chain            |
-    +----------------------------------------------+
-
-                  SEND (per payment)
-    +----------------------------------------------+
-    |  Sender resolves alice.wraith                 |
-    |       |                                       |
-    |       v                                       |
-    |  Generate random ephemeral key                |
-    |       |                                       |
-    |       v                                       |
-    |  ECDH shared secret with viewing key          |
-    |       |                                       |
-    |       v                                       |
-    |  Derive one-time stealth address              |
-    |       |                                       |
-    |       v                                       |
-    |  Send ETH + publish announcement              |
-    +----------------------------------------------+
-
-                  RECEIVE (scanning)
-    +----------------------------------------------+
-    |  Fetch announcements from chain               |
-    |       |                                       |
-    |       v                                       |
-    |  For each: check view tag (fast reject)       |
-    |       |                                       |
-    |       v                                       |
-    |  If tag matches: compute full address          |
-    |       |                                       |
-    |       v                                       |
-    |  If address matches: derive private key       |
-    |       |                                       |
-    |       v                                       |
-    |  Spend from stealth address                   |
-    +----------------------------------------------+
-```
+![Stealth Payment Full Flow](/assets/diagrams/stealth-visual-flow.svg)
 
 ## Using the Managed Agent
 

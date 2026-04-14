@@ -1,0 +1,44 @@
+<svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="280" fill="transparent" />
+
+  <defs>
+    <marker id="a2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <!-- TEE Hardware Root -->
+  <rect x="180" y="10" width="240" height="40" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="300" y="35" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="12">TEE Hardware Root Secret</text>
+
+  <line x1="300" y1="50" x2="300" y2="78" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+
+  <!-- DStack derive -->
+  <rect x="150" y="82" width="300" height="40" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="100" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">dstack.getKey("wraith/agent/{id}/{chain}")</text>
+  <text x="300" y="115" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">deterministic derivation from path</text>
+
+  <line x1="300" y1="122" x2="300" y2="150" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+
+  <!-- SHA-256 -->
+  <rect x="210" y="154" width="180" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">SHA-256 → seed</text>
+
+  <!-- Fan out to chains -->
+  <line x1="200" y1="190" x2="120" y2="226" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <line x1="400" y1="190" x2="480" y2="226" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+
+  <!-- EVM path -->
+  <rect x="20" y="230" width="200" height="40" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="120" y="248" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">secp256k1 → sign msg</text>
+  <text x="120" y="263" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">→ deriveStealthKeys → st:eth:0x...</text>
+
+  <text x="120" y="222" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">EVM</text>
+
+  <!-- Stellar path -->
+  <rect x="380" y="230" width="200" height="40" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="480" y="248" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">ed25519 → sign msg</text>
+  <text x="480" y="263" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">→ deriveStealthKeys → st:xlm:...</text>
+
+  <text x="480" y="222" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">STELLAR</text>
+</svg>

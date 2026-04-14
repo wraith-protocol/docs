@@ -64,31 +64,7 @@ src/
 
 The chat method runs a multi-turn tool-calling loop:
 
-```
-User message
-    |
-    v
-Build chat context (system prompt + history + tools)
-    |
-    v
-Send to AI model (Gemini / OpenAI / Claude)
-    |
-    v
-Response type?
-    |
-    +-- TEXT --> Return final response
-    |
-    +-- FUNCTION CALL(s)
-         |
-         v
-    Execute each tool via chain connector
-         |
-         v
-    Return results to AI as functionResponse
-         |
-         v
-    Loop back (AI may call more tools)
-```
+![Chat Orchestration](/assets/diagrams/chat-orchestration.svg)
 
 The AI can call multiple tools in one response. A cap (10 iterations) prevents infinite loops.
 

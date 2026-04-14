@@ -1,0 +1,69 @@
+<svg viewBox="0 0 520 520" xmlns="http://www.w3.org/2000/svg">
+  <rect width="520" height="520" fill="transparent" />
+
+  <defs>
+    <marker id="a1" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+    <marker id="a1g" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- User message -->
+  <rect x="160" y="10" width="200" height="44" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="260" y="37" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">User Message</text>
+
+  <line x1="260" y1="54" x2="260" y2="82" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+
+  <!-- Build context -->
+  <rect x="120" y="86" width="280" height="44" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="260" y="105" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Build chat context</text>
+  <text x="260" y="121" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">system prompt + history + tools</text>
+
+  <line x1="260" y1="130" x2="260" y2="158" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+
+  <!-- Send to AI -->
+  <rect x="140" y="162" width="240" height="44" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="260" y="181" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-weight="600" font-size="12">Send to AI Model</text>
+  <text x="260" y="197" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">Gemini / OpenAI / Claude</text>
+
+  <line x1="260" y1="206" x2="260" y2="234" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+
+  <!-- Decision diamond approximated as box -->
+  <rect x="175" y="238" width="170" height="40" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="260" y="263" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="12">Response type?</text>
+
+  <!-- TEXT branch — left -->
+  <line x1="175" y1="258" x2="60" y2="258" stroke="#22c55e" stroke-width="1.5" />
+  <line x1="60" y1="258" x2="60" y2="486" stroke="#22c55e" stroke-width="1.5" marker-end="url(#a1g)" />
+  <text x="48" y="250" text-anchor="end" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="10">TEXT</text>
+
+  <!-- FUNCTION CALL branch — down -->
+  <line x1="260" y1="278" x2="260" y2="310" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+  <text x="278" y="300" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">FUNCTION CALL(s)</text>
+
+  <!-- Execute tools -->
+  <rect x="140" y="314" width="240" height="44" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="260" y="333" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Execute tools</text>
+  <text x="260" y="349" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">via chain connector</text>
+
+  <line x1="260" y1="358" x2="260" y2="386" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+
+  <!-- Return results -->
+  <rect x="140" y="390" width="240" height="44" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="260" y="409" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Return results to AI</text>
+  <text x="260" y="425" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">as functionResponse</text>
+
+  <!-- Loop back arrow -->
+  <line x1="380" y1="412" x2="440" y2="412" stroke="#767575" stroke-width="1.5" />
+  <line x1="440" y1="412" x2="440" y2="180" stroke="#767575" stroke-width="1.5" />
+  <line x1="440" y1="180" x2="382" y2="180" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+  <text x="454" y="300" fill="#767575" font-family="Inter, sans-serif" font-size="9" transform="rotate(90, 454, 300)">loop back</text>
+
+  <!-- Final response -->
+  <rect x="130" y="470" width="260" height="44" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="260" y="497" text-anchor="middle" fill="#22c55e" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Return Final Response</text>
+
+  <line x1="260" y1="434" x2="260" y2="468" stroke="#767575" stroke-width="1.5" marker-end="url(#a1)" />
+</svg>

@@ -1,0 +1,65 @@
+<svg viewBox="0 0 600 680" xmlns="http://www.w3.org/2000/svg">
+  <rect width="600" height="680" fill="transparent" />
+
+  <defs>
+    <marker id="a3" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <!-- SETUP Section -->
+  <text x="300" y="20" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.1em">SETUP (ONE TIME)</text>
+  <rect x="100" y="30" width="400" height="170" fill="none" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+
+  <rect x="150" y="46" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="67" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Wallet signs message</text>
+
+  <line x1="300" y1="78" x2="300" y2="98" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="102" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="123" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Derive spending key + viewing key</text>
+
+  <line x1="300" y1="134" x2="300" y2="154" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="158" width="300" height="32" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="300" y="179" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">st:eth:0x{spend}{view}</text>
+
+  <!-- SEND Section -->
+  <text x="300" y="230" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.1em">SEND (PER PAYMENT)</text>
+  <rect x="100" y="240" width="400" height="226" fill="none" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+
+  <rect x="150" y="256" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="277" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Resolve alice.wraith</text>
+
+  <line x1="300" y1="288" x2="300" y2="308" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="312" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="333" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Generate random ephemeral key</text>
+
+  <line x1="300" y1="344" x2="300" y2="364" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="368" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="389" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">ECDH → derive stealth address</text>
+
+  <line x1="300" y1="400" x2="300" y2="420" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="424" width="300" height="32" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="300" y="445" text-anchor="middle" fill="#22c55e" font-family="Inter, sans-serif" font-weight="600" font-size="12">Send ETH + publish announcement</text>
+
+  <!-- RECEIVE Section -->
+  <text x="300" y="496" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.1em">RECEIVE (SCANNING)</text>
+  <rect x="100" y="506" width="400" height="170" fill="none" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+
+  <rect x="150" y="522" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="543" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Fetch announcements from chain</text>
+
+  <line x1="300" y1="554" x2="300" y2="574" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="578" width="300" height="32" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="300" y="599" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="12">Check view tag → compute address → match</text>
+
+  <line x1="300" y1="610" x2="300" y2="630" stroke="#767575" stroke-width="1.5" marker-end="url(#a3)" />
+
+  <rect x="150" y="634" width="300" height="32" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="300" y="655" text-anchor="middle" fill="#22c55e" font-family="Inter, sans-serif" font-weight="600" font-size="12">Derive private key → spend</text>
+</svg>

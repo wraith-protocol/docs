@@ -21,11 +21,7 @@ Agent keys are derived deterministically from the TEE's hardware root secret. Th
 
 ### Derivation Path
 
-```
-wraith/agent/{agentId}/horizen   -> secp256k1 keys for Horizen
-wraith/agent/{agentId}/stellar   -> ed25519 keys for Stellar
-wraith/agent/{agentId}/solana    -> ed25519 keys for Solana
-```
+![Key Derivation](/assets/diagrams/key-derivation.svg)
 
 The path includes the chain identifier to prevent key collision. The same agent gets different keys on different chains.
 
@@ -51,19 +47,10 @@ class TeeService {
 
 The chain connector determines how the raw seed becomes usable keys:
 
-**EVM (secp256k1):**
-```
-seed -> SHA-256 -> privateKeyToAccount -> sign STEALTH_SIGNING_MESSAGE
-     -> deriveStealthKeys(signature) -> { spendingKey, viewingKey, pubKeys }
-     -> encodeStealthMetaAddress(spendPub, viewPub) -> "st:eth:0x..."
-```
-
-**Stellar (ed25519):**
-```
-seed -> SHA-256 -> use as ed25519 seed -> sign STEALTH_SIGNING_MESSAGE
-     -> deriveStealthKeys(signature) -> { spendingKey, spendingScalar, viewingKey, ... }
-     -> encodeStealthMetaAddress(spendPub, viewPub) -> "st:xlm:..."
-```
+| Chain | Curve | Flow |
+|---|---|---|
+| EVM | secp256k1 | seed → SHA-256 → `privateKeyToAccount` → sign message → `deriveStealthKeys` → `st:eth:0x...` |
+| Stellar | ed25519 | seed → SHA-256 → ed25519 seed → sign message → `deriveStealthKeys` → `st:xlm:...` |
 
 ## Security Properties
 
@@ -133,14 +120,7 @@ This proves:
 
 Every payment goes to a fresh one-time stealth address. On-chain observers see random addresses with no link to the sender or receiver.
 
-```
-Payment 1 -> 0xabc123...  (stealth address #1)
-Payment 2 -> 0xdef456...  (stealth address #2)
-Payment 3 -> 0x789012...  (stealth address #3)
-
-On-chain: three unrelated addresses received funds
-Reality: all three belong to the same agent
-```
+![Stealth Address Privacy](/assets/diagrams/stealth-comparison.svg)
 
 ### View Tags
 
