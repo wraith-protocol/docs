@@ -72,7 +72,7 @@
           },
           {
             "group": "Contracts",
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana"]
+            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb"]
           }
         ]
       },
@@ -85,7 +85,7 @@
           },
           {
             "group": "Chain Primitives",
-            "pages": ["sdk/chains/evm", "sdk/chains/stellar", "sdk/chains/solana"]
+            "pages": ["sdk/chains/evm", "sdk/chains/stellar", "sdk/chains/solana", "sdk/chains/ckb"]
           }
         ]
       },
