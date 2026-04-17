@@ -1,0 +1,368 @@
+---
+title: "CKB Primitives"
+description: "Stealth address crypto for Nervos CKB using secp256k1 and the Cell model"
+---
+
+Low-level stealth address functions for Nervos CKB using secp256k1. Import from `@wraith-protocol/sdk/chains/ckb`.
+
+Most developers should use the [Agent Client](/sdk/agent-client) instead. These primitives are for power users building custom stealth address integrations on CKB.
+
+## The Cell Model
+
+CKB is fundamentally different from account-based chains like EVM or Solana. CKB uses a **UTXO-based Cell model** where all state is stored in Cells.
+
+A Cell has four fields:
+
+| Field | Purpose |
+|---|---|
+| `capacity` | Amount of CKB stored (like a UTXO value) |
+| `lock` | Script that must be satisfied to spend (like an address/owner) |
+| `type` | Optional script for additional validation |
+| `data` | Arbitrary data |
+
+### Cells Are Announcements
+
+On EVM chains, stealth address announcements are separate events emitted by an Announcer contract. On CKB, **the Cell itself is the announcement**. There is no separate announcer.
+
+The stealth lock script `args` contain both the ephemeral public key and the stealth address hash:
+
+```
+lock.args = ephemeral_pubkey (33 bytes) || blake160(stealth_pubkey) (20 bytes)
+```
+
+This is 53 bytes total. The announcement data is embedded directly in the Cell's lock script — no separate transaction or event needed.
+
+### Scanning = Querying Live Cells
+
+Instead of querying a subgraph or parsing event logs, scanning on CKB means querying all live Cells that use the `stealth-lock` code hash. CKB's built-in indexer RPC (`get_cells`) supports filtering by lock script code hash, so only stealth Cells are returned.
+
+### Spending = Consuming Cells
+
+To withdraw from a stealth address, you consume the stealth Cell and create a new Cell at the destination. The stealth lock script verifies the secp256k1 signature against the pubkey hash in the args.
+
+## Installation
+
+```bash
+npm install @wraith-protocol/sdk
+```
+
+No additional peer dependencies required. CKB RPC calls use native `fetch`. Address hashing uses `@noble/hashes` (blake2b), which is already a direct dependency.
+
+## Import
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  checkStealthCell,
+  scanStealthCells,
+  deriveStealthPrivateKey,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  blake160,
+  fetchStealthCells,
+  getDeployment,
+  DEPLOYMENTS,
+  STEALTH_SIGNING_MESSAGE,
+  SCHEME_ID,
+  META_ADDRESS_PREFIX,
+} from "@wraith-protocol/sdk/chains/ckb";
+```
+
+## Types
+
+```typescript
+type HexString = `0x${string}`;
+
+interface StealthKeys {
+  spendingKey: HexString;       // 32-byte private key
+  viewingKey: HexString;        // 32-byte private key
+  spendingPubKey: HexString;    // 33-byte compressed secp256k1
+  viewingPubKey: HexString;     // 33-byte compressed secp256k1
+}
+
+interface GeneratedStealthAddress {
+  stealthPubKey: HexString;     // 33-byte compressed stealth public key
+  stealthPubKeyHash: HexString; // 20-byte blake160 hash
+  ephemeralPubKey: HexString;   // 33-byte compressed ephemeral public key
+  lockArgs: HexString;          // 53 bytes: ephemeral_pub || blake160(stealth_pub)
+}
+
+// CKB doesn't have separate announcements — Cells ARE the announcements
+interface StealthCell {
+  txHash: HexString;
+  index: number;
+  capacity: bigint;              // in shannons (1 CKB = 10^8 shannons)
+  lockArgs: HexString;           // 53 bytes
+  ephemeralPubKey: HexString;    // extracted from lockArgs[0:33]
+  stealthPubKeyHash: HexString;  // extracted from lockArgs[33:53]
+}
+
+interface MatchedStealthCell extends StealthCell {
+  stealthPrivateKey: HexString;
+}
+```
+
+## Key Differences from EVM
+
+CKB uses the same secp256k1 curve as EVM but different hash functions and a completely different state model.
+
+| Aspect | EVM | CKB |
+|---|---|---|
+| Model | Account-based | UTXO (Cell) |
+| Curve | secp256k1 | secp256k1 (same) |
+| Announcement | Separate Announcer contract event | Embedded in Cell lock script args |
+| Address hash | `keccak256(pubkey)[12:32]` | `blake2b(pubkey)[0:20]` (blake160) |
+| Shared secret hash | `keccak256(ECDH_shared)` | `SHA-256(ECDH_shared)` |
+| Scanning | Query subgraph for events | Query live Cells via `get_cells` RPC |
+| Address format | `0x` + 20-byte hex | bech32m CKB address |
+| Min balance | None (EOA) | 61 CKB for cell capacity |
+| Spending | `sendTransaction` | Consume Cell, create new Cell |
+| View tags | Yes (fast rejection) | No (check every Cell) |
+
+## Constants
+
+```typescript
+const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: CKB\nNote: This signature is used for key derivation only and does not authorize any transaction.";
+const SCHEME_ID = 1;
+const META_ADDRESS_PREFIX = "st:ckb:";
+```
+
+---
+
+## Functions
+
+### `deriveStealthKeys(signature)`
+
+Derive spending and viewing key pairs from a 65-byte ECDSA signature. Identical to the EVM module.
+
+```typescript
+const signature = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
+const keys = deriveStealthKeys(signature as HexString);
+
+console.log(keys.spendingKey);    // "0x..." (32-byte private key)
+console.log(keys.viewingKey);     // "0x..." (32-byte private key)
+console.log(keys.spendingPubKey); // "0x02..." (33-byte compressed)
+console.log(keys.viewingPubKey);  // "0x03..." (33-byte compressed)
+```
+
+**Algorithm:** Same as EVM — split signature `r`/`s`, `keccak256` each to get spending and viewing keys.
+
+### `generateStealthAddress(spendingPubKey, viewingPubKey, ephemeralKey?)`
+
+Generate a one-time stealth address with lock script args for CKB.
+
+```typescript
+const result = generateStealthAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey
+);
+
+console.log(result.stealthPubKey);     // "0x02..." (33-byte stealth public key)
+console.log(result.stealthPubKeyHash); // "0x..." (20-byte blake160)
+console.log(result.ephemeralPubKey);   // "0x03..." (33-byte ephemeral key)
+console.log(result.lockArgs);          // "0x..." (53 bytes: ephemeral || blake160)
+```
+
+**Algorithm:**
+1. Generate random ephemeral key pair `(r, R = r * G)`
+2. Compute ECDH shared secret `S = r * viewingPubKey` (compressed)
+3. `hashedSecret = SHA-256(S)` — **not** keccak256 like EVM
+4. `stealthPubKey = spendingPubKey + hashedSecret * G`
+5. `stealthPubKeyHash = blake160(stealthPubKey)` — blake2b with "ckb-default-hash", first 20 bytes
+6. `lockArgs = ephemeralPubKey || stealthPubKeyHash`
+
+### `blake160(data)`
+
+CKB's address hashing function. blake2b with `"ckb-default-hash"` personalization, truncated to 20 bytes.
+
+```typescript
+const hash = blake160(publicKeyBytes);
+// Uint8Array (20 bytes)
+```
+
+The personalization string is critical — without it, hashes won't match CKB's on-chain verification.
+
+### `checkStealthCell(cell, viewingKey, spendingPubKey)`
+
+Check if a stealth Cell belongs to you.
+
+```typescript
+const result = checkStealthCell(cell, keys.viewingKey, keys.spendingPubKey);
+
+if (result.isMatch) {
+  console.log("This cell is ours");
+}
+```
+
+**Algorithm:**
+1. Extract `ephemeralPubKey = cell.lockArgs[0:33]`
+2. Compute ECDH shared secret `S = viewingKey * ephemeralPubKey`
+3. `hashedSecret = SHA-256(S)`
+4. `expectedPubKey = spendingPubKey + hashedSecret * G`
+5. `expectedHash = blake160(expectedPubKey)`
+6. Compare `expectedHash` with `cell.lockArgs[33:53]`
+
+No view tag optimization — every Cell is fully checked. This is acceptable because CKB's `get_cells` RPC already filters to only stealth-lock Cells.
+
+### `scanStealthCells(cells, viewingKey, spendingPubKey, spendingKey)`
+
+Scan an array of stealth Cells and return the ones that belong to you.
+
+```typescript
+const cells = await fetchStealthCells("ckb");
+
+const matched = scanStealthCells(
+  cells,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingKey
+);
+
+for (const m of matched) {
+  console.log(m.txHash);           // Cell outpoint
+  console.log(m.capacity);         // CKB amount in shannons
+  console.log(m.stealthPrivateKey); // private key to spend this Cell
+}
+```
+
+### `deriveStealthPrivateKey(spendingKey, ephemeralPubKey, viewingKey)`
+
+Compute the private key that controls a specific stealth Cell.
+
+```typescript
+const privateKey = deriveStealthPrivateKey(
+  keys.spendingKey,
+  cell.ephemeralPubKey,
+  keys.viewingKey
+);
+// Use this key to sign the transaction that consumes the stealth Cell
+```
+
+**Algorithm:**
+1. `S = viewingKey * ephemeralPubKey` (shared secret)
+2. `hashedSecret = SHA-256(S)` — **not** keccak256
+3. `stealthPrivateKey = (spendingKey + hashedSecret) mod n`
+
+### `encodeStealthMetaAddress(spendingPubKey, viewingPubKey)`
+
+Encode two public keys into a CKB stealth meta-address string.
+
+```typescript
+const metaAddress = encodeStealthMetaAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey
+);
+// "st:ckb:02abc...03def..."
+```
+
+Format: `st:ckb:{spendingPubKeyHex}{viewingPubKeyHex}` — 132 hex chars (two 33-byte compressed secp256k1 keys), same structure as EVM.
+
+### `decodeStealthMetaAddress(metaAddress)`
+
+Decode a CKB meta-address back into its component public keys.
+
+```typescript
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(
+  "st:ckb:02abc...03def..."
+);
+```
+
+---
+
+## End-to-End Flow
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  scanStealthCells,
+  deriveStealthPrivateKey,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  fetchStealthCells,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/ckb";
+import type { HexString } from "@wraith-protocol/sdk/chains/ckb";
+
+// 1. Recipient: derive keys from wallet signature
+const sig = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
+const keys = deriveStealthKeys(sig as HexString);
+
+// 2. Recipient: publish stealth meta-address
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+// Share "st:ckb:..." or register as a .wraith name
+
+// 3. Sender: generate stealth address from meta-address
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaAddress);
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// 4. Sender: create a Cell with stealth-lock
+//    lock.code_hash = stealth-lock code hash
+//    lock.args = stealth.lockArgs (53 bytes: ephemeral_pub || blake160)
+//    capacity = payment amount (minimum 61 CKB)
+
+// 5. Recipient: scan stealth Cells
+const cells = await fetchStealthCells("ckb");
+const matched = scanStealthCells(
+  cells,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingKey
+);
+
+// 6. Recipient: spend from stealth Cell
+for (const m of matched) {
+  // Build a CKB transaction:
+  //   Input: the matched stealth Cell
+  //   Output: new Cell at destination with regular lock
+  //   Witness: signature with m.stealthPrivateKey
+  // Submit via CKB RPC
+}
+```
+
+### CKB-Specific Considerations
+
+- **Minimum capacity:** A stealth-lock Cell requires at least 61 CKB due to the 53-byte args. Senders must send at least this amount.
+- **No view tags:** Every Cell must be fully checked. CKB's `get_cells` RPC already filters by lock script code hash, so only stealth Cells are examined.
+- **blake2b personalization:** CKB uses `"ckb-default-hash"` as the blake2b personalization parameter. This **must** be included or hashes won't match on-chain verification.
+- **UTXO spending:** Withdrawing means consuming the Cell and creating a new one at the destination. The transaction fee is deducted from the Cell's capacity.
+- **No names initially:** `.wraith` name registration is not available on CKB at launch. Names registered on other chains still resolve cross-chain via the agent.
+
+## Chain Deployments
+
+### `getDeployment(chain)`
+
+```typescript
+const deployment = getDeployment("ckb");
+// {
+//   network: "testnet",
+//   rpcUrl: "https://testnet.ckbapp.dev",
+//   explorerUrl: "https://pudge.explorer.nervos.org",
+//   contracts: {
+//     stealthLockCodeHash: "0x...",
+//   },
+//   cellDeps: {
+//     stealthLock: { txHash: "0x...", index: 0 },
+//   },
+// }
+```
+
+### Supported Networks
+
+| Network | Status |
+|---|---|
+| CKB Testnet (Pudge) | Live |
+
+## Fetching Stealth Cells
+
+### `fetchStealthCells(chain?)`
+
+Fetches all live stealth Cells from CKB using the `get_cells` RPC method, filtered by the stealth-lock code hash. Handles pagination automatically.
+
+```typescript
+const cells = await fetchStealthCells("ckb");
+// Returns StealthCell[] — ready to pass to scanStealthCells()
+```
+
+This replaces the subgraph/event-based scanning used on other chains. CKB's native indexer makes this efficient without external infrastructure.
