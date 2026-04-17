@@ -35,10 +35,13 @@ Consolidating the chain-specific implementations into a single SDK and multichai
 - [x] **Smart contracts** — EVM (Solidity) and Stellar (Soroban/Rust) contracts for announcer, registry, sender, and names. Full test suites.
 - [x] **Developer documentation** — documentation site with SDK reference, architecture guides, and API reference.
 
-## Phase 3 — Platform Launch
+## Phase 3 — Platform Launch (in progress)
 
-Public developer API with managed infrastructure.
+Public developer API with managed infrastructure. Solana support.
 
+- [x] **Solana chain crypto module (`@wraith-protocol/sdk/chains/solana`)** — ed25519 stealth address primitives reused from the Stellar module. Base58 address encoding, Anchor program integration, and transaction signing.
+- [x] **Solana programs** — Anchor-based programs for announcer (event emission), sender (atomic transfer + announce), and names (PDA-based `.wraith` name registry).
+- [ ] **Solana chain connector** — `SolanaConnector` implementing the `ChainConnector` interface. Program log event parsing, devnet airdrop funding, and SPL token support via associated token accounts.
 - [ ] **Managed API** — developer API keys, authentication, and rate limiting. Developers sign up, get a key, and build.
 - [ ] **Developer dashboard** — usage analytics, agent management, and billing. Monitor API calls, manage agents, and track costs.
 - [ ] **Additional EVM chain deployments** — each new EVM chain is config + contract deployment with no code changes:
@@ -82,7 +85,6 @@ chainRegistry.register(Chain.Arbitrum, new EVMConnector({
 New chain families beyond EVM and Stellar. Each requires a new `ChainConnector` implementation and a contract set, but the agent core, AI engine, storage, and tools remain identical.
 
 - [ ] **Non-EVM chain integrations:**
-  - **Solana** — ed25519 (crypto reusable from Stellar module). New Solana programs for announcements and names.
   - **Starknet** — STARK-friendly curve (special case, different cryptographic primitives). Cairo contracts.
   - **Sui** — ed25519 (crypto reusable from Stellar module). Move contracts.
   - **Aptos** — ed25519 (crypto reusable from Stellar module). Move contracts.
