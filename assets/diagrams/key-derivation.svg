@@ -1,5 +1,5 @@
-<svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg">
-  <rect width="600" height="280" fill="transparent" />
+<svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="320" fill="transparent" />
 
   <defs>
     <marker id="a2" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
@@ -8,37 +8,52 @@
   </defs>
 
   <!-- TEE Hardware Root -->
-  <rect x="180" y="10" width="240" height="40" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
-  <text x="300" y="35" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="12">TEE Hardware Root Secret</text>
+  <rect x="220" y="10" width="280" height="40" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="360" y="35" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="12">TEE Hardware Root Secret</text>
 
-  <line x1="300" y1="50" x2="300" y2="78" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <line x1="360" y1="50" x2="360" y2="78" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
 
   <!-- DStack derive -->
-  <rect x="150" y="82" width="300" height="40" fill="#141414" stroke="#444444" stroke-width="1" />
-  <text x="300" y="100" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">dstack.getKey("wraith/agent/{id}/{chain}")</text>
-  <text x="300" y="115" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">deterministic derivation from path</text>
+  <rect x="180" y="82" width="360" height="40" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="360" y="100" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">dstack.getKey("wraith/agent/{id}/{chain}")</text>
+  <text x="360" y="115" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">deterministic derivation from path</text>
 
-  <line x1="300" y1="122" x2="300" y2="150" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <line x1="360" y1="122" x2="360" y2="150" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
 
   <!-- SHA-256 -->
-  <rect x="210" y="154" width="180" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
-  <text x="300" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">SHA-256 → seed</text>
+  <rect x="250" y="154" width="220" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="360" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">SHA-256 → seed</text>
 
-  <!-- Fan out to chains -->
-  <line x1="200" y1="190" x2="120" y2="226" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
-  <line x1="400" y1="190" x2="480" y2="226" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <!-- Fan out to 4 chains -->
+  <line x1="250" y1="190" x2="95" y2="238" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <line x1="310" y1="190" x2="270" y2="238" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <line x1="410" y1="190" x2="450" y2="238" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
+  <line x1="470" y1="190" x2="625" y2="238" stroke="#767575" stroke-width="1.5" marker-end="url(#a2)" />
 
-  <!-- EVM path -->
-  <rect x="20" y="230" width="200" height="40" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
-  <text x="120" y="248" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">secp256k1 → sign msg</text>
-  <text x="120" y="263" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">→ deriveStealthKeys → st:eth:0x...</text>
+  <!-- EVM -->
+  <text x="95" y="234" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">EVM / CKB</text>
+  <rect x="15" y="242" width="160" height="44" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="95" y="261" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">secp256k1 → sign</text>
+  <text x="95" y="278" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">st:eth:0x... / st:ckb:...</text>
 
-  <text x="120" y="222" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">EVM</text>
+  <!-- Stellar -->
+  <text x="270" y="234" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">STELLAR</text>
+  <rect x="190" y="242" width="160" height="44" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="270" y="261" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">ed25519 → sign</text>
+  <text x="270" y="278" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">st:xlm:...</text>
 
-  <!-- Stellar path -->
-  <rect x="380" y="230" width="200" height="40" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
-  <text x="480" y="248" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">ed25519 → sign msg</text>
-  <text x="480" y="263" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">→ deriveStealthKeys → st:xlm:...</text>
+  <!-- Solana -->
+  <text x="450" y="234" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">SOLANA</text>
+  <rect x="370" y="242" width="160" height="44" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="450" y="261" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">ed25519 → sign</text>
+  <text x="450" y="278" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">st:sol:...</text>
 
-  <text x="480" y="222" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">STELLAR</text>
+  <!-- Future -->
+  <text x="625" y="234" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">FUTURE</text>
+  <rect x="545" y="242" width="160" height="44" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+  <text x="625" y="261" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">any curve</text>
+  <text x="625" y="278" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Starknet · Sui · ...</text>
+
+  <!-- Note -->
+  <text x="360" y="312" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Same seed, different chain path → different keys per chain</text>
 </svg>
