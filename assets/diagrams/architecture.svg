@@ -36,15 +36,21 @@
   <text x="360" y="353" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="11">AI agent · key derivation · chain ops · attestation</text>
 
   <!-- Fan-out arrows -->
-  <line x1="280" y1="364" x2="160" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
-  <line x1="360" y1="364" x2="360" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
-  <line x1="440" y1="364" x2="560" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="240" y1="364" x2="100" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="310" y1="364" x2="250" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="400" y1="364" x2="400" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="450" y1="364" x2="510" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
+  <line x1="490" y1="364" x2="630" y2="400" stroke="#767575" stroke-width="1.5" marker-end="url(#arrow)" />
 
   <!-- Chains -->
-  <rect x="90" y="404" width="120" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
-  <text x="150" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">Horizen</text>
-  <rect x="300" y="404" width="120" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
-  <text x="360" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">Stellar</text>
-  <rect x="510" y="404" width="120" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
-  <text x="570" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">EVM chains</text>
+  <rect x="40" y="404" width="110" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="95" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">EVM chains</text>
+  <rect x="190" y="404" width="110" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="245" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">Stellar</text>
+  <rect x="340" y="404" width="110" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="395" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">Solana</text>
+  <rect x="490" y="404" width="110" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="545" y="423" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">CKB</text>
+  <rect x="610" y="404" width="70" height="28" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+  <text x="645" y="423" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="11">...</text>
 </svg>
