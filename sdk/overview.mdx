@@ -19,6 +19,7 @@ npm install @wraith-protocol/sdk
 | `@wraith-protocol/sdk/chains/evm` | Raw secp256k1 stealth crypto primitives | Power users building custom EVM integrations |
 | `@wraith-protocol/sdk/chains/stellar` | Raw ed25519 stealth crypto for Stellar | Power users building on Stellar |
 | `@wraith-protocol/sdk/chains/solana` | Raw ed25519 stealth crypto for Solana | Power users building on Solana |
+| `@wraith-protocol/sdk/chains/ckb` | Raw secp256k1 stealth crypto for CKB | Power users building on Nervos CKB |
 
 ### Root Import — Agent Client
 
@@ -54,6 +55,14 @@ import {
   scanAnnouncements,
   deriveStealthPrivateScalar,
 } from "@wraith-protocol/sdk/chains/solana";
+
+// CKB (secp256k1 + Cell model)
+import {
+  generateStealthAddress,
+  deriveStealthKeys,
+  scanStealthCells,
+  deriveStealthPrivateKey,
+} from "@wraith-protocol/sdk/chains/ckb";
 ```
 
 Each chain module exports the same conceptual functions adapted to that chain's cryptographic scheme and address format. You only need these if you're building custom stealth address integrations without the managed agent platform.
@@ -100,6 +109,7 @@ enum Chain {
   Base = "base",
   Stellar = "stellar",
   Solana = "solana",
+  CKB = "ckb",
   All = "all",
 }
 ```
@@ -108,13 +118,13 @@ enum Chain {
 
 | Package | Used By | Purpose |
 |---|---|---|
-| `@noble/curves` | EVM + Stellar + Solana chains | Elliptic curve operations |
-| `@noble/hashes` | EVM + Stellar + Solana chains | SHA-256, SHA-512, keccak256 |
+| `@noble/curves` | EVM + Stellar + Solana + CKB chains | Elliptic curve operations |
+| `@noble/hashes` | EVM + Stellar + Solana + CKB chains | SHA-256, SHA-512, keccak256, blake2b |
 | `viem` | EVM chains + agent client | EVM utilities, address encoding |
 | `@stellar/stellar-sdk` | Stellar chain (optional peer dep) | StrKey encoding for Stellar addresses |
 | `@solana/web3.js` | Solana chain (optional peer dep) | PublicKey encoding for Solana addresses |
 
-`@stellar/stellar-sdk` and `@solana/web3.js` are optional peer dependencies. They're only needed if you import their respective chain modules.
+`@stellar/stellar-sdk` and `@solana/web3.js` are optional peer dependencies. They're only needed if you import their respective chain modules. The CKB module has no additional peer dependencies — it uses raw `fetch` for RPC calls and `@noble/hashes` for blake2b.
 
 ## Package Exports
 
@@ -142,6 +152,11 @@ The SDK uses `package.json` exports to expose multiple entry points from a singl
       "types": "./dist/chains/solana/index.d.ts",
       "import": "./dist/chains/solana/index.js",
       "require": "./dist/chains/solana/index.cjs"
+    },
+    "./chains/ckb": {
+      "types": "./dist/chains/ckb/index.d.ts",
+      "import": "./dist/chains/ckb/index.js",
+      "require": "./dist/chains/ckb/index.cjs"
     }
   }
 }
@@ -155,3 +170,4 @@ Both ESM and CJS formats are supported. TypeScript declarations are included.
 - [EVM Crypto Primitives](chains/evm) — low-level stealth address functions for EVM
 - [Stellar Crypto Primitives](chains/stellar) — low-level stealth address functions for Stellar
 - [Solana Crypto Primitives](chains/solana) — low-level stealth address functions for Solana
+- [CKB Crypto Primitives](chains/ckb) — low-level stealth address functions for Nervos CKB
