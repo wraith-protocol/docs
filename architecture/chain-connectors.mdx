@@ -13,7 +13,7 @@ Every chain connector implements `ChainConnector`:
 interface ChainConnector {
   readonly chain: string;
   readonly nativeAsset: string;
-  readonly addressFormat: "evm" | "stellar" | "solana";
+  readonly addressFormat: "evm" | "stellar" | "solana" | "ckb";
 
   deriveKeys(seed: Uint8Array): Promise<DerivedKeys>;
 
@@ -256,6 +256,67 @@ chainRegistry.register(Chain.Solana, new SolanaConnector({
 
 ---
 
+## CKB Connector
+
+Handles Nervos CKB using secp256k1 and the UTXO-based Cell model. CKB is architecturally unique: there is no separate announcer contract. Cells **are** the announcements — the ephemeral public key and stealth address hash are embedded directly in the Cell's lock script args.
+
+### How Methods Map to SDK Primitives
+
+| Interface Method | Implementation |
+|---|---|
+| `deriveKeys(seed)` | SHA-256 seed -> `privateKeyToAccount` -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress` |
+| `sendPayment` | `decodeStealthMetaAddress` -> `generateStealthAddress` -> create Cell with `stealth-lock` (args = ephemeral_pub \|\| blake160) |
+| `scanPayments` | `get_cells` RPC filtered by stealth-lock code hash -> `scanStealthCells(cells, ...)` -> return matched Cells with balances |
+| `getBalance` | Sum capacity of all matched stealth Cells |
+| `withdraw` | `deriveStealthPrivateKey` -> sign transaction consuming stealth Cell -> create destination Cell |
+| `registerName` | Not implemented initially |
+| `resolveName` | Not implemented initially |
+| `fundWallet` | CKB testnet faucet |
+
+### CKB-Specific Considerations
+
+- **UTXO model:** CKB uses Cells (UTXOs), not accounts. Sending creates a Cell; withdrawing consumes it. There's no balance to query on an address — you query live Cells.
+- **No separate announcer:** The Cell's lock script args contain the ephemeral public key. No event infrastructure needed.
+- **Minimum capacity:** A stealth-lock Cell requires at least 61 CKB due to the 53-byte args field.
+- **blake160:** Address hashing uses blake2b with `"ckb-default-hash"` personalization, truncated to 20 bytes.
+- **SHA-256 for shared secret:** Unlike EVM (keccak256), CKB uses SHA-256 for hashing the ECDH shared secret.
+- **No view tags:** Every Cell is fully checked. The `get_cells` RPC pre-filters by code hash, keeping the scan set small.
+- **No names initially:** `.wraith` name registration requires a Type Script — deferred to a future release.
+
+### Configuration
+
+```typescript
+interface CKBConnectorConfig {
+  rpcUrl: string;
+  explorerUrl: string;
+  contracts: {
+    stealthLockCodeHash: string;
+  };
+  cellDeps: {
+    stealthLock: { txHash: string; index: number };
+  };
+  network: "testnet" | "mainnet";
+}
+```
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+chainRegistry.register(Chain.CKB, new CKBConnector({
+  rpcUrl: "https://testnet.ckbapp.dev",
+  explorerUrl: "https://pudge.explorer.nervos.org",
+  contracts: {
+    stealthLockCodeHash: "0x...",
+  },
+  cellDeps: {
+    stealthLock: { txHash: "0x...", index: 0 },
+  },
+  network: "testnet",
+}));
+```
+
+---
+
 ## Chain Registry
 
 The TEE server maintains a registry of available chain connectors:
@@ -312,12 +373,12 @@ The agent core, AI engine, storage, notifications, and scheduling work automatic
 
 ### Key Differences Between Chain Families
 
-| Aspect | EVM | Stellar | Solana |
-|---|---|---|---|
-| Curve | secp256k1 | ed25519 | ed25519 |
-| Address format | `0x...` (20 bytes) | `G...` (56 chars) | Base58 |
-| Meta-address prefix | `st:eth:0x` | `st:xlm:` | `st:sol:` |
-| Contracts | Solidity | Soroban (Rust) | Solana Programs |
-| Announcements | EVM events / subgraph | Soroban events / Horizon | Program log events |
-| Native asset | ETH | XLM | SOL |
-| Account model | Balance-based | Account must exist first | Balance-based |
+| Aspect | EVM | Stellar | Solana | CKB |
+|---|---|---|---|---|
+| Curve | secp256k1 | ed25519 | ed25519 | secp256k1 |
+| Address format | `0x...` (20 bytes) | `G...` (56 chars) | Base58 | bech32m |
+| Meta-address prefix | `st:eth:0x` | `st:xlm:` | `st:sol:` | `st:ckb:` |
+| Contracts | Solidity | Soroban (Rust) | Solana Programs | RISC-V Lock Script |
+| Announcements | EVM events / subgraph | Soroban events / Horizon | Program log events | **Embedded in Cell args** |
+| Native asset | ETH | XLM | SOL | CKB |
+| Account model | Balance-based | Account must exist first | Balance-based | UTXO (Cell) |
