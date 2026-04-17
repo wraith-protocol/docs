@@ -1,0 +1,407 @@
+---
+title: "Solana Primitives"
+description: "Stealth address crypto for Solana using ed25519"
+---
+
+Low-level stealth address functions for Solana using ed25519. Import from `@wraith-protocol/sdk/chains/solana`.
+
+Most developers should use the [Agent Client](/sdk/agent-client) instead. These primitives are for power users building custom stealth address integrations on Solana.
+
+## Installation
+
+```bash
+npm install @wraith-protocol/sdk
+# Solana Web3.js is an optional peer dependency — install it too
+npm install @solana/web3.js
+```
+
+## Import
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  computeSharedSecret,
+  computeViewTag,
+  checkStealthAddress,
+  scanAnnouncements,
+  deriveStealthPrivateScalar,
+  signSolanaTransaction,
+  signWithScalar,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  seedToScalar,
+  hashToScalar,
+  deriveStealthPubKey,
+  pubKeyToSolanaAddress,
+  bytesToHex,
+  hexToBytes,
+  fetchAnnouncements,
+  getDeployment,
+  DEPLOYMENTS,
+  STEALTH_SIGNING_MESSAGE,
+  SCHEME_ID,
+  META_ADDRESS_PREFIX,
+  L,
+} from "@wraith-protocol/sdk/chains/solana";
+```
+
+## Types
+
+```typescript
+interface StealthKeys {
+  spendingKey: Uint8Array;       // 32-byte seed
+  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
+  viewingKey: Uint8Array;        // 32-byte seed
+  viewingScalar: bigint;         // clamped scalar
+  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
+  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
+}
+
+interface GeneratedStealthAddress {
+  stealthAddress: string;        // base58-encoded Solana address
+  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
+  viewTag: number;               // 0-255
+}
+
+interface Announcement {
+  schemeId: number;
+  stealthAddress: string;        // base58 Solana address
+  caller: string;                // base58 Solana address
+  ephemeralPubKey: string;       // hex-encoded 32 bytes
+  metadata: string;              // hex-encoded, first byte = view tag
+}
+
+interface MatchedAnnouncement extends Announcement {
+  stealthPrivateScalar: bigint;
+  stealthPubKeyBytes: Uint8Array;
+}
+```
+
+## Relationship to Stellar Module
+
+Solana uses the same ed25519 curve as Stellar. The cryptographic algorithms are identical — only the address encoding and transaction format differ.
+
+| Aspect | Stellar | Solana |
+|---|---|---|
+| Curve | ed25519 | ed25519 (same) |
+| ECDH | X25519 | X25519 (same) |
+| Hash to scalar | SHA-256 domain-separated | SHA-256 domain-separated (same) |
+| View tag | `SHA-256("wraith:tag:" \|\| S)[0]` | `SHA-256("wraith:tag:" \|\| S)[0]` (same) |
+| Address format | `G...` (StrKey) | Base58 (32-byte pubkey) |
+| Meta-address prefix | `st:xlm:` | `st:sol:` |
+| Account model | Must `createAccount` first | Send SOL directly, no deployment needed |
+| Min balance | 1 XLM | ~0.00089 SOL (rent exemption) |
+
+## Constants
+
+```typescript
+const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: Solana\nNote: This signature is used for key derivation only and does not authorize any transaction.";
+const SCHEME_ID = 1;
+const META_ADDRESS_PREFIX = "st:sol:";
+const L = 2n**252n + 27742317777372353535851937790883648493n;  // ed25519 group order
+```
+
+---
+
+## Functions
+
+### `deriveStealthKeys(signature)`
+
+Derive spending and viewing key pairs from a 64-byte ed25519 signature.
+
+```typescript
+const signature = await wallet.signMessage(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(signature);
+
+console.log(keys.spendingKey);       // Uint8Array (32-byte seed)
+console.log(keys.spendingScalar);    // bigint (clamped scalar)
+console.log(keys.viewingKey);        // Uint8Array (32-byte seed)
+console.log(keys.viewingScalar);     // bigint (clamped scalar)
+console.log(keys.spendingPubKey);    // Uint8Array (32-byte public key)
+console.log(keys.viewingPubKey);     // Uint8Array (32-byte public key)
+```
+
+**Algorithm:**
+1. `spendingKey = SHA-256("wraith:spending:" || signature)` — 32-byte seed
+2. `viewingKey = SHA-256("wraith:viewing:" || signature)` — 32-byte seed
+3. Each seed is expanded via `seedToScalar()` (SHA-512 + clamping)
+4. Public keys derived via `ed25519.getPublicKey(seed)`
+
+### `seedToScalar(seed)`
+
+Convert a 32-byte ed25519 seed to its clamped scalar.
+
+```typescript
+const scalar = seedToScalar(seed);
+// bigint — the clamped scalar used for point multiplication
+```
+
+### `computeSharedSecret(privateKey, publicKey)`
+
+Compute an ECDH shared secret using X25519 (Montgomery form conversion).
+
+```typescript
+const shared = computeSharedSecret(keys.viewingKey, ephemeralPubKey);
+// Uint8Array (32 bytes)
+```
+
+### `computeViewTag(sharedSecret)`
+
+Compute the view tag from a shared secret.
+
+```typescript
+const tag = computeViewTag(sharedSecret);
+// number (0-255)
+```
+
+### `hashToScalar(sharedSecret)`
+
+Hash a shared secret to a scalar value for stealth address derivation.
+
+```typescript
+const scalar = hashToScalar(sharedSecret);
+// bigint (reduced mod L)
+```
+
+### `generateStealthAddress(spendingPubKey, viewingPubKey, ephemeralSeed?)`
+
+Generate a one-time stealth address for a Solana recipient.
+
+```typescript
+const result = generateStealthAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey
+);
+
+console.log(result.stealthAddress);  // "7xKX..." (base58 Solana address)
+console.log(result.ephemeralPubKey); // Uint8Array (32 bytes)
+console.log(result.viewTag);        // 0-255
+```
+
+**Algorithm:**
+1. Generate random ephemeral ed25519 seed
+2. Compute shared secret via X25519 ECDH
+3. `viewTag = computeViewTag(sharedSecret)`
+4. `hScalar = hashToScalar(sharedSecret)`
+5. `stealthPoint = spendingPubKey + hScalar * G` (ed25519 point addition)
+6. Encode as base58 Solana address via `PublicKey`
+
+### `checkStealthAddress(ephemeralPubKey, viewingKey, spendingPubKey, viewTag)`
+
+Check if an announcement belongs to you.
+
+```typescript
+const result = checkStealthAddress(
+  ephemeralPubKey,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  viewTag
+);
+
+if (result.isMatch) {
+  console.log(result.stealthAddress);     // "7xKX..."
+  console.log(result.hashScalar);         // bigint
+  console.log(result.stealthPubKeyBytes); // Uint8Array
+}
+```
+
+### `scanAnnouncements(announcements, viewingKey, spendingPubKey, spendingScalar)`
+
+Scan announcements and return matches with their private scalars.
+
+```typescript
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+for (const m of matched) {
+  console.log(m.stealthAddress);         // "7xKX..."
+  console.log(m.stealthPrivateScalar);   // bigint
+  console.log(m.stealthPubKeyBytes);     // Uint8Array
+}
+```
+
+The fourth argument is `spendingScalar` (bigint), same as the Stellar module.
+
+### `deriveStealthPrivateScalar(spendingScalar, viewingKey, ephemeralPubKey)`
+
+Derive the private scalar for a specific stealth address.
+
+```typescript
+const scalar = deriveStealthPrivateScalar(
+  keys.spendingScalar,
+  keys.viewingKey,
+  ephemeralPubKey
+);
+// bigint — (spendingScalar + hashScalar) mod L
+```
+
+### `signWithScalar(message, scalar, publicKey)`
+
+Sign a message using a raw scalar instead of a seed.
+
+```typescript
+const signature = signWithScalar(messageBytes, stealthScalar, stealthPubKey);
+// Uint8Array (64-byte ed25519 signature)
+```
+
+### `signSolanaTransaction(txMessageBytes, stealthScalar, stealthPubKey)`
+
+Sign a Solana transaction message with a stealth private scalar.
+
+```typescript
+const sig = signSolanaTransaction(txMessageBytes, stealthScalar, stealthPubKey);
+// Uint8Array (64-byte signature)
+// Add to the transaction before sending
+```
+
+### `encodeStealthMetaAddress(spendingPubKey, viewingPubKey)`
+
+Encode two 32-byte public keys into a Solana stealth meta-address.
+
+```typescript
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+// "st:sol:abc123...def456..."
+```
+
+### `decodeStealthMetaAddress(metaAddress)`
+
+Decode a Solana meta-address back into its component keys.
+
+```typescript
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress("st:sol:abc123...def456...");
+// Both are Uint8Array (32 bytes)
+```
+
+### `pubKeyToSolanaAddress(publicKey)`
+
+Convert a 32-byte ed25519 public key to a base58 Solana address.
+
+```typescript
+const address = pubKeyToSolanaAddress(publicKeyBytes);
+// "7xKXaJoV..."
+```
+
+### `bytesToHex(bytes)` / `hexToBytes(hex)`
+
+Utility functions for converting between `Uint8Array` and hex strings.
+
+```typescript
+const hex = bytesToHex(new Uint8Array([0xab, 0xcd]));
+// "abcd"
+
+const bytes = hexToBytes("abcd");
+// Uint8Array [0xab, 0xcd]
+```
+
+---
+
+## End-to-End Flow
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  scanAnnouncements,
+  deriveStealthPrivateScalar,
+  signSolanaTransaction,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  pubKeyToSolanaAddress,
+  fetchAnnouncements,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/solana";
+import { Connection, Transaction, SystemProgram, PublicKey } from "@solana/web3.js";
+
+// 1. Recipient: derive keys from Solana wallet signature
+const sig = await wallet.signMessage(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+// 2. Recipient: publish stealth meta-address
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+// Share "st:sol:..." or register as a .wraith name
+
+// 3. Sender: generate stealth address from meta-address
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaAddress);
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// stealth.stealthAddress is a base58 Solana address
+
+// 4. Sender: send SOL to stealth address + call announcer program
+
+// 5. Recipient: scan announcements
+const announcements = await fetchAnnouncements("solana");
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+// 6. Recipient: withdraw from stealth address
+for (const m of matched) {
+  const stealthPubKey = new PublicKey(m.stealthPubKeyBytes);
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: stealthPubKey,
+      toPubkey: new PublicKey(destinationAddress),
+      lamports: withdrawAmount,
+    })
+  );
+
+  const messageBytes = tx.serializeMessage();
+  const sig = signSolanaTransaction(messageBytes, m.stealthPrivateScalar, m.stealthPubKeyBytes);
+  tx.addSignature(stealthPubKey, Buffer.from(sig));
+
+  const connection = new Connection("https://api.devnet.solana.com");
+  await connection.sendRawTransaction(tx.serialize());
+}
+```
+
+### Solana-Specific Considerations
+
+- **No account deployment:** Unlike Stellar, Solana doesn't require `createAccount`. An ed25519 public key is a valid address — send SOL directly to it.
+- **Rent exemption:** Accounts need ~0.00089 SOL to be rent-exempt. When withdrawing all, send `balance - txFee` (5000 lamports). The account is garbage collected when balance drops below rent exemption.
+- **SPL tokens:** Token transfers use associated token accounts (ATAs), not direct transfers. The ATA must be created for the stealth address before transferring SPL tokens.
+- **Announcements:** Fetched from program transaction logs via `fetchAnnouncements("solana")`, not a subgraph.
+- **Signing:** Same `signWithScalar()` as Stellar — stealth scalars are derived and can't be used with standard Solana `Keypair`.
+
+## Chain Deployments
+
+The SDK ships with deployed program IDs and RPC URLs for supported Solana networks.
+
+### `getDeployment(chain)`
+
+```typescript
+const deployment = getDeployment("solana");
+// {
+//   cluster: "devnet",
+//   rpcUrl: "https://api.devnet.solana.com",
+//   explorerUrl: "https://explorer.solana.com",
+//   contracts: {
+//     announcer: "...",  // program ID
+//     sender: "...",
+//     names: "...",
+//   },
+// }
+```
+
+### Supported Networks
+
+| Network | Status |
+|---|---|
+| Solana Devnet | Live |
+
+## Fetching Announcements
+
+### `fetchAnnouncements(chain?)`
+
+Fetches all stealth address announcements from the announcer program's transaction history. Parses Anchor event logs automatically.
+
+```typescript
+const announcements = await fetchAnnouncements("solana");
+// Returns Announcement[] — ready to pass to scanAnnouncements()
+```
