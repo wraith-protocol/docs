@@ -1,0 +1,351 @@
+---
+title: "Solana Contracts"
+description: "Anchor program specs and deployment"
+---
+
+Solana programs (smart contracts) for stealth address operations, written in Rust with the Anchor framework.
+
+## Program Set
+
+| Program | Purpose |
+|---|---|
+| wraith-announcer | Emits stealth address announcement events |
+| wraith-sender | Atomic SOL/SPL transfer + announcement |
+| wraith-names | `.wraith` name to meta-address mapping |
+
+---
+
+## wraith-announcer
+
+Emits announcement events via Anchor's `emit!()` macro. Stateless — no on-chain storage.
+
+### Instruction
+
+```rust
+pub fn announce(
+    ctx: Context<Announce>,
+    scheme_id: u32,
+    stealth_address: Pubkey,
+    ephemeral_pub_key: [u8; 32],
+    metadata: Vec<u8>,
+) -> Result<()>
+```
+
+### Accounts
+
+```rust
+#[derive(Accounts)]
+pub struct Announce<'info> {
+    #[account(mut)]
+    pub caller: Signer<'info>,
+}
+```
+
+### Event
+
+```rust
+#[event]
+pub struct AnnouncementEvent {
+    pub scheme_id: u32,
+    pub stealth_address: Pubkey,
+    pub caller: Pubkey,
+    pub ephemeral_pub_key: [u8; 32],
+    pub metadata: Vec<u8>,
+}
+```
+
+### Usage
+
+```typescript
+import { SCHEME_ID } from "@wraith-protocol/sdk/chains/solana";
+import { Program } from "@coral-xyz/anchor";
+
+const program = new Program(idl, programId, provider);
+
+await program.methods
+  .announce(
+    SCHEME_ID,
+    stealthAddressPubkey,
+    Array.from(ephemeralPubKey),
+    Array.from(metadata),
+  )
+  .accounts({ caller: wallet.publicKey })
+  .rpc();
+```
+
+---
+
+## wraith-sender
+
+Atomic SOL or SPL token transfer + announcement in one instruction. Sends funds to the stealth address and emits an announcement event.
+
+### Instructions
+
+#### `send_sol`
+
+Transfer SOL to a stealth address and emit an announcement.
+
+```rust
+pub fn send_sol(
+    ctx: Context<SendSol>,
+    amount: u64,
+    scheme_id: u32,
+    stealth_address: Pubkey,
+    ephemeral_pub_key: [u8; 32],
+    metadata: Vec<u8>,
+) -> Result<()>
+```
+
+**Accounts:**
+
+```rust
+#[derive(Accounts)]
+pub struct SendSol<'info> {
+    #[account(mut)]
+    pub sender: Signer<'info>,
+    /// CHECK: stealth address, receives SOL
+    #[account(mut)]
+    pub stealth_account: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+```
+
+#### `send_spl`
+
+Transfer SPL tokens to a stealth address's associated token account and emit an announcement.
+
+```rust
+pub fn send_spl(
+    ctx: Context<SendSpl>,
+    amount: u64,
+    scheme_id: u32,
+    stealth_address: Pubkey,
+    ephemeral_pub_key: [u8; 32],
+    metadata: Vec<u8>,
+) -> Result<()>
+```
+
+**Accounts:**
+
+```rust
+#[derive(Accounts)]
+pub struct SendSpl<'info> {
+    #[account(mut)]
+    pub sender: Signer<'info>,
+    #[account(mut)]
+    pub sender_token_account: Account<'info, TokenAccount>,
+    #[account(mut)]
+    pub stealth_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+```
+
+### Usage
+
+```typescript
+import { generateStealthAddress, SCHEME_ID } from "@wraith-protocol/sdk/chains/solana";
+import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+const metadata = [stealth.viewTag]; // first byte is view tag
+
+// Send SOL + announce atomically
+await program.methods
+  .sendSol(
+    new BN(0.1 * LAMPORTS_PER_SOL),
+    SCHEME_ID,
+    new PublicKey(stealth.stealthAddress),
+    Array.from(stealth.ephemeralPubKey),
+    metadata,
+  )
+  .accounts({
+    sender: wallet.publicKey,
+    stealthAccount: new PublicKey(stealth.stealthAddress),
+    systemProgram: SystemProgram.programId,
+  })
+  .rpc();
+```
+
+---
+
+## wraith-names
+
+PDA-based name to meta-address mapping. Names are stored in Program Derived Addresses (PDAs) seeded by `["name", nameBytes]`.
+
+### Instructions
+
+#### `register`
+
+Register a new `.wraith` name.
+
+```rust
+pub fn register(
+    ctx: Context<Register>,
+    name: String,
+    meta_address: [u8; 64],
+) -> Result<()>
+```
+
+#### `update`
+
+Update the meta-address for a name you own.
+
+```rust
+pub fn update(
+    ctx: Context<Update>,
+    new_meta_address: [u8; 64],
+) -> Result<()>
+```
+
+#### `release`
+
+Release a name. Closes the PDA account and returns rent to the owner.
+
+```rust
+pub fn release(ctx: Context<Release>) -> Result<()>
+```
+
+#### `resolve`
+
+Look up a name's meta-address. Read-only.
+
+```rust
+pub fn resolve(ctx: Context<Resolve>) -> Result<[u8; 64]>
+```
+
+### Account Structure
+
+```rust
+#[account]
+pub struct NameRecord {
+    pub name: String,               // max 32 bytes
+    pub meta_address: [u8; 64],     // spending pub + viewing pub
+    pub owner: Pubkey,
+    pub created_at: i64,
+}
+```
+
+### PDA Derivation
+
+Name records are stored at PDAs derived from the name:
+
+```rust
+seeds = [b"name", name.as_bytes()]
+```
+
+This means names are globally unique and can be resolved without knowing the owner.
+
+### Validation
+
+- Name: 3-32 characters, lowercase alphanumeric and hyphens only
+- Meta-address: must be exactly 64 bytes (two 32-byte ed25519 public keys)
+- Only the owner can update or release a name
+
+### Error Codes
+
+```rust
+#[error_code]
+pub enum WraithError {
+    #[msg("Name must be 3-32 characters")]
+    InvalidNameLength,
+    #[msg("Name must be lowercase alphanumeric or hyphens")]
+    InvalidNameCharacter,
+    #[msg("Only the owner can modify this name")]
+    NotOwner,
+}
+```
+
+### Usage
+
+```typescript
+import { encodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/solana";
+import { PublicKey } from "@solana/web3.js";
+
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+
+// Derive PDA for the name
+const [nameRecordPda] = PublicKey.findProgramAddressSync(
+  [Buffer.from("name"), Buffer.from("alice")],
+  programId,
+);
+
+// Register
+await program.methods
+  .register("alice", Array.from(metaAddressBytes))
+  .accounts({
+    nameRecord: nameRecordPda,
+    owner: wallet.publicKey,
+    systemProgram: SystemProgram.programId,
+  })
+  .rpc();
+
+// Resolve
+const record = await program.account.nameRecord.fetch(nameRecordPda);
+console.log(record.metaAddress); // [u8; 64]
+```
+
+---
+
+## Project Structure
+
+```
+contracts/
+  solana/
+    Anchor.toml
+    Cargo.toml
+    programs/
+      wraith-announcer/
+        Cargo.toml
+        src/lib.rs
+      wraith-sender/
+        Cargo.toml
+        src/lib.rs
+      wraith-names/
+        Cargo.toml
+        src/lib.rs
+    tests/
+      wraith-announcer.ts
+      wraith-sender.ts
+      wraith-names.ts
+```
+
+## Deployment
+
+### Build
+
+```bash
+anchor build
+```
+
+### Deploy to Devnet
+
+```bash
+anchor deploy --provider.cluster devnet
+```
+
+### Test
+
+```bash
+anchor test
+```
+
+Tests cover:
+- **wraith-announcer** — event emission, multiple callers, metadata preservation
+- **wraith-sender** — `send_sol` transfers + emits, `send_spl` token transfer + emits, insufficient funds rejection
+- **wraith-names** — register/resolve, name validation (too short, invalid chars), update by owner, update by non-owner (rejected), release and re-register
+
+---
+
+## Differences from EVM and Stellar Contracts
+
+| Aspect | EVM (Solidity) | Stellar (Soroban) | Solana (Anchor) |
+|---|---|---|---|
+| Language | Solidity | Rust | Rust (Anchor) |
+| Contract model | Bytecode deployment | WASM deployment | BPF program deployment |
+| Name storage | Contract storage | Contract storage | PDAs (Program Derived Addresses) |
+| Name sig verification | On-chain ECDSA recovery | Caller auth | Signer constraint |
+| Event indexing | Subgraph / The Graph | Soroban RPC `getEvents` | Program transaction logs |
+| Account model | Address always exists | Must `createAccount` first | Address always valid, no deployment |
+| Token transfers | `msg.value` / `safeTransferFrom` | Soroban token contract | SystemProgram / SPL Token |
+| Gas sponsorship | EIP-7702 (WraithWithdrawer) | Not applicable | Fee payer pattern |
+| Min balance | None | 1 XLM | ~0.00089 SOL (rent exemption) |
