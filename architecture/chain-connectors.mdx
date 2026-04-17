@@ -199,6 +199,63 @@ const connector = new StellarConnector({
 
 ---
 
+## Solana Connector
+
+Handles Solana using ed25519 and Anchor programs.
+
+### How Methods Map to SDK Primitives
+
+| Interface Method | Implementation |
+|---|---|
+| `deriveKeys(seed)` | SHA-256 seed -> ed25519 seed -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress` |
+| `sendPayment` | `decodeStealthMetaAddress` -> `generateStealthAddress` -> Anchor instruction `wraith_sender.send_sol` (transfer + announce atomically) |
+| `scanPayments` | Fetch announcer program transaction logs -> parse Anchor events -> `scanAnnouncements(events, ...)` -> fetch balances |
+| `getBalance` | `connection.getBalance(address)` for SOL, `connection.getTokenAccountsByOwner()` for SPL tokens |
+| `withdraw` | `deriveStealthPrivateScalar` -> `signWithScalar` to sign `SystemProgram.transfer` -> `sendRawTransaction` |
+| `registerName` | Anchor instruction `wraith_names.register` with name + 64-byte meta-address |
+| `resolveName` | Derive PDA from `["name", nameBytes]` -> fetch and decode `NameRecord` account |
+| `fundWallet` | `connection.requestAirdrop(address, lamports)` (devnet) |
+
+### Solana-Specific Considerations
+
+- **No account deployment:** An ed25519 public key is a valid Solana address. Send SOL directly — no `createAccount` needed.
+- **Rent exemption:** Accounts need ~0.00089 SOL minimum. When withdrawing all, send `balance - 5000 lamports` (tx fee).
+- **SPL tokens:** Use associated token accounts (ATAs). The ATA must be created for the stealth address before transferring SPL tokens.
+- **Signing:** Uses `signWithScalar()` from the SDK — stealth scalars can't be used with standard `Keypair`.
+- **Events:** Anchor `emit!()` writes to program logs. Parse via transaction history, not subgraph.
+
+### Configuration
+
+```typescript
+interface SolanaConnectorConfig {
+  rpcUrl: string;
+  explorerUrl: string;
+  contracts: {
+    announcer: string;  // program ID (base58)
+    sender: string;
+    names: string;
+  };
+  cluster: "devnet" | "testnet" | "mainnet-beta";
+}
+```
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+chainRegistry.register(Chain.Solana, new SolanaConnector({
+  rpcUrl: "https://api.devnet.solana.com",
+  explorerUrl: "https://explorer.solana.com",
+  contracts: {
+    announcer: "...",  // deployed program ID
+    sender: "...",
+    names: "...",
+  },
+  cluster: "devnet",
+}));
+```
+
+---
+
 ## Chain Registry
 
 The TEE server maintains a registry of available chain connectors:
