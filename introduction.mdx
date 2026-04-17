@@ -3,7 +3,7 @@ title: "Introduction"
 description: "Multichain stealth address platform for private payments"
 ---
 
-Wraith is a multichain stealth address platform. Send and receive private payments across EVM chains and Stellar through a single SDK. An AI agent handles chain-specific crypto, key management, and privacy analysis inside Trusted Execution Environment hardware.
+Wraith is a multichain stealth address platform. Send and receive private payments across EVM chains, Stellar, and Solana through a single SDK. An AI agent handles chain-specific crypto, key management, and privacy analysis inside Trusted Execution Environment hardware.
 
 ## How It Works
 
@@ -58,7 +58,7 @@ const response = await agent.chat("scan for incoming payments");
 | Polygon | EVM | Planned | MATIC |
 | Base | EVM | Planned | ETH |
 | Stellar | Stellar | Live | XLM |
-| Solana | Solana | Planned | SOL |
+| Solana | Solana | Live | SOL |
 
 Adding a new EVM chain requires only configuration (RPC URL + contract addresses). Adding a new chain family requires implementing the `ChainConnector` interface.
 
@@ -81,7 +81,8 @@ Adding a new EVM chain requires only configuration (RPC URL + contract addresses
 - [SDK Overview](sdk/overview) — package structure, entry points, `Chain` enum
 - [Agent Client](sdk/agent-client) — `Wraith` and `WraithAgent` class API
 - [EVM Crypto Primitives](sdk/chains/evm) — low-level secp256k1 stealth address functions
-- [Stellar Crypto Primitives](sdk/chains/stellar) — low-level ed25519 stealth address functions
+- [Stellar Crypto Primitives](sdk/chains/stellar) — low-level ed25519 stealth address functions for Stellar
+- [Solana Crypto Primitives](sdk/chains/solana) — low-level ed25519 stealth address functions for Solana
 
 ### Architecture
 
@@ -101,6 +102,7 @@ Adding a new EVM chain requires only configuration (RPC URL + contract addresses
 
 - [EVM Contracts](contracts/evm) — Solidity contract specs and deployment
 - [Stellar Contracts](contracts/stellar) — Soroban contract specs and deployment
+- [Solana Contracts](contracts/solana) — Anchor program specs and deployment
 
 ### API Reference
 
