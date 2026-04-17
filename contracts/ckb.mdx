@@ -1,0 +1,254 @@
+---
+title: "CKB Contracts"
+description: "Lock script specs and the Cell model for stealth addresses on Nervos CKB"
+---
+
+CKB scripts (smart contracts) for stealth address operations on the Nervos CKB network. Written in Rust and compiled to RISC-V binaries that run on CKB-VM.
+
+## The Cell Model — Why CKB Is Different
+
+CKB uses a UTXO-based **Cell model**, not accounts. Every piece of on-chain state is a Cell:
+
+```
+Cell {
+  capacity: 200_00000000,        // 200 CKB (in shannons)
+  lock: {                        // who can spend this Cell
+    code_hash: "0xabc...",       // hash of the lock script code
+    hash_type: "data2",
+    args: "0x...",               // arguments passed to the lock script
+  },
+  type: null,                    // optional type script
+  data: "0x",                    // arbitrary data
+}
+```
+
+### No Separate Announcer
+
+On EVM chains, stealth payments require two operations: transfer funds and emit an announcement event. On CKB, **the Cell itself is the announcement**. The lock script args contain both the ephemeral public key and the stealth address hash:
+
+```
+lock.args = ephemeral_pubkey (33 bytes) || blake160(stealth_pubkey) (20 bytes)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+             announcement data             stealth address identifier
+```
+
+This 53-byte args field serves as both the lock condition and the announcement. No separate contract call, no event indexing infrastructure — just create a Cell and the recipient can find it.
+
+### Scanning = Querying Cells
+
+CKB has a built-in indexer with an RPC method `get_cells` that filters by lock script code hash. To scan for incoming payments, query all live Cells using the stealth-lock code hash. Each Cell's args contains the ephemeral key needed for the ECDH check.
+
+### Spending = Consuming Cells
+
+To withdraw funds, build a transaction that:
+1. **Inputs:** The stealth Cell being consumed
+2. **Outputs:** A new Cell at the destination address
+3. **Witness:** secp256k1 signature with the stealth private key
+
+The stealth lock script verifies the signature against the pubkey hash in the args.
+
+---
+
+## Script Set
+
+| Script | Type | Purpose |
+|---|---|---|
+| wraith-stealth-lock | Lock Script | Verifies secp256k1 signatures for stealth Cells |
+| wraith-names-type | Type Script | `.wraith` name registration (future) |
+
+Only `wraith-stealth-lock` is required for stealth payments. Names are a secondary priority.
+
+---
+
+## wraith-stealth-lock
+
+A lock script that verifies secp256k1 signatures against the stealth public key hash embedded in the script args.
+
+### Args Format
+
+53 bytes total:
+
+```
+[0:33]  — ephemeral_pubkey    (33-byte compressed secp256k1 public key)
+[33:53] — blake160(stealth_pub)  (20-byte blake2b hash of stealth public key)
+```
+
+### Verification Flow
+
+```rust
+fn program_entry() -> i8 {
+    let script = load_script();
+    let args = script.args().raw_data();
+
+    // 1. Args must be exactly 53 bytes
+    if args.len() != 53 {
+        return ERROR_ARGS_LENGTH;
+    }
+
+    // 2. Extract the stealth pubkey hash
+    let pubkey_hash = &args[33..53]; // blake160 of stealth pubkey
+
+    // 3. Load signature from witness (65 bytes: r || s || v)
+    let witness_args = load_witness_args(0, Source::GroupInput);
+    let signature = witness_args.lock();
+
+    // 4. Load transaction hash as the message to verify
+    let tx_hash = load_tx_hash();
+
+    // 5. Recover public key from signature
+    // 6. Compute blake160(recovered_pubkey)
+    // 7. Compare with pubkey_hash from args
+    verify_secp256k1(tx_hash, signature, pubkey_hash)
+}
+```
+
+The script uses `ckb-std` crypto syscalls or `ckb-auth` for secp256k1 signature recovery and verification.
+
+### blake160
+
+CKB's standard address hashing:
+
+```rust
+fn blake160(data: &[u8]) -> [u8; 20] {
+    let hash = blake2b_256_with_personalization(data, b"ckb-default-hash");
+    hash[0..20]
+}
+```
+
+The `"ckb-default-hash"` personalization is required. Without it, hashes won't match CKB's standard address format.
+
+### How It Differs from Standard CKB Locks
+
+CKB's default lock script (`secp256k1-blake160-sighash-all`) uses 20-byte blake160 args containing the owner's pubkey hash. The stealth lock extends this to 53 bytes by prepending the ephemeral public key. The verification logic is the same — recover the public key from the signature and check the blake160 hash.
+
+### Usage
+
+```typescript
+import { generateStealthAddress, getDeployment } from "@wraith-protocol/sdk/chains/ckb";
+
+const deployment = getDeployment("ckb");
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// Create a Cell with stealth-lock
+const output = {
+  capacity: "0x" + (200_00000000n).toString(16), // 200 CKB
+  lock: {
+    codeHash: deployment.contracts.stealthLockCodeHash,
+    hashType: "data2",
+    args: stealth.lockArgs, // 53 bytes: ephemeral_pub || blake160(stealth_pub)
+  },
+};
+```
+
+---
+
+## wraith-names-type (future)
+
+A Type Script for `.wraith` name registration on CKB. Each name is a Cell with:
+
+| Field | Content |
+|---|---|
+| `data` | 66 bytes of meta-address (spending_pub + viewing_pub) |
+| `type.args` | blake2b hash of the name string |
+| `lock` | Owner's lock script |
+
+The Type Script validates:
+- Name is 3-32 characters, lowercase alphanumeric and hyphens
+- No duplicate names (no other live Cell has the same type args)
+- Updates require the current owner's signature
+
+This is not implemented for the initial CKB launch. Names registered on other chains resolve cross-chain via the agent.
+
+---
+
+## Project Structure
+
+```
+contracts/
+  ckb/
+    Cargo.toml
+    contracts/
+      wraith-stealth-lock/
+        Cargo.toml
+        src/main.rs
+      wraith-names-type/          # future
+        Cargo.toml
+        src/main.rs
+    tests/
+      src/tests.rs
+```
+
+## Deployment
+
+### Build
+
+Compile to RISC-V binary:
+
+```bash
+cargo build --target riscv64imac-unknown-none-elf --release
+```
+
+### Deploy
+
+Deploy the compiled binary as a Cell on CKB testnet. The Cell's data hash becomes the `code_hash` used in stealth lock scripts.
+
+```bash
+# Deploy using ckb-cli or a deployment script
+ckb-cli deploy gen-txs \
+  --deployment-config deployment.toml \
+  --migration-dir migrations
+```
+
+### Record Deployment Info
+
+After deployment, record:
+- **Code hash:** The blake2b hash of the deployed binary (used as `lock.code_hash` in stealth Cells)
+- **Cell dep:** The transaction hash and index where the script binary Cell lives (required in every transaction that uses the lock)
+
+Update the SDK's `deployments.ts`:
+
+```typescript
+export const DEPLOYMENTS = {
+  ckb: {
+    network: "testnet",
+    rpcUrl: "https://testnet.ckbapp.dev",
+    explorerUrl: "https://pudge.explorer.nervos.org",
+    contracts: {
+      stealthLockCodeHash: "0x...", // filled after deployment
+    },
+    cellDeps: {
+      stealthLock: {
+        txHash: "0x...",  // filled after deployment
+        index: 0,
+      },
+    },
+  },
+};
+```
+
+### Testing
+
+Tests use CKB's native testing framework with `ckb-testtool`:
+
+- **Args validation** — rejects args that aren't exactly 53 bytes
+- **Signature verification** — valid stealth key signature passes
+- **Wrong key rejection** — signature from a different key fails
+- **blake160 correctness** — hash matches CKB's standard implementation
+
+---
+
+## Differences from Other Chains
+
+| Aspect | EVM (Solidity) | Stellar (Soroban) | Solana (Anchor) | CKB |
+|---|---|---|---|---|
+| Model | Account | Account | Account | UTXO (Cell) |
+| Language | Solidity | Rust | Rust (Anchor) | Rust (RISC-V) |
+| Announcement | Separate event | Separate event | Separate event | **Embedded in Cell** |
+| Scanning source | Subgraph | Soroban RPC | Program logs | `get_cells` RPC |
+| Script count | 4 contracts | 4 contracts | 3 programs | **1 lock script** |
+| Address hash | keccak256 | N/A | N/A | blake2b ("ckb-default-hash") |
+| Shared secret hash | keccak256 | SHA-256 | SHA-256 | SHA-256 |
+| Min balance | None | 1 XLM | ~0.00089 SOL | 61 CKB |
+| Names | On-chain contract | On-chain contract | On-chain program | Future (Type Script) |
+
+The key architectural difference: CKB needs only **one script** (the stealth lock) to support stealth payments. Other chains need separate contracts for announcing, sending, and name registration. CKB's Cell model makes announcements implicit — the Cell's existence and its lock args are the announcement.
