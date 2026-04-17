@@ -1,8 +1,8 @@
-<svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg">
-  <rect width="720" height="300" fill="transparent" />
+<svg viewBox="0 0 720 340" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="340" fill="transparent" />
 
   <!-- Outer TEE box -->
-  <rect x="20" y="10" width="680" height="280" fill="none" stroke="#22c55e" stroke-width="1.5" />
+  <rect x="20" y="10" width="680" height="320" fill="none" stroke="#22c55e" stroke-width="1.5" />
   <text x="360" y="36" text-anchor="middle" fill="#22c55e" font-family="Space Grotesk, sans-serif" font-weight="700" font-size="14">SPECTRE TEE SERVER</text>
 
   <!-- Core section label -->
@@ -26,21 +26,29 @@
   <!-- Connector section label -->
   <text x="50" y="146" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="0.05em">CHAIN CONNECTORS</text>
 
-  <rect x="40" y="156" width="200" height="48" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
-  <text x="140" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">EVMConnector</text>
-  <text x="140" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Horizen · Ethereum · Polygon · Base</text>
+  <rect x="40" y="156" width="155" height="48" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="117" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">EVMConnector</text>
+  <text x="117" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Horizen · Ethereum · Polygon · Base</text>
 
-  <rect x="250" y="156" width="200" height="48" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
-  <text x="350" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">StellarConnector</text>
-  <text x="350" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Stellar Testnet · Mainnet</text>
+  <rect x="205" y="156" width="155" height="48" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="282" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">StellarConnector</text>
+  <text x="282" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Stellar Testnet · Mainnet</text>
 
-  <rect x="460" y="156" width="200" height="48" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
-  <text x="560" y="177" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="12">Future Connectors</text>
-  <text x="560" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Solana · Starknet · Sui · ...</text>
+  <rect x="370" y="156" width="155" height="48" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="447" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">SolanaConnector</text>
+  <text x="447" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Solana Devnet</text>
+
+  <rect x="535" y="156" width="155" height="48" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="612" y="177" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">CKBConnector</text>
+  <text x="612" y="195" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">CKB Testnet (Pudge)</text>
+
+  <!-- Future connectors row -->
+  <rect x="40" y="214" width="650" height="32" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+  <text x="365" y="235" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">Future: Starknet · Sui · Aptos · TON · ...</text>
 
   <!-- Key derivation section -->
-  <text x="50" y="236" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="0.05em">TEE KEY DERIVATION</text>
+  <text x="50" y="276" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="0.05em">TEE KEY DERIVATION</text>
 
-  <rect x="40" y="246" width="650" height="32" fill="#141414" stroke="#22c55e" stroke-width="1" />
-  <text x="365" y="267" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="12">DStack → wraith/agent/{agentId}/{chain}</text>
+  <rect x="40" y="286" width="650" height="32" fill="#141414" stroke="#22c55e" stroke-width="1" />
+  <text x="365" y="307" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="12">DStack → wraith/agent/{agentId}/{chain}</text>
 </svg>
