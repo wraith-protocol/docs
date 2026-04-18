@@ -54,9 +54,9 @@ The stealth lock script verifies the signature against the pubkey hash in the ar
 | Script | Type | Purpose |
 |---|---|---|
 | wraith-stealth-lock | Lock Script | Verifies secp256k1 signatures for stealth Cells |
-| wraith-names-type | Type Script | `.wraith` name registration (future) |
+| wraith-names-type | Type Script | `.wraith` name registration and resolution |
 
-Only `wraith-stealth-lock` is required for stealth payments. Names are a secondary priority.
+`wraith-stealth-lock` handles stealth payments. `wraith-names-type` handles `.wraith` name registration.
 
 ---
 
@@ -142,22 +142,153 @@ const output = {
 
 ---
 
-## wraith-names-type (future)
+## wraith-names-type
 
-A Type Script for `.wraith` name registration on CKB. Each name is a Cell with:
+A Type Script for `.wraith` name registration on CKB. Each name is stored as a live Cell. The type script validates creation, update, and destruction of name Cells.
+
+### Deployed Code Hash
+
+```
+0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d
+```
+
+### Cell Dep
+
+```
+tx: 0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8
+index: 0
+```
+
+### Cell Layout
+
+A `.wraith` name Cell has three meaningful fields:
 
 | Field | Content |
 |---|---|
-| `data` | 66 bytes of meta-address (spending_pub + viewing_pub) |
-| `type.args` | blake2b hash of the name string |
-| `lock` | Owner's lock script |
+| `type.args` | 32-byte blake2b hash of the name string (personalization: `"ckb-default-hash"`) |
+| `data` | 66 bytes: `spendingPubKey (33 bytes) \|\| viewingPubKey (33 bytes)` |
+| `lock` | Owner's lock script — whoever can spend this Cell owns the name |
 
-The Type Script validates:
-- Name is 3-32 characters, lowercase alphanumeric and hyphens
-- No duplicate names (no other live Cell has the same type args)
-- Updates require the current owner's signature
+The type script `args` uniquely identify the name. Two Cells cannot have the same type script (same code hash + same args) because the type script enforces uniqueness at creation time.
 
-This is not implemented for the initial CKB launch. Names registered on other chains resolve cross-chain via the agent.
+### How It Works
+
+The type script runs on every transaction that creates, updates, or destroys a name Cell. It inspects the transaction's inputs and outputs to determine the operation:
+
+- **Create:** The type script appears in an output but not in any input. A new name is being registered.
+- **Update:** The type script appears in both an input and an output. The name's data is being changed.
+- **Destroy:** The type script appears in an input but not in any output. The name is being released.
+
+### Validation Rules
+
+**Data must be exactly 66 bytes.** The data field holds two 33-byte compressed secp256k1 public keys (spending + viewing). The type script rejects any Cell with data that is not exactly 66 bytes. This applies to both creation and update.
+
+**Create:** When a new name Cell is created, the type script verifies:
+1. No existing live Cell has the same type script (same code hash and args). CKB enforces this natively — two live Cells cannot share the same type script.
+2. The output data is exactly 66 bytes.
+
+**Update:** When a name Cell is consumed and recreated in the same transaction:
+1. The new output data must be exactly 66 bytes.
+2. The lock script on the input Cell must be satisfied (the owner authorized the transaction).
+
+**Destroy:** When a name Cell is consumed without being recreated:
+1. The lock script on the input Cell must be satisfied (the owner authorized the destruction).
+2. No further validation — the name is released and can be re-registered.
+
+### Ownership Model
+
+On EVM and Solana, name ownership is proven by a signature from the spending key embedded in the meta-address. The contract verifies this signature on every register/update/release call.
+
+On CKB, ownership is proven by the Cell's **lock script**. The lock script determines who can spend (consume) the Cell. This is more flexible:
+
+- A standard secp256k1 lock means a single key controls the name.
+- A multisig lock means multiple parties must agree to update or transfer the name.
+- Any custom lock script can control a name.
+
+To **transfer** a name, consume the name Cell and create a new one with the same type script but a different lock script. The new lock script's owner now controls the name.
+
+### Verification Flow
+
+```rust
+fn program_entry() -> i8 {
+    let script = load_script();
+
+    let mut has_input = false;
+    let mut has_output = false;
+
+    // Check inputs for Cells with this type script
+    for i in 0.. {
+        match load_cell_type(i, Source::GroupInput) {
+            Ok(Some(t)) if t.as_slice() == script.as_slice() => {
+                has_input = true;
+                break;
+            }
+            Err(SysError::IndexOutOfBound) => break,
+            _ => continue,
+        }
+    }
+
+    // Check outputs for Cells with this type script
+    for i in 0.. {
+        match load_cell_type(i, Source::GroupOutput) {
+            Ok(Some(t)) if t.as_slice() == script.as_slice() => {
+                has_output = true;
+                // Validate data is exactly 66 bytes
+                let data = load_cell_data(i, Source::GroupOutput);
+                if data.len() != 66 {
+                    return ERROR_DATA_LENGTH;
+                }
+                break;
+            }
+            Err(SysError::IndexOutOfBound) => break,
+            _ => continue,
+        }
+    }
+
+    // Create: output exists, no input -> OK (CKB prevents duplicate type scripts)
+    // Update: both exist -> OK (lock script on input already verified)
+    // Destroy: input exists, no output -> OK (lock script on input already verified)
+    0
+}
+```
+
+### Usage
+
+```typescript
+import {
+  hashName,
+  buildRegisterName,
+  buildResolveName,
+  metaAddressFromNameData,
+  getDeployment,
+} from "@wraith-protocol/sdk/chains/ckb";
+
+const deployment = getDeployment("ckb");
+
+// Register a name
+const { typeScript, data } = buildRegisterName({
+  name: "alice",
+  spendingPubKey: keys.spendingPubKey,
+  viewingPubKey: keys.viewingPubKey,
+});
+
+const output = {
+  capacity: "0x" + (130_00000000n).toString(16),
+  lock: walletLockScript,
+  type: {
+    codeHash: typeScript.codeHash,
+    hashType: typeScript.hashType,
+    args: typeScript.args,
+  },
+};
+// Cell dep: { txHash: "0x9acd640d...", index: 0, depType: "code" }
+// Output data: data (66 bytes)
+
+// Resolve a name
+const { typeScript: resolveType } = buildResolveName({ name: "alice" });
+// Query get_cells with script_type: "type" and the resolveType script
+// Parse the Cell's output_data with metaAddressFromNameData()
+```
 
 ---
 
@@ -171,7 +302,7 @@ contracts/
       wraith-stealth-lock/
         Cargo.toml
         src/main.rs
-      wraith-names-type/          # future
+      wraith-names-type/
         Cargo.toml
         src/main.rs
     tests/
@@ -214,11 +345,16 @@ export const DEPLOYMENTS = {
     rpcUrl: "https://testnet.ckbapp.dev",
     explorerUrl: "https://pudge.explorer.nervos.org",
     contracts: {
-      stealthLockCodeHash: "0x...", // filled after deployment
+      stealthLockCodeHash: "0x...",
+      namesTypeCodeHash: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
     },
     cellDeps: {
       stealthLock: {
-        txHash: "0x...",  // filled after deployment
+        txHash: "0x...",
+        index: 0,
+      },
+      namesType: {
+        txHash: "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8",
         index: 0,
       },
     },
@@ -230,10 +366,19 @@ export const DEPLOYMENTS = {
 
 Tests use CKB's native testing framework with `ckb-testtool`:
 
+**wraith-stealth-lock:**
 - **Args validation** — rejects args that aren't exactly 53 bytes
 - **Signature verification** — valid stealth key signature passes
 - **Wrong key rejection** — signature from a different key fails
 - **blake160 correctness** — hash matches CKB's standard implementation
+
+**wraith-names-type:**
+- **Data validation** — rejects data that isn't exactly 66 bytes
+- **Create** — allows creating a name Cell with valid 66-byte data
+- **Update** — allows updating data when the owner's lock is satisfied
+- **Destroy** — allows destroying a name Cell when the owner's lock is satisfied
+- **Invalid data on create** — rejects Cell creation with wrong data length
+- **Invalid data on update** — rejects Cell update with wrong data length
 
 ---
 
@@ -245,10 +390,10 @@ Tests use CKB's native testing framework with `ckb-testtool`:
 | Language | Solidity | Rust | Rust (Anchor) | Rust (RISC-V) |
 | Announcement | Separate event | Separate event | Separate event | **Embedded in Cell** |
 | Scanning source | Subgraph | Soroban RPC | Program logs | `get_cells` RPC |
-| Script count | 4 contracts | 4 contracts | 3 programs | **1 lock script** |
+| Script count | 4 contracts | 4 contracts | 3 programs | **2 scripts** (lock + type) |
 | Address hash | keccak256 | N/A | N/A | blake2b ("ckb-default-hash") |
 | Shared secret hash | keccak256 | SHA-256 | SHA-256 | SHA-256 |
 | Min balance | None | 1 XLM | ~0.00089 SOL | 61 CKB |
-| Names | On-chain contract | On-chain contract | On-chain program | Future (Type Script) |
+| Names | On-chain contract | On-chain contract | On-chain program | Type Script (Cell-based) |
 
-The key architectural difference: CKB needs only **one script** (the stealth lock) to support stealth payments. Other chains need separate contracts for announcing, sending, and name registration. CKB's Cell model makes announcements implicit — the Cell's existence and its lock args are the announcement.
+The key architectural difference: CKB needs only **two scripts** to support stealth payments and names. The stealth lock handles payments (announcements are implicit in the Cell), and the names type script handles `.wraith` name registration. Other chains need 3-4 separate contracts for the same functionality.
