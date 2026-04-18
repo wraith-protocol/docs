@@ -61,6 +61,10 @@ import {
   decodeStealthMetaAddress,
   blake160,
   fetchStealthCells,
+  hashName,
+  buildRegisterName,
+  buildResolveName,
+  metaAddressFromNameData,
   getDeployment,
   DEPLOYMENTS,
   STEALTH_SIGNING_MESSAGE,
@@ -291,7 +295,7 @@ const keys = deriveStealthKeys(sig as HexString);
 
 // 2. Recipient: publish stealth meta-address
 const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
-// Share "st:ckb:..." or register as a .wraith name
+// Share "st:ckb:..." or register as a .wraith name via buildRegisterName()
 
 // 3. Sender: generate stealth address from meta-address
 const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaAddress);
@@ -321,13 +325,200 @@ for (const m of matched) {
 }
 ```
 
+---
+
+## Names
+
+`.wraith` name registration on CKB uses the Cell model. Each name is a live Cell whose type script identifies the name and whose data holds the stealth meta-address. Ownership is proven by the Cell's lock script — whoever can spend the Cell owns the name. This is fundamentally different from EVM and Solana, where ownership is proven by a signature from the spending key.
+
+### `hashName(name)`
+
+Compute the blake2b hash of a name string. The result is used as the type script `args` to identify the name Cell.
+
+```typescript
+const nameHash = hashName("alice");
+// "0x..." (32-byte blake2b hash with "ckb-default-hash" personalization)
+```
+
+### `buildRegisterName({ name, spendingPubKey, viewingPubKey })`
+
+Build the type script and Cell data for creating a `.wraith` name Cell. Returns the type script object and the 66-byte data payload.
+
+```typescript
+import {
+  buildRegisterName,
+  deriveStealthKeys,
+  getDeployment,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/ckb";
+import type { HexString } from "@wraith-protocol/sdk/chains/ckb";
+
+const sig = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
+const keys = deriveStealthKeys(sig as HexString);
+const deployment = getDeployment("ckb");
+
+const { typeScript, data } = buildRegisterName({
+  name: "alice",
+  spendingPubKey: keys.spendingPubKey,
+  viewingPubKey: keys.viewingPubKey,
+});
+
+// Create a Cell with:
+//   lock: your wallet's lock script (you are the owner)
+//   type: typeScript (wraith-names-type with args = blake2b("alice"))
+//   data: 66 bytes (spending_pub || viewing_pub)
+//   capacity: enough to cover the Cell size (minimum ~130 CKB)
+```
+
+The type script returned uses the `wraith-names-type` code hash from the deployment config. The `args` field is `hashName(name)`.
+
+### `buildResolveName({ name })`
+
+Build the type script for querying a name Cell. Use this with the CKB `get_cells` RPC to find the Cell that holds a name's meta-address.
+
+```typescript
+import { buildResolveName, metaAddressFromNameData } from "@wraith-protocol/sdk/chains/ckb";
+
+const { typeScript } = buildResolveName({ name: "alice" });
+
+// Query CKB for live Cells with this type script
+const result = await fetch(rpcUrl, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    id: 0,
+    jsonrpc: "2.0",
+    method: "get_cells",
+    params: [{
+      script: {
+        code_hash: typeScript.codeHash,
+        hash_type: typeScript.hashType,
+        args: typeScript.args,
+      },
+      script_type: "type",
+    }, "asc", "0x1"],
+  }),
+});
+
+const data = await result.json();
+const cell = data.result?.objects?.[0];
+
+if (cell) {
+  const metaAddress = metaAddressFromNameData(cell.output_data);
+  // { spendingPubKey: "0x02...", viewingPubKey: "0x03..." }
+}
+```
+
+### `metaAddressFromNameData(data)`
+
+Parse the 66-byte Cell data from a name Cell into its component public keys.
+
+```typescript
+const { spendingPubKey, viewingPubKey } = metaAddressFromNameData(cellData);
+// spendingPubKey: "0x02..." (33-byte compressed secp256k1)
+// viewingPubKey: "0x03..." (33-byte compressed secp256k1)
+```
+
+The data format is `spendingPubKey (33 bytes) || viewingPubKey (33 bytes)` = 66 bytes total.
+
+### Registering a Name
+
+```typescript
+import {
+  deriveStealthKeys,
+  buildRegisterName,
+  getDeployment,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/ckb";
+import type { HexString } from "@wraith-protocol/sdk/chains/ckb";
+
+const sig = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
+const keys = deriveStealthKeys(sig as HexString);
+const deployment = getDeployment("ckb");
+
+const { typeScript, data } = buildRegisterName({
+  name: "alice",
+  spendingPubKey: keys.spendingPubKey,
+  viewingPubKey: keys.viewingPubKey,
+});
+
+// Build a CKB transaction:
+//   Output: {
+//     capacity: "0x" + (130_00000000n).toString(16),
+//     lock: walletLockScript,       // your wallet's lock = you own the name
+//     type: {
+//       codeHash: typeScript.codeHash,
+//       hashType: typeScript.hashType,
+//       args: typeScript.args,       // blake2b("alice")
+//     },
+//   }
+//   Output data: data               // 66 bytes meta-address
+//   Cell dep: deployment.cellDeps.namesType
+// Submit via CKB RPC
+```
+
+Ownership is determined by the Cell's lock script. Whoever can spend the Cell controls the name. To transfer a name, consume the Cell and create a new one with a different lock script. No signature verification against the spending key is needed — the lock script handles authorization.
+
+### Resolving a Name
+
+```typescript
+import {
+  buildResolveName,
+  metaAddressFromNameData,
+  generateStealthAddress,
+  getDeployment,
+} from "@wraith-protocol/sdk/chains/ckb";
+
+const deployment = getDeployment("ckb");
+const { typeScript } = buildResolveName({ name: "alice" });
+
+// Query for the name Cell
+const response = await fetch(deployment.rpcUrl, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    id: 0,
+    jsonrpc: "2.0",
+    method: "get_cells",
+    params: [{
+      script: {
+        code_hash: typeScript.codeHash,
+        hash_type: typeScript.hashType,
+        args: typeScript.args,
+      },
+      script_type: "type",
+    }, "asc", "0x1"],
+  }),
+});
+
+const result = await response.json();
+const cell = result.result?.objects?.[0];
+
+if (cell) {
+  const { spendingPubKey, viewingPubKey } = metaAddressFromNameData(cell.output_data);
+  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+  // Send a stealth payment to alice.wraith on CKB
+}
+```
+
+### CKB Names vs Other Chains
+
+| Aspect | EVM / Solana | CKB |
+|---|---|---|
+| Ownership proof | Spending key signature | Cell lock script (whoever can spend) |
+| Storage | Contract state / PDA | Live Cell |
+| Lookup | `resolve(name)` contract call | `get_cells` RPC filtered by type script |
+| Transfer | Not supported (re-register) | Consume Cell, create with new lock |
+| Data size | 64 bytes (ed25519) or 66 bytes (secp256k1) | 66 bytes (secp256k1) |
+| Name hash | keccak256 (EVM), SHA-256 (Solana/Stellar) | blake2b with "ckb-default-hash" |
+
 ### CKB-Specific Considerations
 
 - **Minimum capacity:** A stealth-lock Cell requires at least 61 CKB due to the 53-byte args. Senders must send at least this amount.
 - **No view tags:** Every Cell must be fully checked. CKB's `get_cells` RPC already filters by lock script code hash, so only stealth Cells are examined.
 - **blake2b personalization:** CKB uses `"ckb-default-hash"` as the blake2b personalization parameter. This **must** be included or hashes won't match on-chain verification.
 - **UTXO spending:** Withdrawing means consuming the Cell and creating a new one at the destination. The transaction fee is deducted from the Cell's capacity.
-- **No names initially:** `.wraith` name registration is not available on CKB at launch. Names registered on other chains still resolve cross-chain via the agent.
+- **Name ownership:** On CKB, name ownership is proven by the Cell's lock script, not by a signature from the spending key like on EVM. Whoever can spend the name Cell controls the name.
 
 ## Chain Deployments
 
@@ -341,9 +532,11 @@ const deployment = getDeployment("ckb");
 //   explorerUrl: "https://pudge.explorer.nervos.org",
 //   contracts: {
 //     stealthLockCodeHash: "0x...",
+//     namesTypeCodeHash: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
 //   },
 //   cellDeps: {
 //     stealthLock: { txHash: "0x...", index: 0 },
+//     namesType: { txHash: "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8", index: 0 },
 //   },
 // }
 ```
