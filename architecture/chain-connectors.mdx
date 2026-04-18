@@ -269,8 +269,8 @@ Handles Nervos CKB using secp256k1 and the UTXO-based Cell model. CKB is archite
 | `scanPayments` | `get_cells` RPC filtered by stealth-lock code hash -> `scanStealthCells(cells, ...)` -> return matched Cells with balances |
 | `getBalance` | Sum capacity of all matched stealth Cells |
 | `withdraw` | `deriveStealthPrivateKey` -> sign transaction consuming stealth Cell -> create destination Cell |
-| `registerName` | Not implemented initially |
-| `resolveName` | Not implemented initially |
+| `registerName` | `buildRegisterName({ name, spendingPubKey, viewingPubKey })` -> create Cell with `wraith-names-type` type script, lock = owner |
+| `resolveName` | `buildResolveName({ name })` -> `get_cells` RPC filtered by type script -> `metaAddressFromNameData(data)` |
 | `fundWallet` | CKB testnet faucet |
 
 ### CKB-Specific Considerations
@@ -281,7 +281,7 @@ Handles Nervos CKB using secp256k1 and the UTXO-based Cell model. CKB is archite
 - **blake160:** Address hashing uses blake2b with `"ckb-default-hash"` personalization, truncated to 20 bytes.
 - **SHA-256 for shared secret:** Unlike EVM (keccak256), CKB uses SHA-256 for hashing the ECDH shared secret.
 - **No view tags:** Every Cell is fully checked. The `get_cells` RPC pre-filters by code hash, keeping the scan set small.
-- **No names initially:** `.wraith` name registration requires a Type Script — deferred to a future release.
+- **Name ownership via lock script:** Unlike EVM/Solana where names are owned by the spending key, CKB name ownership is determined by the Cell's lock script. Whoever can spend the Cell controls the name.
 
 ### Configuration
 
@@ -291,9 +291,11 @@ interface CKBConnectorConfig {
   explorerUrl: string;
   contracts: {
     stealthLockCodeHash: string;
+    namesTypeCodeHash: string;
   };
   cellDeps: {
     stealthLock: { txHash: string; index: number };
+    namesType: { txHash: string; index: number };
   };
   network: "testnet" | "mainnet";
 }
@@ -307,9 +309,11 @@ chainRegistry.register(Chain.CKB, new CKBConnector({
   explorerUrl: "https://pudge.explorer.nervos.org",
   contracts: {
     stealthLockCodeHash: "0x...",
+    namesTypeCodeHash: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
   },
   cellDeps: {
     stealthLock: { txHash: "0x...", index: 0 },
+    namesType: { txHash: "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8", index: 0 },
   },
   network: "testnet",
 }));

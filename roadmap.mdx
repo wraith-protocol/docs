@@ -44,6 +44,7 @@ Public developer API with managed infrastructure. Solana and CKB support.
 - [ ] **Solana chain connector** — `SolanaConnector` implementing the `ChainConnector` interface. Program log event parsing, devnet airdrop funding, and SPL token support via associated token accounts.
 - [x] **CKB chain crypto module (`@wraith-protocol/sdk/chains/ckb`)** — secp256k1 stealth address primitives adapted for CKB's Cell model. SHA-256 shared secret hashing, blake160 address hashing, and Cell-based scanning (no separate announcer — Cells are announcements).
 - [x] **CKB stealth-lock script** — RISC-V lock script for CKB-VM. 53-byte args embed the ephemeral public key and blake160 stealth address hash. Verifies secp256k1 signatures against the embedded pubkey hash.
+- [x] **CKB names-type script** — RISC-V type script for `.wraith` name registration on CKB. Each name is a Cell with type args = blake2b(name) and data = 66-byte meta-address. Ownership proven by lock script, not signature.
 - [ ] **CKB chain connector** — `CKBConnector` implementing the `ChainConnector` interface. `get_cells` RPC scanning, Cell-based transaction building, and UTXO management.
 - [ ] **Managed API** — developer API keys, authentication, and rate limiting. Developers sign up, get a key, and build.
 - [ ] **Developer dashboard** — usage analytics, agent management, and billing. Monitor API calls, manage agents, and track costs.
