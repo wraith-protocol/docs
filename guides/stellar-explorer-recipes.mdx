@@ -1,0 +1,154 @@
+---
+title: "Stellar Explorer Recipes"
+description: "URL patterns, helper code, and UX guidance for linking Wraith Stellar activity to block explorers"
+---
+
+Last verified: 2026-05-22
+
+Stellar explorers are useful after a transaction is submitted, when you want to show users an account, contract, asset, or transaction in a familiar public interface. For Wraith integrations, the main privacy rule is simple: a Stellar stealth address is still a normal public Stellar account. The privacy guarantee is that the account is unlinkable to the recipient's known identity unless the recipient reveals that link.
+
+## Recommended Explorer
+
+Use `stellar.expert` as the default explorer because it supports accounts, transactions, assets, contracts, and both public network and testnet URLs.
+
+| Resource    | Public network                                                 | Testnet                                                         |
+| ----------- | -------------------------------------------------------------- | --------------------------------------------------------------- |
+| Account     | `https://stellar.expert/explorer/public/account/{G...}`        | `https://stellar.expert/explorer/testnet/account/{G...}`        |
+| Transaction | `https://stellar.expert/explorer/public/tx/{hash}`             | `https://stellar.expert/explorer/testnet/tx/{hash}`             |
+| Contract    | `https://stellar.expert/explorer/public/contract/{C...}`       | `https://stellar.expert/explorer/testnet/contract/{C...}`       |
+| Asset       | `https://stellar.expert/explorer/public/asset/{code}-{issuer}` | `https://stellar.expert/explorer/testnet/asset/{code}-{issuer}` |
+
+Use `public` for mainnet and `testnet` for testnet. Do not reuse the same URL base for both networks.
+
+## Copy-Paste Helper
+
+```typescript
+type StellarExplorerKind = "account" | "transaction" | "contract" | "asset";
+type StellarExplorerNetwork = "public" | "testnet";
+
+const STELLAR_EXPERT_NETWORK: Record<StellarExplorerNetwork, string> = {
+  public: "public",
+  testnet: "testnet",
+};
+
+function stellarExplorerUrl(
+  kind: StellarExplorerKind,
+  value: string,
+  network: StellarExplorerNetwork = "public",
+): string {
+  const base = `https://stellar.expert/explorer/${STELLAR_EXPERT_NETWORK[network]}`;
+  const encodedValue = encodeURIComponent(value);
+
+  switch (kind) {
+    case "account":
+      return `${base}/account/${encodedValue}`;
+    case "transaction":
+      return `${base}/tx/${encodedValue}`;
+    case "contract":
+      return `${base}/contract/${encodedValue}`;
+    case "asset":
+      return `${base}/asset/${encodedValue}`;
+  }
+}
+
+const txUrl = stellarExplorerUrl(
+  "transaction",
+  "6f12f0b7a33f2f7f0e5a1f8f76fd0d8c4c813f28a24c0b07d221f6bc4b6619a2",
+  "testnet",
+);
+
+const stealthAccountUrl = stellarExplorerUrl(
+  "account",
+  "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF",
+  "testnet",
+);
+
+const usdcAssetUrl = stellarExplorerUrl(
+  "asset",
+  "USDC-GA5ZSEJYB37JRC5ZQMLALD7FXWHPHUXBPDOHFCSQHCGNSJJKV5EPM42K",
+  "public",
+);
+```
+
+For assets, pass the full `{code}-{issuer}` value. For example, `USDC-G...` links to the USDC asset page for that issuer.
+
+## UX Rules
+
+Show explorer links when the user has something confirmed to inspect:
+
+- After a Horizon or Soroban transaction submission succeeds.
+- After a Wraith agent returns a transaction hash.
+- After a contract deployment returns a `C...` contract ID.
+- After an account is funded and the account ID is known.
+
+Use labels that name the explorer:
+
+- Good: `View on stellar.expert`
+- Good: `View transaction on stellar.expert`
+- Avoid: `Open in explorer`
+- Avoid: `View private payment`
+
+Open external explorer links safely:
+
+```tsx
+<a
+  href={stellarExplorerUrl("transaction", txHash, "testnet")}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  View transaction on stellar.expert
+</a>
+```
+
+For accessibility, the link text should describe the destination. If you use an icon-only link, add an `aria-label` such as `View transaction on stellar.expert`.
+
+## Stealth Account Privacy
+
+Viewing a stealth account on an explorer does not break Wraith's privacy model by itself.
+
+A Stellar stealth address is an ordinary `G...` account. The explorer will show its balances, operations, trustlines, and transaction history. That transparency is expected. The privacy property is that outside observers should not be able to connect the one-time `G...` account to the recipient's reusable wallet, `.wraith` name, or identity.
+
+Treat explorer links as public disclosure:
+
+- It is safe to show a stealth account link to the recipient who owns it.
+- It is safe to show a transaction link after the user has just submitted that transaction.
+- Avoid publishing a list of all stealth accounts for one recipient in one place.
+- Avoid labeling a stealth account with a user's real identity in logs, dashboards, or support tools.
+
+If a stealth address visibly matches a recipient's known public address, treat that as an integration bug. A one-time stealth address should be fresh for each payment.
+
+## Alternative Explorers
+
+### StellarChain
+
+`stellarchain.io` provides search and account views for Stellar network activity. Its URLs can change over time, so prefer a search URL when you do not control the exact deep-link format:
+
+```typescript
+function stellarChainSearchUrl(value: string): string {
+  return `https://stellarchain.io/?q=${encodeURIComponent(value)}`;
+}
+```
+
+Use StellarChain as a fallback link or support tool when a user reports that another explorer is delayed.
+
+### StellarBeat
+
+StellarBeat is focused on network nodes, validators, and quorum health. It is useful for status and infrastructure context, not for per-payment account or transaction inspection.
+
+```typescript
+const stellarBeatUrl = "https://stellarbeat.io";
+```
+
+Use StellarBeat when you are explaining validator or network availability. Use `stellar.expert` for Wraith payment, account, contract, transaction, and asset links.
+
+## Common Link Targets
+
+| Wraith event                          | Link target | Example                                                      |
+| ------------------------------------- | ----------- | ------------------------------------------------------------ |
+| Agent sends a Stellar payment         | Transaction | `stellarExplorerUrl("transaction", txHash, "testnet")`       |
+| Recipient receives a one-time account | Account     | `stellarExplorerUrl("account", stealthAddress, "testnet")`   |
+| Soroban contract is deployed          | Contract    | `stellarExplorerUrl("contract", contractId, "testnet")`      |
+| UI shows USDC trustline context       | Asset       | `stellarExplorerUrl("asset", code + "-" + issuer, "public")` |
+| Support checks network health         | StellarBeat | `https://stellarbeat.io`                                     |
+
+Keep the network explicit in your UI state. Most broken explorer links come from sending a testnet hash to a public-network URL, or from linking a contract ID as an account.
