@@ -7,6 +7,20 @@ Low-level stealth address functions for Stellar using ed25519. Import from `@wra
 
 Most developers should use the [Agent Client](/sdk/agent-client) instead. These primitives are for power users building custom stealth address integrations on Stellar.
 
+## Stellar Flow Diagrams
+
+These diagrams show the Stellar-specific version of the stealth flow: StrKey accounts, Soroban announcements, ed25519 key derivation, view tags, name resolution, and fee-bump withdrawals.
+
+![Stellar stealth flow](/assets/diagrams/stellar/stealth-flow-stellar.svg)
+
+![Stellar key derivation](/assets/diagrams/stellar/key-derivation-stellar.svg)
+
+![Stellar view tag scan](/assets/diagrams/stellar/view-tag-scan-stellar.svg)
+
+![Stellar name resolution](/assets/diagrams/stellar/name-resolution-stellar.svg)
+
+![Stellar fee-bump withdrawal](/assets/diagrams/stellar/fee-bump-withdrawal-stellar.svg)
+
 ## Installation
 
 ```bash
@@ -381,6 +395,7 @@ for (const m of matched) {
 - **Account creation:** Stellar requires accounts to exist with a minimum balance (1 XLM). Sending to a new stealth address uses `Operation.createAccount`, not `Operation.payment`.
 - **Announcements:** Come from Soroban contract events via `sorobanServer.getEvents()`, not a subgraph. Use `fetchAnnouncements("stellar")` to handle this automatically.
 - **Signing:** Must use `signWithScalar()` / `signStellarTransaction()` because stealth scalars aren't valid seeds for `Keypair.fromRawEd25519Seed()`.
+- **Fee bumps:** Withdrawals can be wrapped in a sponsored fee-bump transaction when the stealth account should not keep extra XLM only for fees.
 
 ## Chain Deployments
 

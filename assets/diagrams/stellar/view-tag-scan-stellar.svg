@@ -1,0 +1,44 @@
+<svg viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg">
+  <rect width="820" height="300" fill="transparent" />
+
+  <defs>
+    <marker id="stellar-scan-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <text x="92" y="26" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">Soroban events</text>
+  <rect x="28" y="45" width="128" height="44" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="92" y="63" text-anchor="middle" fill="#e6e1e5" font-family="JetBrains Mono, monospace" font-size="10">GAAA...P2Z</text>
+  <text x="92" y="80" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">tag 0x04</text>
+
+  <rect x="28" y="108" width="128" height="44" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="92" y="126" text-anchor="middle" fill="#e6e1e5" font-family="JetBrains Mono, monospace" font-size="10">GBBB...8LM</text>
+  <text x="92" y="143" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">tag 0xa9</text>
+
+  <rect x="28" y="171" width="128" height="44" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="92" y="189" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">GCCC...4HF</text>
+  <text x="92" y="206" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="9">tag 0x17</text>
+
+  <line x1="156" y1="130" x2="235" y2="130" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-scan-arrow)" />
+
+  <rect x="242" y="94" width="160" height="72" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4 3" />
+  <text x="322" y="120" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-size="13" font-weight="600">View Tag Filter</text>
+  <text x="322" y="141" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">compare first byte</text>
+
+  <line x1="402" y1="130" x2="478" y2="130" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-scan-arrow)" />
+
+  <rect x="486" y="85" width="172" height="90" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="572" y="112" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">ECDH only on</text>
+  <text x="572" y="131" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">candidate tags</text>
+  <text x="572" y="153" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">derive expected StrKey</text>
+
+  <line x1="658" y1="130" x2="724" y2="130" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-scan-arrow)" />
+
+  <rect x="730" y="94" width="72" height="72" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="766" y="122" text-anchor="middle" fill="#22c55e" font-family="Space Grotesk, sans-serif" font-size="13" font-weight="600">Match</text>
+  <text x="766" y="143" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">scalar</text>
+
+  <path d="M 322 166 C 324 220 465 236 572 176" fill="none" stroke="#767575" stroke-width="1" stroke-dasharray="5 4" />
+  <text x="410" y="248" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">Most announcements stop at the one-byte filter; full curve math runs only for likely matches.</text>
+</svg>

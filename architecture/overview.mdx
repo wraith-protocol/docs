@@ -17,6 +17,10 @@ One NestJS server deployment with a chain connector registry. The core agent eng
 
 ![TEE Server Architecture](/assets/diagrams/tee-server.svg)
 
+The Stellar connector keeps the same high-level stealth payment shape while using Stellar-native primitives: StrKey accounts, Soroban event announcements, ed25519 signing, and fee-bump envelopes where a sponsor pays the outer transaction fee.
+
+![Stellar stealth flow](/assets/diagrams/stellar/stealth-flow-stellar.svg)
+
 ## Module Structure
 
 ```

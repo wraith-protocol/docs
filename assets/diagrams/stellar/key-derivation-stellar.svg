@@ -1,0 +1,36 @@
+<svg viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg">
+  <rect width="820" height="320" fill="transparent" />
+
+  <defs>
+    <marker id="stellar-key-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <rect x="260" y="18" width="300" height="52" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="410" y="40" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="12">wallet signs STEALTH_SIGNING_MESSAGE</text>
+  <text x="410" y="58" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">64-byte ed25519 signature</text>
+
+  <line x1="410" y1="70" x2="410" y2="100" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-key-arrow)" />
+
+  <rect x="292" y="104" width="236" height="44" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4 3" />
+  <text x="410" y="130" text-anchor="middle" fill="#e6e1e5" font-family="JetBrains Mono, monospace" font-size="12">domain-separated SHA-256</text>
+
+  <path d="M 360 148 C 300 172 239 177 180 190" fill="none" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-key-arrow)" />
+  <path d="M 460 148 C 520 172 581 177 640 190" fill="none" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-key-arrow)" />
+
+  <rect x="70" y="190" width="220" height="58" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="180" y="214" text-anchor="middle" fill="#e6e1e5" font-family="JetBrains Mono, monospace" font-size="11">wraith:spending:</text>
+  <text x="180" y="234" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">seed -> scalar -> public key</text>
+
+  <rect x="530" y="190" width="220" height="58" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="640" y="214" text-anchor="middle" fill="#e6e1e5" font-family="JetBrains Mono, monospace" font-size="11">wraith:viewing:</text>
+  <text x="640" y="234" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">seed -> scalar -> public key</text>
+
+  <line x1="290" y1="219" x2="374" y2="256" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-key-arrow)" />
+  <line x1="530" y1="219" x2="446" y2="256" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-key-arrow)" />
+
+  <rect x="320" y="258" width="180" height="42" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="410" y="276" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="11">st:xlm:&lt;spend&gt;&lt;view&gt;</text>
+  <text x="410" y="293" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">share public keys only</text>
+</svg>

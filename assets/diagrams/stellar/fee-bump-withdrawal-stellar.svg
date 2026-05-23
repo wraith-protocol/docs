@@ -1,0 +1,39 @@
+<svg viewBox="0 0 820 270" xmlns="http://www.w3.org/2000/svg">
+  <rect width="820" height="270" fill="transparent" />
+
+  <defs>
+    <marker id="stellar-fee-arrow" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <rect x="28" y="78" width="150" height="72" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="103" y="103" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">GSTEALTH...K9</text>
+  <text x="103" y="123" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">stealth account</text>
+  <text x="103" y="140" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">0 XLM for fees</text>
+
+  <line x1="178" y1="114" x2="242" y2="114" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-fee-arrow)" />
+
+  <rect x="250" y="62" width="164" height="104" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="332" y="88" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-size="13" font-weight="600">Sponsor Outer Tx</text>
+  <text x="332" y="109" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">fee-bump envelope</text>
+  <text x="332" y="128" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">payer: GSPONSOR...</text>
+  <text x="332" y="147" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">covers network fee</text>
+
+  <line x1="414" y1="114" x2="478" y2="114" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-fee-arrow)" />
+
+  <rect x="486" y="62" width="164" height="104" fill="#141414" stroke="#444444" stroke-width="1" stroke-dasharray="4 3" />
+  <text x="568" y="88" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-size="13" font-weight="600">Inner Withdraw</text>
+  <text x="568" y="109" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">source: stealth</text>
+  <text x="568" y="128" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">signed by scalar</text>
+  <text x="568" y="147" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">payment or account merge</text>
+
+  <line x1="650" y1="114" x2="714" y2="114" stroke="#767575" stroke-width="1.5" marker-end="url(#stellar-fee-arrow)" />
+
+  <rect x="722" y="78" width="70" height="72" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="757" y="105" text-anchor="middle" fill="#22c55e" font-family="Space Grotesk, sans-serif" font-size="13" font-weight="600">Ledger</text>
+  <text x="757" y="126" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">funds out</text>
+
+  <path d="M 568 166 C 527 216 247 211 104 151" fill="none" stroke="#767575" stroke-width="1" stroke-dasharray="5 4" />
+  <text x="410" y="229" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">The stealth account authorizes the spend; the sponsor only pays the outer transaction fee.</text>
+</svg>
