@@ -1,0 +1,300 @@
+---
+title: ".wraith Names"
+description: "Register, resolve, update, and release human-readable stealth meta-address names"
+---
+
+`.wraith` names map a human-readable handle to a stealth meta-address. A stealth meta-address is still what recipients publish; the name is a shorter lookup key for wallets, agents, and payment UIs.
+
+Names are chain-local. `alice.wraith` on Stellar is a different record from `alice.wraith` on EVM, Solana, or CKB. Register the same handle on every chain if you want a consistent cross-chain identity.
+
+## Naming rules
+
+The active contract implementations enforce these rules:
+
+| Chain | Length | Characters | Notes |
+| --- | --- | --- | --- |
+| EVM | 3-32 | lowercase `a-z`, `0-9` | Ownership is proven by the spending key embedded in the meta-address. |
+| Stellar | 3-32 | lowercase `a-z`, `0-9` | Ownership is the authenticated Soroban `Address` that registers the name. |
+| Solana | 3-32 | lowercase `a-z`, `0-9`, hyphen | Hyphens cannot be first or last. |
+| CKB | 3-32 | lowercase `a-z`, `0-9`, hyphen | Hyphens cannot be first or last. |
+
+No global reservation list is currently enforced in the public contracts. Treat high-value names as first-come, first-served per chain.
+
+## Lifecycle
+
+| Operation | What it does |
+| --- | --- |
+| Register | Creates `name -> stealth meta-address` if the name is free. |
+| Resolve | Returns the stealth meta-address for a name. |
+| Reverse lookup | Returns the name currently associated with a meta-address, where supported. |
+| Update | Replaces the meta-address for a name you own. |
+| Release | Deletes the name record so it can be registered again. |
+
+## Cross-chain semantics
+
+Each chain has its own registry and finality rules. A name collision on one chain does not affect another chain.
+
+This has three user-facing implications:
+
+- You can register the same handle on every chain.
+- Losing or releasing a handle on one chain does not release it elsewhere.
+- Payment UIs should include the chain context when resolving a name.
+
+```typescript
+type WraithNameTarget = {
+  chain: "evm" | "stellar" | "solana" | "ckb";
+  name: string;
+};
+
+const target: WraithNameTarget = {
+  chain: "stellar",
+  name: "alice",
+};
+
+// Resolve "alice.wraith" against the Stellar registry only.
+```
+
+## EVM
+
+The EVM `WraithNames` contract stores raw 66-byte EVM stealth meta-addresses. The SDK exposes helpers for the signatures the contract verifies.
+
+```typescript
+import {
+  NAMES_ABI,
+  metaAddressToBytes,
+  signNameRegistration,
+  signNameRegistrationOnBehalf,
+  signNameRelease,
+  signNameUpdate,
+} from "@wraith-protocol/sdk/chains/evm";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { horizenTestnet } from "viem/chains";
+
+const account = privateKeyToAccount("0x...");
+const namesAddress = "0x...";
+const name = "alice";
+const metaAddress = "st:eth:0x...";
+const metaAddressBytes = metaAddressToBytes(metaAddress);
+
+const publicClient = createPublicClient({
+  chain: horizenTestnet,
+  transport: http(),
+});
+
+const walletClient = createWalletClient({
+  account,
+  chain: horizenTestnet,
+  transport: http(),
+});
+```
+
+### Register
+
+```typescript
+const signature = signNameRegistration(name, metaAddressBytes, "0x...");
+
+await walletClient.writeContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "register",
+  args: [name, metaAddressBytes, signature],
+});
+```
+
+### Sponsored register
+
+```typescript
+const nonce = await publicClient.readContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "nonceOf",
+  args: [account.address],
+});
+
+const signature = signNameRegistrationOnBehalf(name, metaAddressBytes, "0x...", nonce);
+
+await walletClient.writeContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "registerOnBehalf",
+  args: [name, metaAddressBytes, signature],
+});
+```
+
+### Resolve and reverse
+
+```typescript
+const resolved = await publicClient.readContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "resolve",
+  args: [name],
+});
+
+const reverse = await publicClient.readContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "nameOf",
+  args: [metaAddressBytes],
+});
+```
+
+### Update
+
+```typescript
+const nextMetaAddressBytes = metaAddressToBytes("st:eth:0x...");
+const signature = signNameUpdate(name, nextMetaAddressBytes, "0x...");
+
+await walletClient.writeContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "update",
+  args: [name, nextMetaAddressBytes, signature],
+});
+```
+
+### Release
+
+```typescript
+const signature = signNameRelease(name, "0x...");
+
+await walletClient.writeContract({
+  address: namesAddress,
+  abi: NAMES_ABI,
+  functionName: "release",
+  args: [name, signature],
+});
+```
+
+## Stellar
+
+Stellar names live in the Soroban `wraith-names` contract. The current SDK exports Stellar stealth-address primitives and deployment metadata, but not a high-level names helper. Use the Stellar SDK contract client layer directly until a helper is added.
+
+```typescript
+import {
+  DEPLOYMENTS,
+  decodeStealthMetaAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Address, Contract, Keypair, nativeToScVal, rpc, scValToNative, xdr } from "@stellar/stellar-sdk";
+
+const deployment = DEPLOYMENTS.stellar;
+const server = new rpc.Server(deployment.sorobanUrl);
+const owner = Keypair.fromSecret("S...");
+const names = new Contract(deployment.contracts.names);
+const name = "alice";
+const metaAddress = "st:xlm:...";
+
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaAddress);
+const metaAddressBytes = new Uint8Array(64);
+metaAddressBytes.set(spendingPubKey, 0);
+metaAddressBytes.set(viewingPubKey, 32);
+```
+
+### Build Stellar operations
+
+```typescript
+const ownerAddress = new Address(owner.publicKey());
+const nameValue = nativeToScVal(name, { type: "string" });
+const metaValue = xdr.ScVal.scvBytes(Buffer.from(metaAddressBytes));
+
+const registerOp = names.call("register", ownerAddress.toScVal(), nameValue, metaValue);
+const resolveOp = names.call("resolve", nameValue);
+const reverseOp = names.call("name_of", metaValue);
+const updateOp = names.call("update", ownerAddress.toScVal(), nameValue, metaValue);
+const releaseOp = names.call("release", ownerAddress.toScVal(), nameValue);
+```
+
+Submit write operations through a normal Soroban transaction flow: build the transaction, call `server.prepareTransaction`, sign with the owner keypair, then `server.sendTransaction`.
+
+```typescript
+const simulation = await server.simulateTransaction(resolveTransaction);
+
+if (rpc.Api.isSimulationSuccess(simulation) && simulation.result) {
+  const resolvedMetaAddressBytes = scValToNative(simulation.result.retval);
+  console.log(resolvedMetaAddressBytes);
+}
+```
+
+Use Friendbot only for testnet funding:
+
+```typescript
+await fetch(`https://friendbot.stellar.org?addr=${owner.publicKey()}`);
+```
+
+## Solana
+
+Solana names are PDA-based. The name itself is part of the PDA derivation, and the name record stores the meta-address bytes. The public contract tests cover register, resolve, update, release, duplicate rejection, and reverse lookup behavior.
+
+```typescript
+import { PublicKey } from "@solana/web3.js";
+
+const PROGRAM_ID = new PublicKey("4JrrQh5aK7iLvx6MgtEQk7K7X3SsWfTLxVJu1jXEwNjD");
+const name = "alice";
+
+const [nameRecord] = PublicKey.findProgramAddressSync(
+  [Buffer.from("name"), Buffer.from(name)],
+  PROGRAM_ID,
+);
+
+// Use the Anchor program client to call:
+// - register(name, metaAddress)
+// - resolve()
+// - update(newMetaAddress)
+// - release()
+```
+
+## CKB
+
+CKB names are represented by cells. The type script args are `blake2b(name)`, and the cell data is the 66-byte EVM-style meta-address payload.
+
+```typescript
+import {
+  buildRegisterName,
+  buildResolveName,
+  metaAddressFromNameData,
+} from "@wraith-protocol/sdk/chains/ckb";
+
+const registration = buildRegisterName({
+  name: "alice",
+  spendingPubKey: "0x...",
+  viewingPubKey: "0x...",
+});
+
+const query = buildResolveName({ name: "alice" });
+
+// Submit a CKB transaction that creates a cell with:
+// - type script: registration.typeScript
+// - data: registration.data
+```
+
+Resolve by querying live cells with `query.typeScript`, then decode the returned cell data:
+
+```typescript
+const metaAddress = metaAddressFromNameData("0x...");
+```
+
+Updating a CKB name means spending the existing name cell and creating a replacement with the same name type script and new 66-byte data. Releasing a name means spending the existing name cell without recreating it.
+
+## Front-running considerations
+
+Name registrations are public chain transactions. If a registration reveals the desired name before finality, another user can race it on chains with public mempools. Chain behavior differs:
+
+| Chain | Exposure model | Practical guidance |
+| --- | --- | --- |
+| EVM | Public mempool before inclusion | Submit through trusted private orderflow when registering valuable names. |
+| Stellar | Soroban transaction is visible when submitted to the network | Register high-value names before public announcement. |
+| Solana | Transaction contents are visible to validators before finality | Avoid announcing valuable names before the transaction lands. |
+| CKB | Cell creation is public before confirmation | Wait for confirmation before treating a name as owned. |
+
+For stealth payments, a name only points to a stealth meta-address. Individual payments still use fresh stealth addresses and announcements.
+
+## Deployment references
+
+| Chain | Current public reference |
+| --- | --- |
+| Stellar testnet | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` |
+| Solana devnet | `4JrrQh5aK7iLvx6MgtEQk7K7X3SsWfTLxVJu1jXEwNjD` |
+| CKB testnet | `0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d` |
+
+EVM deployment addresses depend on the target EVM chain configuration. Use the chain deployment config before presenting a name registration UI.
