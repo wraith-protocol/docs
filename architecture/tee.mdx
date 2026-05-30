@@ -1,6 +1,18 @@
 ---
 title: "TEE Security"
 description: "Trusted Execution Environment and key derivation"
+keywords:
+  [
+    "TEE",
+    "trusted execution environment",
+    "Intel TDX",
+    "Phala",
+    "DStack",
+    "key derivation",
+    "remote attestation",
+    "secure enclave",
+    "private keys",
+  ]
 ---
 
 Wraith runs inside Trusted Execution Environment (TEE) hardware. Agent private keys are derived deterministically inside Intel TDX enclaves and never stored on disk or exported without authorization.
@@ -29,7 +41,10 @@ The path includes the chain identifier to prevent key collision. The same agent 
 
 ```typescript
 class TeeService {
-  async deriveAgentPrivateKey(agentId: string, chain: string): Promise<Uint8Array> {
+  async deriveAgentPrivateKey(
+    agentId: string,
+    chain: string,
+  ): Promise<Uint8Array> {
     // DStack derives key from hardware root secret + path
     const raw = await dstack.getKey(`wraith/agent/${agentId}/${chain}`);
     return sha256(raw);
@@ -47,10 +62,10 @@ class TeeService {
 
 The chain connector determines how the raw seed becomes usable keys:
 
-| Chain | Curve | Flow |
-|---|---|---|
-| EVM | secp256k1 | seed → SHA-256 → `privateKeyToAccount` → sign message → `deriveStealthKeys` → `st:eth:0x...` |
-| Stellar | ed25519 | seed → SHA-256 → ed25519 seed → sign message → `deriveStealthKeys` → `st:xlm:...` |
+| Chain   | Curve     | Flow                                                                                         |
+| ------- | --------- | -------------------------------------------------------------------------------------------- |
+| EVM     | secp256k1 | seed → SHA-256 → `privateKeyToAccount` → sign message → `deriveStealthKeys` → `st:eth:0x...` |
+| Stellar | ed25519   | seed → SHA-256 → ed25519 seed → sign message → `deriveStealthKeys` → `st:xlm:...`            |
 
 ## Security Properties
 
@@ -93,8 +108,13 @@ const wraith = new Wraith({ apiKey: "wraith_..." });
 const agent = await wraith.getAgentByName("alice");
 
 // Requires fresh wallet signature
-const sig = await wallet.signMessage("Export private key for agent " + agent.info.id);
-const { secret } = await agent.exportKey(sig, "Export private key for agent " + agent.info.id);
+const sig = await wallet.signMessage(
+  "Export private key for agent " + agent.info.id,
+);
+const { secret } = await agent.exportKey(
+  sig,
+  "Export private key for agent " + agent.info.id,
+);
 ```
 
 The TEE verifies the signature matches the owner wallet before releasing the key. Without the wallet, nobody — including Wraith — can export the key.
@@ -110,6 +130,7 @@ const attestation = await fetch(`${baseUrl}/tee/attest/${agentId}`);
 ```
 
 This proves:
+
 - The code inside the TEE matches the published source
 - Keys were derived by the legitimate Wraith software
 - No unauthorized modifications have been made
@@ -156,13 +177,13 @@ The container must target `linux/amd64` for TEE hardware compatibility.
 
 ### Environment Variables
 
-| Variable | Description |
-|---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
-| `GEMINI_API_KEY` | Default AI model key |
-| `DEPLOYER_KEY` | Key for deploying contracts / funding agents |
-| `CHAIN_ID` | Target chain ID |
-| `RPC_URL` | Chain RPC endpoint |
+| Variable         | Description                                  |
+| ---------------- | -------------------------------------------- |
+| `DATABASE_URL`   | PostgreSQL connection string                 |
+| `GEMINI_API_KEY` | Default AI model key                         |
+| `DEPLOYER_KEY`   | Key for deploying contracts / funding agents |
+| `CHAIN_ID`       | Target chain ID                              |
+| `RPC_URL`        | Chain RPC endpoint                           |
 
 ### Deploy to Phala
 

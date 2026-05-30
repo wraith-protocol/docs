@@ -1,6 +1,20 @@
 ---
 title: "EVM Primitives"
 description: "Stealth address crypto for EVM chains using secp256k1"
+keywords:
+  [
+    "EVM",
+    "Ethereum",
+    "Horizen",
+    "Polygon",
+    "Base",
+    "secp256k1",
+    "stealth crypto",
+    "ERC-5564",
+    "ERC-6538",
+    "meta-address",
+    "metaaddress",
+  ]
 ---
 
 Low-level stealth address functions for EVM-compatible chains (Horizen, Ethereum, Polygon, Base, etc.) using secp256k1. Import from `@wraith-protocol/sdk/chains/evm`.
@@ -55,16 +69,16 @@ import {
 type HexString = `0x${string}`;
 
 interface StealthKeys {
-  spendingKey: HexString;      // 32-byte private key
-  viewingKey: HexString;       // 32-byte private key
-  spendingPubKey: HexString;   // 33-byte compressed public key
-  viewingPubKey: HexString;    // 33-byte compressed public key
+  spendingKey: HexString; // 32-byte private key
+  viewingKey: HexString; // 32-byte private key
+  spendingPubKey: HexString; // 33-byte compressed public key
+  viewingPubKey: HexString; // 33-byte compressed public key
 }
 
 interface GeneratedStealthAddress {
-  stealthAddress: HexString;   // 20-byte EVM address
-  ephemeralPubKey: HexString;  // 33-byte compressed public key
-  viewTag: number;             // 0-255
+  stealthAddress: HexString; // 20-byte EVM address
+  ephemeralPubKey: HexString; // 33-byte compressed public key
+  viewTag: number; // 0-255
 }
 
 interface Announcement {
@@ -72,7 +86,7 @@ interface Announcement {
   stealthAddress: HexString;
   caller: HexString;
   ephemeralPubKey: HexString;
-  metadata: HexString;         // first byte is view tag
+  metadata: HexString; // first byte is view tag
 }
 
 interface MatchedAnnouncement extends Announcement {
@@ -83,8 +97,9 @@ interface MatchedAnnouncement extends Announcement {
 ## Constants
 
 ```typescript
-const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: Horizen\nNote: This signature is used for key derivation only and does not authorize any transaction.";
-const SCHEME_ID = 1n;                    // bigint for on-chain compatibility
+const STEALTH_SIGNING_MESSAGE =
+  "Sign this message to generate your Wraith stealth keys.\n\nChain: Horizen\nNote: This signature is used for key derivation only and does not authorize any transaction.";
+const SCHEME_ID = 1n; // bigint for on-chain compatibility
 const META_ADDRESS_PREFIX = "st:eth:0x";
 ```
 
@@ -100,13 +115,14 @@ Derive spending and viewing key pairs from a wallet signature.
 const signature = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
 const keys = deriveStealthKeys(signature as HexString);
 
-console.log(keys.spendingKey);    // "0x..." (32-byte private key)
-console.log(keys.viewingKey);     // "0x..." (32-byte private key)
+console.log(keys.spendingKey); // "0x..." (32-byte private key)
+console.log(keys.viewingKey); // "0x..." (32-byte private key)
 console.log(keys.spendingPubKey); // "0x02..." (33-byte compressed)
-console.log(keys.viewingPubKey);  // "0x03..." (33-byte compressed)
+console.log(keys.viewingPubKey); // "0x03..." (33-byte compressed)
 ```
 
 **Algorithm:**
+
 1. Split the 65-byte signature: `r = sig[0:32]`, `s = sig[32:64]`
 2. `spendingKey = keccak256(r)`
 3. `viewingKey = keccak256(s)`
@@ -119,17 +135,15 @@ Same signature always produces the same keys. The spending key is never equal to
 Generate a one-time stealth address for a recipient.
 
 ```typescript
-const result = generateStealthAddress(
-  keys.spendingPubKey,
-  keys.viewingPubKey
-);
+const result = generateStealthAddress(keys.spendingPubKey, keys.viewingPubKey);
 
-console.log(result.stealthAddress);  // "0x..." (fresh one-time address)
+console.log(result.stealthAddress); // "0x..." (fresh one-time address)
 console.log(result.ephemeralPubKey); // "0x..." (publish with announcement)
-console.log(result.viewTag);        // 0-255 (publish with announcement)
+console.log(result.viewTag); // 0-255 (publish with announcement)
 ```
 
 **Algorithm:**
+
 1. Generate random ephemeral key pair `(r, R = r * G)`
 2. Compute ECDH shared secret `S = r * viewingPubKey`
 3. `hashedSecret = keccak256(S)`
@@ -148,7 +162,7 @@ const result = checkStealthAddress(
   announcement.ephemeralPubKey,
   keys.viewingKey,
   keys.spendingPubKey,
-  viewTag
+  viewTag,
 );
 
 if (result.isMatch) {
@@ -171,16 +185,17 @@ const matched = scanAnnouncements(
   announcements,
   keys.viewingKey,
   keys.spendingPubKey,
-  keys.spendingKey
+  keys.spendingKey,
 );
 
 for (const m of matched) {
-  console.log(m.stealthAddress);    // address you control
+  console.log(m.stealthAddress); // address you control
   console.log(m.stealthPrivateKey); // private key for this address
 }
 ```
 
 For each announcement:
+
 1. Skip if `schemeId` doesn't match
 2. Extract view tag from metadata
 3. Check if it matches using `checkStealthAddress`
@@ -194,7 +209,7 @@ Compute the private key that controls a specific stealth address.
 const privateKey = deriveStealthPrivateKey(
   keys.spendingKey,
   stealth.ephemeralPubKey,
-  keys.viewingKey
+  keys.viewingKey,
 );
 
 // Use this key to sign transactions from the stealth address
@@ -204,6 +219,7 @@ console.log(account.address); // matches the stealth address
 ```
 
 **Algorithm:**
+
 1. `S = viewingKey * ephemeralPubKey` (shared secret)
 2. `hashScalar = keccak256(S) mod n`
 3. `stealthPrivateKey = (spendingKey + hashScalar) mod n`
@@ -215,7 +231,7 @@ Encode two public keys into a stealth meta-address string.
 ```typescript
 const metaAddress = encodeStealthMetaAddress(
   keys.spendingPubKey,
-  keys.viewingPubKey
+  keys.viewingPubKey,
 );
 // "st:eth:0x02abc...03def..."
 ```
@@ -228,7 +244,7 @@ Decode a meta-address back into its component public keys.
 
 ```typescript
 const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(
-  "st:eth:0x02abc...03def..."
+  "st:eth:0x02abc...03def...",
 );
 ```
 
@@ -258,7 +274,12 @@ const sig = signNameRegistration("alice", metaBytes, keys.spendingKey);
 Sign with a nonce for delegated registration.
 
 ```typescript
-const sig = signNameRegistrationOnBehalf("alice", metaBytes, keys.spendingKey, 0n);
+const sig = signNameRegistrationOnBehalf(
+  "alice",
+  metaBytes,
+  keys.spendingKey,
+  0n,
+);
 ```
 
 ### `signNameUpdate(name, newMetaAddressBytes, spendingKey)`
@@ -299,7 +320,10 @@ const sig = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
 const keys = deriveStealthKeys(sig as HexString);
 
 // 2. Recipient: publish stealth meta-address
-const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+const metaAddress = encodeStealthMetaAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey,
+);
 // Share "st:eth:0x..." or register as a .wraith name
 
 // 3. Sender: generate stealth address from meta-address
@@ -315,7 +339,7 @@ const matched = scanAnnouncements(
   announcements,
   keys.viewingKey,
   keys.spendingPubKey,
-  keys.spendingKey
+  keys.spendingKey,
 );
 
 // 6. Recipient: spend from stealth address
@@ -336,11 +360,12 @@ Send ETH privately via stealth address. Uses the WraithSender contract for atomi
 ```typescript
 import { buildSendStealth } from "@wraith-protocol/sdk/chains/evm";
 
-const { transaction, stealthAddress, ephemeralPubKey, viewTag } = buildSendStealth({
-  recipientMetaAddress: "st:eth:0x...",
-  amount: "0.1",
-  chain: "horizen",
-});
+const { transaction, stealthAddress, ephemeralPubKey, viewTag } =
+  buildSendStealth({
+    recipientMetaAddress: "st:eth:0x...",
+    amount: "0.1",
+    chain: "horizen",
+  });
 
 // Submit with viem
 await walletClient.sendTransaction(transaction);
@@ -361,10 +386,10 @@ import { buildSendERC20 } from "@wraith-protocol/sdk/chains/evm";
 
 const { transaction } = buildSendERC20({
   recipientMetaAddress: "st:eth:0x...",
-  token: "0x4b36cb6E...",   // token contract address
-  amount: 1000000n,          // raw token amount (with decimals)
+  token: "0x4b36cb6E...", // token contract address
+  amount: 1000000n, // raw token amount (with decimals)
   chain: "horizen",
-  gasTip: "0.001",           // optional ETH tip for recipient's gas
+  gasTip: "0.001", // optional ETH tip for recipient's gas
 });
 
 await walletClient.sendTransaction(transaction);
@@ -375,7 +400,10 @@ await walletClient.sendTransaction(transaction);
 Register a `.wraith` name on-chain. The name is bound to the spending key.
 
 ```typescript
-import { buildRegisterName, deriveStealthKeys } from "@wraith-protocol/sdk/chains/evm";
+import {
+  buildRegisterName,
+  deriveStealthKeys,
+} from "@wraith-protocol/sdk/chains/evm";
 
 const keys = deriveStealthKeys(signature);
 const tx = buildRegisterName({
@@ -470,7 +498,12 @@ const result = await publicClient.call({ to: call.to, data: call.data });
 The raw ABIs are exported if you need to encode calls yourself:
 
 ```typescript
-import { SENDER_ABI, NAMES_ABI, REGISTRY_ABI, ANNOUNCER_ABI } from "@wraith-protocol/sdk/chains/evm";
+import {
+  SENDER_ABI,
+  NAMES_ABI,
+  REGISTRY_ABI,
+  ANNOUNCER_ABI,
+} from "@wraith-protocol/sdk/chains/evm";
 ```
 
 ## Chain Deployments
@@ -509,9 +542,9 @@ console.log(Object.keys(DEPLOYMENTS)); // ["horizen"]
 
 ### Supported EVM Chains
 
-| Chain | Chain ID | Status |
-|---|---|---|
-| Horizen Testnet | 2651420 | Live |
+| Chain           | Chain ID | Status |
+| --------------- | -------- | ------ |
+| Horizen Testnet | 2651420  | Live   |
 
 ## Fetching Announcements
 
@@ -527,5 +560,8 @@ const announcements = await fetchAnnouncements("horizen");
 Override the subgraph URL if needed:
 
 ```typescript
-const announcements = await fetchAnnouncements("horizen", "https://my-custom-subgraph.com/graphql");
+const announcements = await fetchAnnouncements(
+  "horizen",
+  "https://my-custom-subgraph.com/graphql",
+);
 ```

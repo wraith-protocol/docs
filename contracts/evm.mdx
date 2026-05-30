@@ -1,19 +1,32 @@
 ---
 title: "EVM Contracts"
 description: "Solidity contract specs and deployment"
+keywords:
+  [
+    "EVM contracts",
+    "Solidity",
+    "ERC5564Announcer",
+    "ERC6538Registry",
+    "WraithSender",
+    "WraithNames",
+    "WraithWithdrawer",
+    "deployment",
+    "meta-address",
+    "metaaddress",
+  ]
 ---
 
 Solidity smart contracts for stealth address operations on EVM-compatible chains. Four contracts are deployed per chain.
 
 ## Contract Set
 
-| Contract | Purpose |
-|---|---|
-| ERC5564Announcer | Emits stealth address announcements |
-| ERC6538Registry | Maps addresses to stealth meta-addresses |
-| WraithSender | Atomic send + announce in one transaction |
-| WraithNames | `.wraith` name to meta-address mapping |
-| WraithWithdrawer | Gas-sponsored withdrawals (EIP-7702) |
+| Contract         | Purpose                                   |
+| ---------------- | ----------------------------------------- |
+| ERC5564Announcer | Emits stealth address announcements       |
+| ERC6538Registry  | Maps addresses to stealth meta-addresses  |
+| WraithSender     | Atomic send + announce in one transaction |
+| WraithNames      | `.wraith` name to meta-address mapping    |
+| WraithWithdrawer | Gas-sponsored withdrawals (EIP-7702)      |
 
 ---
 
@@ -147,7 +160,10 @@ function batchSendETH(
 ### Usage
 
 ```typescript
-import { generateStealthAddress, SCHEME_ID } from "@wraith-protocol/sdk/chains/evm";
+import {
+  generateStealthAddress,
+  SCHEME_ID,
+} from "@wraith-protocol/sdk/chains/evm";
 
 const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 const metadata = `0x${stealth.viewTag.toString(16).padStart(2, "0")}`;
@@ -155,7 +171,7 @@ const metadata = `0x${stealth.viewTag.toString(16).padStart(2, "0")}`;
 // Send ETH + announce in one tx
 await sender.write.sendETH(
   [SCHEME_ID, stealth.stealthAddress, stealth.ephemeralPubKey, metadata],
-  { value: parseEther("0.1") }
+  { value: parseEther("0.1") },
 );
 ```
 
@@ -280,9 +296,9 @@ type Announcement @entity {
 
 ### Deployed Addresses (Horizen Testnet)
 
-| Contract | Address |
-|---|---|
+| Contract         | Address                                      |
+| ---------------- | -------------------------------------------- |
 | ERC5564Announcer | `0x8AE65c05E7eb48B9bA652781Bc0a3DBA09A484F3` |
-| ERC6538Registry | `0x953E6cEdcdfAe321796e7637d33653F6Ce05c527` |
-| WraithSender | `0x226C5eb4e139D9fa01cc09eA318638b090b12095` |
-| WraithNames | `0x3d46f709a99A3910f52bD292211Eb5D557F882D6` |
+| ERC6538Registry  | `0x953E6cEdcdfAe321796e7637d33653F6Ce05c527` |
+| WraithSender     | `0x226C5eb4e139D9fa01cc09eA318638b090b12095` |
+| WraithNames      | `0x3d46f709a99A3910f52bD292211Eb5D557F882D6` |

@@ -1,6 +1,20 @@
 ---
 title: "Roadmap"
 description: "Development phases and upcoming features"
+keywords:
+  [
+    "roadmap",
+    "launch phases",
+    "upcoming features",
+    "Stellar",
+    "Solana",
+    "Sui",
+    "Aptos",
+    "TON",
+    "FHE-DKSAP",
+    "private messaging",
+    "paymaster",
+  ]
 ---
 
 ## Phase 1 — Foundation (done)
@@ -61,6 +75,7 @@ Public developer API with managed infrastructure. Consumer-facing products.
 ### Why EVM expansion is fast
 
 Adding a new EVM chain requires:
+
 1. Deploy the same 4 Solidity contracts (Announcer, Registry, Sender, Names)
 2. Set up announcement indexing (subgraph or custom indexer)
 3. Register the chain config in the connector registry
@@ -71,17 +86,20 @@ No new code. The `EVMConnector` handles all EVM chains with the same logic — o
 import { Chain } from "@wraith-protocol/sdk";
 
 // Adding Arbitrum — same connector, new config
-chainRegistry.register(Chain.Arbitrum, new EVMConnector({
-  chainId: 42161,
-  rpcUrl: "https://arb1.arbitrum.io/rpc",
-  explorerUrl: "https://arbiscan.io",
-  contracts: {
-    announcer: "0x...",
-    registry: "0x...",
-    sender: "0x...",
-    names: "0x...",
-  },
-}));
+chainRegistry.register(
+  Chain.Arbitrum,
+  new EVMConnector({
+    chainId: 42161,
+    rpcUrl: "https://arb1.arbitrum.io/rpc",
+    explorerUrl: "https://arbiscan.io",
+    contracts: {
+      announcer: "0x...",
+      registry: "0x...",
+      sender: "0x...",
+      names: "0x...",
+    },
+  }),
+);
 ```
 
 ## Phase 4 — Chain Expansion
@@ -99,6 +117,7 @@ New chain families beyond the current four. Each requires a new `ChainConnector`
 ### Non-EVM chain effort
 
 Unlike EVM chains (which are config-only), each new chain family requires:
+
 1. A new `ChainConnector` class implementing the standard interface
 2. Stealth address contracts deployed on the target chain
 3. Chain-specific transaction building and signing logic

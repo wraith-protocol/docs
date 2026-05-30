@@ -1,17 +1,29 @@
 ---
 title: "Solana Contracts"
 description: "Anchor program specs and deployment"
+keywords:
+  [
+    "Solana contracts",
+    "Anchor",
+    "programs",
+    "wraith-announcer",
+    "wraith-sender",
+    "wraith-names",
+    "SOL",
+    "deployment",
+    "ed25519",
+  ]
 ---
 
 Solana programs (smart contracts) for stealth address operations, written in Rust with the Anchor framework.
 
 ## Program Set
 
-| Program | Purpose |
-|---|---|
+| Program          | Purpose                                   |
+| ---------------- | ----------------------------------------- |
 | wraith-announcer | Emits stealth address announcement events |
-| wraith-sender | Atomic SOL/SPL transfer + announcement |
-| wraith-names | `.wraith` name to meta-address mapping |
+| wraith-sender    | Atomic SOL/SPL transfer + announcement    |
+| wraith-names     | `.wraith` name to meta-address mapping    |
 
 ---
 
@@ -143,7 +155,10 @@ pub struct SendSpl<'info> {
 ### Usage
 
 ```typescript
-import { generateStealthAddress, SCHEME_ID } from "@wraith-protocol/sdk/chains/solana";
+import {
+  generateStealthAddress,
+  SCHEME_ID,
+} from "@wraith-protocol/sdk/chains/solana";
 import { PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
@@ -261,7 +276,10 @@ pub enum WraithError {
 import { encodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/solana";
 import { PublicKey } from "@solana/web3.js";
 
-const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+const metaAddress = encodeStealthMetaAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey,
+);
 
 // Derive PDA for the name
 const [nameRecordPda] = PublicKey.findProgramAddressSync(
@@ -330,6 +348,7 @@ anchor test
 ```
 
 Tests cover:
+
 - **wraith-announcer** — event emission, multiple callers, metadata preservation
 - **wraith-sender** — `send_sol` transfers + emits, `send_spl` token transfer + emits, insufficient funds rejection
 - **wraith-names** — register/resolve, name validation (too short, invalid chars), update by owner, update by non-owner (rejected), release and re-register
@@ -338,14 +357,14 @@ Tests cover:
 
 ## Differences from EVM and Stellar Contracts
 
-| Aspect | EVM (Solidity) | Stellar (Soroban) | Solana (Anchor) |
-|---|---|---|---|
-| Language | Solidity | Rust | Rust (Anchor) |
-| Contract model | Bytecode deployment | WASM deployment | BPF program deployment |
-| Name storage | Contract storage | Contract storage | PDAs (Program Derived Addresses) |
-| Name sig verification | On-chain ECDSA recovery | Caller auth | Signer constraint |
-| Event indexing | Subgraph / The Graph | Soroban RPC `getEvents` | Program transaction logs |
-| Account model | Address always exists | Must `createAccount` first | Address always valid, no deployment |
-| Token transfers | `msg.value` / `safeTransferFrom` | Soroban token contract | SystemProgram / SPL Token |
-| Gas sponsorship | EIP-7702 (WraithWithdrawer) | Not applicable | Fee payer pattern |
-| Min balance | None | 1 XLM | ~0.00089 SOL (rent exemption) |
+| Aspect                | EVM (Solidity)                   | Stellar (Soroban)          | Solana (Anchor)                     |
+| --------------------- | -------------------------------- | -------------------------- | ----------------------------------- |
+| Language              | Solidity                         | Rust                       | Rust (Anchor)                       |
+| Contract model        | Bytecode deployment              | WASM deployment            | BPF program deployment              |
+| Name storage          | Contract storage                 | Contract storage           | PDAs (Program Derived Addresses)    |
+| Name sig verification | On-chain ECDSA recovery          | Caller auth                | Signer constraint                   |
+| Event indexing        | Subgraph / The Graph             | Soroban RPC `getEvents`    | Program transaction logs            |
+| Account model         | Address always exists            | Must `createAccount` first | Address always valid, no deployment |
+| Token transfers       | `msg.value` / `safeTransferFrom` | Soroban token contract     | SystemProgram / SPL Token           |
+| Gas sponsorship       | EIP-7702 (WraithWithdrawer)      | Not applicable             | Fee payer pattern                   |
+| Min balance           | None                             | 1 XLM                      | ~0.00089 SOL (rent exemption)       |

@@ -1,6 +1,18 @@
 ---
 title: "TypeScript Types"
 description: "Type definitions and interfaces"
+keywords:
+  [
+    "TypeScript types",
+    "interfaces",
+    "AgentConfig",
+    "AgentInfo",
+    "ChatResponse",
+    "ToolCall",
+    "Payment",
+    "Balance",
+    "SDK types",
+  ]
 ---
 
 All types exported from `@wraith-protocol/sdk`.
@@ -221,10 +233,10 @@ type HexString = `0x${string}`;
 
 ```typescript
 interface StealthKeys {
-  spendingKey: HexString;      // 32-byte private key
-  viewingKey: HexString;       // 32-byte private key
-  spendingPubKey: HexString;   // 33-byte compressed public key
-  viewingPubKey: HexString;    // 33-byte compressed public key
+  spendingKey: HexString; // 32-byte private key
+  viewingKey: HexString; // 32-byte private key
+  spendingPubKey: HexString; // 33-byte compressed public key
+  viewingPubKey: HexString; // 33-byte compressed public key
 }
 ```
 
@@ -232,8 +244,8 @@ interface StealthKeys {
 
 ```typescript
 interface StealthMetaAddress {
-  spendingPubKey: HexString;   // 33-byte compressed public key
-  viewingPubKey: HexString;    // 33-byte compressed public key
+  spendingPubKey: HexString; // 33-byte compressed public key
+  viewingPubKey: HexString; // 33-byte compressed public key
 }
 ```
 
@@ -241,9 +253,9 @@ interface StealthMetaAddress {
 
 ```typescript
 interface GeneratedStealthAddress {
-  stealthAddress: HexString;   // 20-byte EVM address
-  ephemeralPubKey: HexString;  // 33-byte compressed public key
-  viewTag: number;             // 0-255
+  stealthAddress: HexString; // 20-byte EVM address
+  ephemeralPubKey: HexString; // 33-byte compressed public key
+  viewTag: number; // 0-255
 }
 ```
 
@@ -255,7 +267,7 @@ interface Announcement {
   stealthAddress: HexString;
   caller: HexString;
   ephemeralPubKey: HexString;
-  metadata: HexString;         // first byte is view tag
+  metadata: HexString; // first byte is view tag
 }
 ```
 
@@ -288,12 +300,12 @@ import type {
 
 ```typescript
 interface StealthKeys {
-  spendingKey: Uint8Array;       // 32-byte seed
-  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
-  viewingKey: Uint8Array;        // 32-byte seed
-  viewingScalar: bigint;         // clamped scalar
-  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
-  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
+  spendingKey: Uint8Array; // 32-byte seed
+  spendingScalar: bigint; // clamped scalar from SHA-512(seed)
+  viewingKey: Uint8Array; // 32-byte seed
+  viewingScalar: bigint; // clamped scalar
+  spendingPubKey: Uint8Array; // 32-byte ed25519 public key
+  viewingPubKey: Uint8Array; // 32-byte ed25519 public key
 }
 ```
 
@@ -301,9 +313,9 @@ interface StealthKeys {
 
 ```typescript
 interface GeneratedStealthAddress {
-  stealthAddress: string;        // Stellar G... address
-  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
-  viewTag: number;               // 0-255
+  stealthAddress: string; // Stellar G... address
+  ephemeralPubKey: Uint8Array; // 32-byte ed25519 public key
+  viewTag: number; // 0-255
 }
 ```
 
@@ -312,10 +324,10 @@ interface GeneratedStealthAddress {
 ```typescript
 interface Announcement {
   schemeId: number;
-  stealthAddress: string;        // G... address
-  caller: string;                // G... address
-  ephemeralPubKey: string;       // hex-encoded 32 bytes
-  metadata: string;              // hex-encoded, first byte = view tag
+  stealthAddress: string; // G... address
+  caller: string; // G... address
+  ephemeralPubKey: string; // hex-encoded 32 bytes
+  metadata: string; // hex-encoded, first byte = view tag
 }
 ```
 

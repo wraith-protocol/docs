@@ -7,6 +7,15 @@
     "light": "/assets/images/logo-black.png"
   },
   "favicon": "/assets/images/logo-black.png",
+  "description": "Developer documentation for Wraith Protocol, a multichain stealth address platform for private payments across EVM chains, Stellar, Solana, and CKB.",
+  "search": {
+    "prompt": "Search Wraith docs, SDK guides, Stellar, stealth payments..."
+  },
+  "integrations": {
+    "telemetry": {
+      "enabled": true
+    }
+  },
   "colors": {
     "primary": "#c6c6c7",
     "light": "#e6e1e5",
@@ -60,10 +69,12 @@
         "groups": [
           {
             "group": "Overview",
+            "boost": 3,
             "pages": ["introduction", "getting-started", "roadmap"]
           },
           {
             "group": "Architecture",
+            "boost": 1.8,
             "pages": [
               "architecture/overview",
               "architecture/chain-connectors",
@@ -72,7 +83,13 @@
           },
           {
             "group": "Contracts",
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb"]
+            "boost": 1.4,
+            "pages": [
+              "contracts/evm",
+              "contracts/stellar",
+              "contracts/solana",
+              "contracts/ckb"
+            ]
           }
         ]
       },
@@ -81,11 +98,18 @@
         "groups": [
           {
             "group": "SDK",
+            "boost": 2.4,
             "pages": ["sdk/overview", "sdk/agent-client"]
           },
           {
             "group": "Chain Primitives",
-            "pages": ["sdk/chains/evm", "sdk/chains/stellar", "sdk/chains/solana", "sdk/chains/ckb"]
+            "boost": 2,
+            "pages": [
+              "sdk/chains/evm",
+              "sdk/chains/stellar",
+              "sdk/chains/solana",
+              "sdk/chains/ckb"
+            ]
           }
         ]
       },
@@ -94,6 +118,7 @@
         "groups": [
           {
             "group": "Guides",
+            "boost": 2.2,
             "pages": [
               "guides/stealth-payments",
               "guides/single-chain-agent",
@@ -109,6 +134,7 @@
         "groups": [
           {
             "group": "API Reference",
+            "boost": 1.2,
             "pages": ["api-reference/endpoints", "api-reference/types"]
           }
         ]

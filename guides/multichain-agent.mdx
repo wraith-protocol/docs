@@ -1,6 +1,19 @@
 ---
 title: "Multichain Agent"
 description: "Create an agent across multiple chains"
+keywords:
+  [
+    "multichain agent",
+    "multi-chain",
+    "cross-chain",
+    "Stellar",
+    "EVM",
+    "Ethereum",
+    "Horizen",
+    "Solana",
+    "chain-aware",
+    "route payment",
+  ]
 ---
 
 A multichain agent has one `.wraith` name with identities on multiple chains. The AI agent is chain-aware — chat naturally and it routes to the right chain.
@@ -135,13 +148,13 @@ await agent.chat("run privacy check on all chains");
 
 ## Single vs. Multichain
 
-| Feature | Single-Chain | Multichain |
-|---|---|---|
-| Chains | One | Multiple |
-| Addresses | One | One per chain |
-| Meta-addresses | One | One per chain |
-| Chat | Direct routing | AI infers chain |
-| Key derivation | One path | One path per chain |
-| Privacy | One chain analysis | Per-chain analysis |
+| Feature        | Single-Chain       | Multichain         |
+| -------------- | ------------------ | ------------------ |
+| Chains         | One                | Multiple           |
+| Addresses      | One                | One per chain      |
+| Meta-addresses | One                | One per chain      |
+| Chat           | Direct routing     | AI infers chain    |
+| Key derivation | One path           | One path per chain |
+| Privacy        | One chain analysis | Per-chain analysis |
 
 Both use the same SDK interface. The only difference is the `chain` parameter at creation time.

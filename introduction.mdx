@@ -1,6 +1,20 @@
 ---
 title: "Introduction"
 description: "Multichain stealth address platform for private payments"
+boost: 3.5
+keywords:
+  [
+    "stealth",
+    "unlinkable",
+    "private payments",
+    "privacy payments",
+    "multichain",
+    "meta-address",
+    "metaaddress",
+    "meta address",
+    "TEE",
+    "trusted execution environment",
+  ]
 ---
 
 Wraith is a multichain stealth address platform. Send and receive private payments across EVM chains, Stellar, Solana, and CKB through a single SDK. An AI agent handles chain-specific crypto, key management, and privacy analysis inside Trusted Execution Environment hardware.
@@ -51,15 +65,15 @@ const response = await agent.chat("scan for incoming payments");
 
 ## Supported Chains
 
-| Chain | Family | Status | Native Asset |
-|---|---|---|---|
-| Horizen | EVM | Live | ETH |
-| Ethereum | EVM | Planned | ETH |
-| Polygon | EVM | Planned | MATIC |
-| Base | EVM | Planned | ETH |
-| Stellar | Stellar | Live | XLM |
-| Solana | Solana | Live | SOL |
-| CKB | CKB (Cell/UTXO) | Live | CKB |
+| Chain    | Family          | Status  | Native Asset |
+| -------- | --------------- | ------- | ------------ |
+| Horizen  | EVM             | Live    | ETH          |
+| Ethereum | EVM             | Planned | ETH          |
+| Polygon  | EVM             | Planned | MATIC        |
+| Base     | EVM             | Planned | ETH          |
+| Stellar  | Stellar         | Live    | XLM          |
+| Solana   | Solana          | Live    | SOL          |
+| CKB      | CKB (Cell/UTXO) | Live    | CKB          |
 
 Adding a new EVM chain requires only configuration (RPC URL + contract addresses). Adding a new chain family requires implementing the `ChainConnector` interface.
 

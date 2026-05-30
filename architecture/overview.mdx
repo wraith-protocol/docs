@@ -1,6 +1,18 @@
 ---
 title: "Architecture"
 description: "System overview and how components fit together"
+boost: 1.8
+keywords:
+  [
+    "architecture",
+    "system overview",
+    "TEE server",
+    "SDK",
+    "chain connectors",
+    "managed infrastructure",
+    "trusted execution environment",
+    "DStack",
+  ]
 ---
 
 Wraith has three layers: the SDK (client library), the TEE infrastructure (managed by Wraith), and the blockchains.
@@ -101,75 +113,75 @@ async executeTool(toolName: string, args: Record<string, unknown>, agent: Agent)
 
 ### agents
 
-| Column | Type | Description |
-|---|---|---|
-| id | UUID (PK) | Agent identifier |
-| name | VARCHAR | `.wraith` name (unique) |
-| chain | VARCHAR | Target chain identifier |
-| ownerWallet | VARCHAR | Owner's wallet address |
-| address | VARCHAR | Agent's on-chain address |
-| metaAddress | TEXT | Stealth meta-address |
-| createdAt | TIMESTAMP | Creation time |
+| Column      | Type      | Description              |
+| ----------- | --------- | ------------------------ |
+| id          | UUID (PK) | Agent identifier         |
+| name        | VARCHAR   | `.wraith` name (unique)  |
+| chain       | VARCHAR   | Target chain identifier  |
+| ownerWallet | VARCHAR   | Owner's wallet address   |
+| address     | VARCHAR   | Agent's on-chain address |
+| metaAddress | TEXT      | Stealth meta-address     |
+| createdAt   | TIMESTAMP | Creation time            |
 
 ### conversations
 
-| Column | Type | Description |
-|---|---|---|
-| id | UUID (PK) | Conversation identifier |
-| agentId | UUID (FK) | References agents.id |
-| title | VARCHAR | Conversation title |
-| createdAt | TIMESTAMP | Created |
-| updatedAt | TIMESTAMP | Last updated |
+| Column    | Type      | Description             |
+| --------- | --------- | ----------------------- |
+| id        | UUID (PK) | Conversation identifier |
+| agentId   | UUID (FK) | References agents.id    |
+| title     | VARCHAR   | Conversation title      |
+| createdAt | TIMESTAMP | Created                 |
+| updatedAt | TIMESTAMP | Last updated            |
 
 ### messages
 
-| Column | Type | Description |
-|---|---|---|
-| id | SERIAL (PK) | Message identifier |
-| conversationId | UUID (FK) | References conversations.id |
-| role | VARCHAR | `user`, `agent`, `tool`, or `system` |
-| text | TEXT | Message content |
-| createdAt | TIMESTAMP | Created |
+| Column         | Type        | Description                          |
+| -------------- | ----------- | ------------------------------------ |
+| id             | SERIAL (PK) | Message identifier                   |
+| conversationId | UUID (FK)   | References conversations.id          |
+| role           | VARCHAR     | `user`, `agent`, `tool`, or `system` |
+| text           | TEXT        | Message content                      |
+| createdAt      | TIMESTAMP   | Created                              |
 
 ### invoices
 
-| Column | Type | Description |
-|---|---|---|
-| id | UUID (PK) | Invoice identifier |
-| agentId | UUID (FK) | References agents.id |
-| amount | VARCHAR | Payment amount |
-| asset | VARCHAR | Asset symbol |
-| memo | TEXT | Invoice description |
-| status | VARCHAR | `pending` or `paid` |
-| txHash | VARCHAR | Transaction hash (null until paid) |
-| createdAt | TIMESTAMP | Created |
+| Column    | Type      | Description                        |
+| --------- | --------- | ---------------------------------- |
+| id        | UUID (PK) | Invoice identifier                 |
+| agentId   | UUID (FK) | References agents.id               |
+| amount    | VARCHAR   | Payment amount                     |
+| asset     | VARCHAR   | Asset symbol                       |
+| memo      | TEXT      | Invoice description                |
+| status    | VARCHAR   | `pending` or `paid`                |
+| txHash    | VARCHAR   | Transaction hash (null until paid) |
+| createdAt | TIMESTAMP | Created                            |
 
 ### notifications
 
-| Column | Type | Description |
-|---|---|---|
-| id | SERIAL (PK) | Notification identifier |
-| agentId | UUID (FK) | References agents.id |
-| type | VARCHAR | Notification type |
-| title | VARCHAR | Title |
-| body | TEXT | Body |
-| read | BOOLEAN | Read status |
-| createdAt | TIMESTAMP | Created |
+| Column    | Type        | Description             |
+| --------- | ----------- | ----------------------- |
+| id        | SERIAL (PK) | Notification identifier |
+| agentId   | UUID (FK)   | References agents.id    |
+| type      | VARCHAR     | Notification type       |
+| title     | VARCHAR     | Title                   |
+| body      | TEXT        | Body                    |
+| read      | BOOLEAN     | Read status             |
+| createdAt | TIMESTAMP   | Created                 |
 
 ### scheduled_payments
 
-| Column | Type | Description |
-|---|---|---|
-| id | UUID (PK) | Schedule identifier |
-| agentId | UUID (FK) | References agents.id |
-| recipient | VARCHAR | `.wraith` name or meta-address |
-| amount | VARCHAR | Payment amount |
-| asset | VARCHAR | Asset symbol |
-| interval | VARCHAR | `daily`, `weekly`, or `monthly` |
-| status | VARCHAR | `active`, `paused`, or `cancelled` |
-| lastRun | TIMESTAMP | Last execution (null if never) |
-| nextRun | TIMESTAMP | Next scheduled execution |
-| createdAt | TIMESTAMP | Created |
+| Column    | Type      | Description                        |
+| --------- | --------- | ---------------------------------- |
+| id        | UUID (PK) | Schedule identifier                |
+| agentId   | UUID (FK) | References agents.id               |
+| recipient | VARCHAR   | `.wraith` name or meta-address     |
+| amount    | VARCHAR   | Payment amount                     |
+| asset     | VARCHAR   | Asset symbol                       |
+| interval  | VARCHAR   | `daily`, `weekly`, or `monthly`    |
+| status    | VARCHAR   | `active`, `paused`, or `cancelled` |
+| lastRun   | TIMESTAMP | Last execution (null if never)     |
+| nextRun   | TIMESTAMP | Next scheduled execution           |
+| createdAt | TIMESTAMP | Created                            |
 
 ## Platform Model
 
@@ -186,10 +198,10 @@ Wraith operates as a managed service, similar to Privy or Turnkey.
 
 ### AI Model Options
 
-| Option | Description |
-|---|---|
-| Default | Wraith's hosted Gemini model (included in API usage) |
-| Bring Your Own | Pass your own OpenAI/Claude/Gemini API key |
+| Option         | Description                                          |
+| -------------- | ---------------------------------------------------- |
+| Default        | Wraith's hosted Gemini model (included in API usage) |
+| Bring Your Own | Pass your own OpenAI/Claude/Gemini API key           |
 
 ```typescript
 import { Wraith } from "@wraith-protocol/sdk";

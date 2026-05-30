@@ -1,6 +1,18 @@
 ---
 title: "SDK Overview"
 description: "Package structure, entry points, and Chain enum"
+boost: 2.4
+keywords:
+  [
+    "SDK",
+    "package structure",
+    "entry points",
+    "Chain enum",
+    "@wraith-protocol/sdk",
+    "chain primitives",
+    "agent client",
+    "TypeScript SDK",
+  ]
 ---
 
 `@wraith-protocol/sdk` is a single npm package with multiple entry points. Most developers use the root import. Power users building custom stealth address integrations use the chain-specific imports.
@@ -13,13 +25,13 @@ npm install @wraith-protocol/sdk
 
 ## Entry Points
 
-| Import | Purpose | Audience |
-|---|---|---|
-| `@wraith-protocol/sdk` | Agent client — create agents, chat, payments | Most developers |
-| `@wraith-protocol/sdk/chains/evm` | Raw secp256k1 stealth crypto primitives | Power users building custom EVM integrations |
-| `@wraith-protocol/sdk/chains/stellar` | Raw ed25519 stealth crypto for Stellar | Power users building on Stellar |
-| `@wraith-protocol/sdk/chains/solana` | Raw ed25519 stealth crypto for Solana | Power users building on Solana |
-| `@wraith-protocol/sdk/chains/ckb` | Raw secp256k1 stealth crypto for CKB | Power users building on Nervos CKB |
+| Import                                | Purpose                                      | Audience                                     |
+| ------------------------------------- | -------------------------------------------- | -------------------------------------------- |
+| `@wraith-protocol/sdk`                | Agent client — create agents, chat, payments | Most developers                              |
+| `@wraith-protocol/sdk/chains/evm`     | Raw secp256k1 stealth crypto primitives      | Power users building custom EVM integrations |
+| `@wraith-protocol/sdk/chains/stellar` | Raw ed25519 stealth crypto for Stellar       | Power users building on Stellar              |
+| `@wraith-protocol/sdk/chains/solana`  | Raw ed25519 stealth crypto for Solana        | Power users building on Solana               |
+| `@wraith-protocol/sdk/chains/ckb`     | Raw secp256k1 stealth crypto for CKB         | Power users building on Nervos CKB           |
 
 ### Root Import — Agent Client
 
@@ -116,13 +128,13 @@ enum Chain {
 
 ## Dependencies
 
-| Package | Used By | Purpose |
-|---|---|---|
-| `@noble/curves` | EVM + Stellar + Solana + CKB chains | Elliptic curve operations |
-| `@noble/hashes` | EVM + Stellar + Solana + CKB chains | SHA-256, SHA-512, keccak256, blake2b |
-| `viem` | EVM chains + agent client | EVM utilities, address encoding |
-| `@stellar/stellar-sdk` | Stellar chain (optional peer dep) | StrKey encoding for Stellar addresses |
-| `@solana/web3.js` | Solana chain (optional peer dep) | PublicKey encoding for Solana addresses |
+| Package                | Used By                             | Purpose                                 |
+| ---------------------- | ----------------------------------- | --------------------------------------- |
+| `@noble/curves`        | EVM + Stellar + Solana + CKB chains | Elliptic curve operations               |
+| `@noble/hashes`        | EVM + Stellar + Solana + CKB chains | SHA-256, SHA-512, keccak256, blake2b    |
+| `viem`                 | EVM chains + agent client           | EVM utilities, address encoding         |
+| `@stellar/stellar-sdk` | Stellar chain (optional peer dep)   | StrKey encoding for Stellar addresses   |
+| `@solana/web3.js`      | Solana chain (optional peer dep)    | PublicKey encoding for Solana addresses |
 
 `@stellar/stellar-sdk` and `@solana/web3.js` are optional peer dependencies. They're only needed if you import their respective chain modules. The CKB module has no additional peer dependencies — it uses raw `fetch` for RPC calls and `@noble/hashes` for blake2b.
 
@@ -166,8 +178,8 @@ Both ESM and CJS formats are supported. TypeScript declarations are included.
 
 ## Next Steps
 
-- [Agent Client API](agent-client) — full reference for `Wraith` and `WraithAgent` classes
-- [EVM Crypto Primitives](chains/evm) — low-level stealth address functions for EVM
-- [Stellar Crypto Primitives](chains/stellar) — low-level stealth address functions for Stellar
-- [Solana Crypto Primitives](chains/solana) — low-level stealth address functions for Solana
-- [CKB Crypto Primitives](chains/ckb) — low-level stealth address functions for Nervos CKB
+- [Agent Client API](/sdk/agent-client) — full reference for `Wraith` and `WraithAgent` classes
+- [EVM Crypto Primitives](/sdk/chains/evm) — low-level stealth address functions for EVM
+- [Stellar Crypto Primitives](/sdk/chains/stellar) — low-level stealth address functions for Stellar
+- [Solana Crypto Primitives](/sdk/chains/solana) — low-level stealth address functions for Solana
+- [CKB Crypto Primitives](/sdk/chains/ckb) — low-level stealth address functions for Nervos CKB

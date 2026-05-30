@@ -1,6 +1,18 @@
 ---
 title: "Single-Chain Agent"
 description: "Create an agent on one blockchain"
+keywords:
+  [
+    "single chain agent",
+    "create agent",
+    "fund agent",
+    "send payment",
+    "scan payments",
+    "withdraw",
+    "invoice",
+    "testnet faucet",
+    "friendbot",
+  ]
 ---
 
 Create an agent on one chain and interact with it. This guide walks through the full lifecycle: creation, funding, payments, scanning, withdrawals, invoicing, and privacy.
@@ -26,15 +38,16 @@ const agent = await wraith.createAgent({
 ```
 
 The agent is now live on Horizen with:
+
 - A `.wraith` name: `alice.wraith`
 - An on-chain address for receiving direct transfers
 - A stealth meta-address for receiving private payments
 - An AI agent inside the TEE
 
 ```typescript
-console.log(agent.info.name);                        // "alice"
-console.log(agent.info.chains);                      // [Chain.Horizen]
-console.log(agent.info.addresses[Chain.Horizen]);     // "0x..."
+console.log(agent.info.name); // "alice"
+console.log(agent.info.chains); // [Chain.Horizen]
+console.log(agent.info.addresses[Chain.Horizen]); // "0x..."
 console.log(agent.info.metaAddresses[Chain.Horizen]); // "st:eth:0x..."
 ```
 
@@ -59,8 +72,8 @@ Or programmatically:
 
 ```typescript
 const balance = await agent.getBalance();
-console.log(balance.native);  // "0.5"
-console.log(balance.tokens);  // { ZEN: "0", USDC: "0" }
+console.log(balance.native); // "0.5"
+console.log(balance.tokens); // { ZEN: "0", USDC: "0" }
 ```
 
 ## Send a Stealth Payment
@@ -72,6 +85,7 @@ console.log(res.response);
 ```
 
 The agent:
+
 1. Resolves `bob.wraith` to a stealth meta-address
 2. Generates a one-time stealth address
 3. Sends ETH to the stealth address
@@ -105,7 +119,9 @@ const res = await agent.chat("withdraw all to 0xMyWallet");
 ## Create an Invoice
 
 ```typescript
-const res = await agent.chat("create an invoice for 0.5 ETH with memo design work");
+const res = await agent.chat(
+  "create an invoice for 0.5 ETH with memo design work",
+);
 console.log(res.response);
 // "Invoice created — [Pay 0.5 ETH](https://pay.wraith.dev/invoice/uuid)"
 ```
@@ -177,11 +193,11 @@ await agent.deleteConversation(convId);
 
 ```typescript
 const exportSig = await wallet.signMessage(
-  "Export private key for agent " + agent.info.id
+  "Export private key for agent " + agent.info.id,
 );
 const { secret } = await agent.exportKey(
   exportSig,
-  "Export private key for agent " + agent.info.id
+  "Export private key for agent " + agent.info.id,
 );
 console.log(secret); // "0x..." — the agent's private key
 ```

@@ -1,6 +1,21 @@
 ---
 title: "Getting Started"
 description: "Install the SDK, create your first agent, and send a private payment"
+boost: 5
+keywords:
+  [
+    "quickstart",
+    "quick start",
+    "onboarding",
+    "install SDK",
+    "create agent",
+    "send payment",
+    "send stellar payment",
+    "testnet",
+    "friendbot",
+    "testnet faucet",
+    "first payment",
+  ]
 ---
 
 Install the SDK, create your first agent, and send a private payment in under 5 minutes.
@@ -47,12 +62,13 @@ const agent = await wraith.createAgent({
   message: message,
 });
 
-console.log(agent.info.id);                          // UUID
-console.log(agent.info.addresses[Chain.Horizen]);     // "0x..."
+console.log(agent.info.id); // UUID
+console.log(agent.info.addresses[Chain.Horizen]); // "0x..."
 console.log(agent.info.metaAddresses[Chain.Horizen]); // "st:eth:0x..."
 ```
 
 The agent is now live. It has:
+
 - A `.wraith` name (`alice.wraith`) registered on-chain
 - A stealth meta-address for receiving private payments
 - An AI agent inside the TEE ready to process commands
@@ -81,6 +97,7 @@ console.log(response.toolCalls);
 ```
 
 Behind the scenes, the agent:
+
 1. Resolves `bob.wraith` to a stealth meta-address
 2. Generates a one-time stealth address from the meta-address
 3. Sends ETH to the stealth address
@@ -104,8 +121,8 @@ Or programmatically:
 
 ```typescript
 const balance = await agent.getBalance();
-console.log(balance.native);  // "1.5"
-console.log(balance.tokens);  // { ZEN: "100.0", USDC: "50.0" }
+console.log(balance.native); // "1.5"
+console.log(balance.tokens); // { ZEN: "100.0", USDC: "50.0" }
 ```
 
 ## Withdraw

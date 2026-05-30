@@ -1,18 +1,32 @@
 ---
 title: "Stellar Contracts"
 description: "Soroban contract specs and deployment"
+boost: 2.2
+keywords:
+  [
+    "Stellar contracts",
+    "Soroban",
+    "Stellar smart contract",
+    "stealth-announcer",
+    "stealth-registry",
+    "stealth-sender",
+    "wraith-names",
+    "XLM",
+    "friendbot",
+    "testnet faucet",
+  ]
 ---
 
 Soroban smart contracts (Rust) for stealth address operations on the Stellar network.
 
 ## Contract Set
 
-| Contract | Purpose |
-|---|---|
-| stealth-announcer | Emits stealth address announcements |
-| stealth-registry | Maps addresses to stealth meta-addresses |
-| stealth-sender | Atomic send + announce |
-| wraith-names | `.wraith` name to meta-address mapping |
+| Contract          | Purpose                                  |
+| ----------------- | ---------------------------------------- |
+| stealth-announcer | Emits stealth address announcements      |
+| stealth-registry  | Maps addresses to stealth meta-addresses |
+| stealth-sender    | Atomic send + announce                   |
+| wraith-names      | `.wraith` name to meta-address mapping   |
 
 ---
 
@@ -48,14 +62,16 @@ import { SCHEME_ID, bytesToHex } from "@wraith-protocol/sdk/chains/stellar";
 
 // After generating a stealth address
 const tx = new TransactionBuilder(account, { fee: "100" })
-  .addOperation(contract.call(
-    "announce",
-    xdr.ScVal.scvAddress(callerAddress),
-    xdr.ScVal.scvU32(SCHEME_ID),
-    xdr.ScVal.scvAddress(stealthAddress),
-    xdr.ScVal.scvBytes(ephemeralPubKey),
-    xdr.ScVal.scvBytes(metadata),
-  ))
+  .addOperation(
+    contract.call(
+      "announce",
+      xdr.ScVal.scvAddress(callerAddress),
+      xdr.ScVal.scvU32(SCHEME_ID),
+      xdr.ScVal.scvAddress(stealthAddress),
+      xdr.ScVal.scvBytes(ephemeralPubKey),
+      xdr.ScVal.scvBytes(metadata),
+    ),
+  )
   .build();
 ```
 
@@ -92,7 +108,10 @@ pub fn stealth_meta_address_of(
 ```typescript
 import { encodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/stellar";
 
-const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+const metaAddress = encodeStealthMetaAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey,
+);
 // Register the raw 64-byte key material (without the "st:xlm:" prefix)
 ```
 
@@ -131,28 +150,34 @@ pub fn batch_send(
 ```
 
 The `send` function:
+
 1. Transfers `amount` of `token` from `caller` to `stealth_address`
 2. Calls the announcer contract to emit an event
 
 ### Usage
 
 ```typescript
-import { generateStealthAddress, SCHEME_ID } from "@wraith-protocol/sdk/chains/stellar";
+import {
+  generateStealthAddress,
+  SCHEME_ID,
+} from "@wraith-protocol/sdk/chains/stellar";
 
 const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 
 // Send XLM + announce in one tx
 const tx = new TransactionBuilder(account, { fee: "100" })
-  .addOperation(senderContract.call(
-    "send",
-    callerAddress,
-    xlmTokenAddress,
-    stealth.stealthAddress,
-    amount,
-    SCHEME_ID,
-    stealth.ephemeralPubKey,
-    viewTagMetadata,
-  ))
+  .addOperation(
+    senderContract.call(
+      "send",
+      callerAddress,
+      xlmTokenAddress,
+      stealth.stealthAddress,
+      amount,
+      SCHEME_ID,
+      stealth.ephemeralPubKey,
+      viewTagMetadata,
+    ),
+  )
   .build();
 ```
 
@@ -183,11 +208,16 @@ pub fn name_of(env: Env, meta_address: Bytes) -> String;
 ```typescript
 import { encodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/stellar";
 
-const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+const metaAddress = encodeStealthMetaAddress(
+  keys.spendingPubKey,
+  keys.viewingPubKey,
+);
 
 // Register
 const tx = new TransactionBuilder(account, { fee: "100" })
-  .addOperation(namesContract.call("register", callerAddress, "alice", metaBytes))
+  .addOperation(
+    namesContract.call("register", callerAddress, "alice", metaBytes),
+  )
   .build();
 
 // Resolve
@@ -237,11 +267,13 @@ Stellar announcements are fetched via Soroban RPC, not a subgraph:
 ```typescript
 const events = await sorobanServer.getEvents({
   startLedger: lastProcessedLedger,
-  filters: [{
-    type: "contract",
-    contractIds: [announcerContractId],
-    topics: [["announce"]],
-  }],
+  filters: [
+    {
+      type: "contract",
+      contractIds: [announcerContractId],
+      topics: [["announce"]],
+    },
+  ],
 });
 ```
 
@@ -249,11 +281,11 @@ const events = await sorobanServer.getEvents({
 
 ## Differences from EVM Contracts
 
-| Aspect | EVM (Solidity) | Stellar (Soroban) |
-|---|---|---|
-| Language | Solidity | Rust |
-| Name sig verification | On-chain ECDSA recovery | Caller auth (Soroban built-in) |
-| Event indexing | Subgraph / The Graph | Soroban RPC `getEvents` |
-| Account model | Address always exists | Must `createAccount` first |
-| Token transfers | `msg.value` / `safeTransferFrom` | Soroban token contract calls |
-| Gas sponsorship | EIP-7702 (WraithWithdrawer) | Not applicable |
+| Aspect                | EVM (Solidity)                   | Stellar (Soroban)              |
+| --------------------- | -------------------------------- | ------------------------------ |
+| Language              | Solidity                         | Rust                           |
+| Name sig verification | On-chain ECDSA recovery          | Caller auth (Soroban built-in) |
+| Event indexing        | Subgraph / The Graph             | Soroban RPC `getEvents`        |
+| Account model         | Address always exists            | Must `createAccount` first     |
+| Token transfers       | `msg.value` / `safeTransferFrom` | Soroban token contract calls   |
+| Gas sponsorship       | EIP-7702 (WraithWithdrawer)      | Not applicable                 |

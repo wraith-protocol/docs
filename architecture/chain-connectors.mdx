@@ -1,6 +1,17 @@
 ---
 title: "Chain Connectors"
 description: "ChainConnector interface and adding new chains"
+keywords:
+  [
+    "ChainConnector",
+    "chain connector",
+    "new chain",
+    "EVM config",
+    "Stellar connector",
+    "Solana connector",
+    "address format",
+    "native asset",
+  ]
 ---
 
 Chain connectors are the abstraction layer between Wraith's chain-agnostic agent core and blockchain-specific logic. Each connector implements a standard interface, allowing the same agent engine to operate across any supported chain.
@@ -42,7 +53,7 @@ interface DerivedKeys {
 }
 
 interface ChainStealthKeys {
-  [key: string]: unknown;  // opaque to the core — each chain stores what it needs
+  [key: string]: unknown; // opaque to the core — each chain stores what it needs
 }
 
 interface SendPaymentParams {
@@ -57,7 +68,7 @@ interface WithdrawParams {
   stealthKeys: ChainStealthKeys;
   from: string;
   to: string;
-  amount?: string;  // undefined = withdraw max
+  amount?: string; // undefined = withdraw max
 }
 
 interface DetectedPayment {
@@ -104,16 +115,16 @@ interface EVMConnectorConfig {
 
 ### How Methods Map to SDK Primitives
 
-| Interface Method | Implementation |
-|---|---|
+| Interface Method   | Implementation                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
 | `deriveKeys(seed)` | SHA-256 seed -> `privateKeyToAccount` -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress` |
-| `sendPayment` | `decodeStealthMetaAddress` -> `generateStealthAddress` -> `writeContract(WraithSender, "sendETH")` |
-| `scanPayments` | Query subgraph for Announcement events -> `scanAnnouncements(events, ...)` -> fetch balances |
-| `getBalance` | `publicClient.getBalance` + `readContract(erc20, balanceOf)` per token |
-| `withdraw` | `deriveStealthPrivateKey` -> `privateKeyToAccount` -> `sendTransaction` |
-| `registerName` | `signNameRegistration(name, metaBytes, spendingKey)` -> `writeContract(WraithNames, "register")` |
-| `resolveName` | `readContract(WraithNames, "resolve", [name])` -> decode meta-address |
-| `fundWallet` | POST to faucet API (testnet) |
+| `sendPayment`      | `decodeStealthMetaAddress` -> `generateStealthAddress` -> `writeContract(WraithSender, "sendETH")`              |
+| `scanPayments`     | Query subgraph for Announcement events -> `scanAnnouncements(events, ...)` -> fetch balances                    |
+| `getBalance`       | `publicClient.getBalance` + `readContract(erc20, balanceOf)` per token                                          |
+| `withdraw`         | `deriveStealthPrivateKey` -> `privateKeyToAccount` -> `sendTransaction`                                         |
+| `registerName`     | `signNameRegistration(name, metaBytes, spendingKey)` -> `writeContract(WraithNames, "register")`                |
+| `resolveName`      | `readContract(WraithNames, "resolve", [name])` -> decode meta-address                                           |
+| `fundWallet`       | POST to faucet API (testnet)                                                                                    |
 
 ### Adding a New EVM Chain
 
@@ -123,39 +134,46 @@ No code changes required. Register a new chain with its config:
 import { Chain } from "@wraith-protocol/sdk";
 
 // Horizen Testnet
-chainRegistry.register(Chain.Horizen, new EVMConnector({
-  chainId: 2651420,
-  rpcUrl: "https://horizen-testnet.rpc.caldera.xyz/http",
-  explorerUrl: "https://horizen-testnet.explorer.caldera.xyz",
-  contracts: {
-    announcer: "0x8AE65c05E7eb48B9bA652781Bc0a3DBA09A484F3",
-    registry: "0x953E6cEdcdfAe321796e7637d33653F6Ce05c527",
-    sender: "0x226C5eb4e139D9fa01cc09eA318638b090b12095",
-    names: "0x3d46f709a99A3910f52bD292211Eb5D557F882D6",
-  },
-  subgraphUrl: "https://api.goldsky.com/api/public/...",
-  tokens: {
-    ETH: { address: "native", decimals: 18 },
-    ZEN: { address: "0x4b36cb6E...", decimals: 18 },
-    USDC: { address: "0x01c7AEb2...", decimals: 6 },
-  },
-}));
+chainRegistry.register(
+  Chain.Horizen,
+  new EVMConnector({
+    chainId: 2651420,
+    rpcUrl: "https://horizen-testnet.rpc.caldera.xyz/http",
+    explorerUrl: "https://horizen-testnet.explorer.caldera.xyz",
+    contracts: {
+      announcer: "0x8AE65c05E7eb48B9bA652781Bc0a3DBA09A484F3",
+      registry: "0x953E6cEdcdfAe321796e7637d33653F6Ce05c527",
+      sender: "0x226C5eb4e139D9fa01cc09eA318638b090b12095",
+      names: "0x3d46f709a99A3910f52bD292211Eb5D557F882D6",
+    },
+    subgraphUrl: "https://api.goldsky.com/api/public/...",
+    tokens: {
+      ETH: { address: "native", decimals: 18 },
+      ZEN: { address: "0x4b36cb6E...", decimals: 18 },
+      USDC: { address: "0x01c7AEb2...", decimals: 6 },
+    },
+  }),
+);
 
 // Ethereum Mainnet — same connector, different config
-chainRegistry.register(Chain.Ethereum, new EVMConnector({
-  chainId: 1,
-  rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/...",
-  explorerUrl: "https://etherscan.io",
-  contracts: {
-    announcer: "0x...",
-    registry: "0x...",
-    sender: "0x...",
-    names: "0x...",
-  },
-}));
+chainRegistry.register(
+  Chain.Ethereum,
+  new EVMConnector({
+    chainId: 1,
+    rpcUrl: "https://eth-mainnet.g.alchemy.com/v2/...",
+    explorerUrl: "https://etherscan.io",
+    contracts: {
+      announcer: "0x...",
+      registry: "0x...",
+      sender: "0x...",
+      names: "0x...",
+    },
+  }),
+);
 ```
 
 **Requirements for each new EVM chain:**
+
 1. Deploy the 4 Solidity contracts (Announcer, Registry, Sender, Names)
 2. Set up a subgraph to index Announcement events
 3. Add config to the registry
@@ -166,16 +184,16 @@ chainRegistry.register(Chain.Ethereum, new EVMConnector({
 
 ### How Methods Map to SDK Primitives
 
-| Interface Method | Implementation |
-|---|---|
-| `deriveKeys(seed)` | SHA-256 seed -> ed25519 seed -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress` |
-| `sendPayment` | `decodeStealthMetaAddress` -> `generateStealthAddress` -> `Operation.createAccount` -> Soroban announcer |
-| `scanPayments` | Fetch Soroban events -> `scanAnnouncements(events, ...)` -> fetch balances from Horizon |
-| `getBalance` | `GET /accounts/{key}` from Horizon |
-| `withdraw` | `deriveStealthPrivateScalar` -> build payment tx -> `signStellarTransaction` -> submit to Horizon |
-| `registerName` | Call Soroban WraithNames `register(name, metaAddress)` |
-| `resolveName` | Simulate Soroban WraithNames `resolve(name)` |
-| `fundWallet` | Stellar Friendbot `GET /friendbot?addr={key}` |
+| Interface Method   | Implementation                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------- |
+| `deriveKeys(seed)` | SHA-256 seed -> ed25519 seed -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress`   |
+| `sendPayment`      | `decodeStealthMetaAddress` -> `generateStealthAddress` -> `Operation.createAccount` -> Soroban announcer |
+| `scanPayments`     | Fetch Soroban events -> `scanAnnouncements(events, ...)` -> fetch balances from Horizon                  |
+| `getBalance`       | `GET /accounts/{key}` from Horizon                                                                       |
+| `withdraw`         | `deriveStealthPrivateScalar` -> build payment tx -> `signStellarTransaction` -> submit to Horizon        |
+| `registerName`     | Call Soroban WraithNames `register(name, metaAddress)`                                                   |
+| `resolveName`      | Simulate Soroban WraithNames `resolve(name)`                                                             |
+| `fundWallet`       | Stellar Friendbot `GET /friendbot?addr={key}`                                                            |
 
 ### Stellar-Specific Considerations
 
@@ -205,16 +223,16 @@ Handles Solana using ed25519 and Anchor programs.
 
 ### How Methods Map to SDK Primitives
 
-| Interface Method | Implementation |
-|---|---|
-| `deriveKeys(seed)` | SHA-256 seed -> ed25519 seed -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress` |
-| `sendPayment` | `decodeStealthMetaAddress` -> `generateStealthAddress` -> Anchor instruction `wraith_sender.send_sol` (transfer + announce atomically) |
-| `scanPayments` | Fetch announcer program transaction logs -> parse Anchor events -> `scanAnnouncements(events, ...)` -> fetch balances |
-| `getBalance` | `connection.getBalance(address)` for SOL, `connection.getTokenAccountsByOwner()` for SPL tokens |
-| `withdraw` | `deriveStealthPrivateScalar` -> `signWithScalar` to sign `SystemProgram.transfer` -> `sendRawTransaction` |
-| `registerName` | Anchor instruction `wraith_names.register` with name + 64-byte meta-address |
-| `resolveName` | Derive PDA from `["name", nameBytes]` -> fetch and decode `NameRecord` account |
-| `fundWallet` | `connection.requestAirdrop(address, lamports)` (devnet) |
+| Interface Method   | Implementation                                                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `deriveKeys(seed)` | SHA-256 seed -> ed25519 seed -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress`                                 |
+| `sendPayment`      | `decodeStealthMetaAddress` -> `generateStealthAddress` -> Anchor instruction `wraith_sender.send_sol` (transfer + announce atomically) |
+| `scanPayments`     | Fetch announcer program transaction logs -> parse Anchor events -> `scanAnnouncements(events, ...)` -> fetch balances                  |
+| `getBalance`       | `connection.getBalance(address)` for SOL, `connection.getTokenAccountsByOwner()` for SPL tokens                                        |
+| `withdraw`         | `deriveStealthPrivateScalar` -> `signWithScalar` to sign `SystemProgram.transfer` -> `sendRawTransaction`                              |
+| `registerName`     | Anchor instruction `wraith_names.register` with name + 64-byte meta-address                                                            |
+| `resolveName`      | Derive PDA from `["name", nameBytes]` -> fetch and decode `NameRecord` account                                                         |
+| `fundWallet`       | `connection.requestAirdrop(address, lamports)` (devnet)                                                                                |
 
 ### Solana-Specific Considerations
 
@@ -231,7 +249,7 @@ interface SolanaConnectorConfig {
   rpcUrl: string;
   explorerUrl: string;
   contracts: {
-    announcer: string;  // program ID (base58)
+    announcer: string; // program ID (base58)
     sender: string;
     names: string;
   };
@@ -242,16 +260,19 @@ interface SolanaConnectorConfig {
 ```typescript
 import { Chain } from "@wraith-protocol/sdk";
 
-chainRegistry.register(Chain.Solana, new SolanaConnector({
-  rpcUrl: "https://api.devnet.solana.com",
-  explorerUrl: "https://explorer.solana.com",
-  contracts: {
-    announcer: "...",  // deployed program ID
-    sender: "...",
-    names: "...",
-  },
-  cluster: "devnet",
-}));
+chainRegistry.register(
+  Chain.Solana,
+  new SolanaConnector({
+    rpcUrl: "https://api.devnet.solana.com",
+    explorerUrl: "https://explorer.solana.com",
+    contracts: {
+      announcer: "...", // deployed program ID
+      sender: "...",
+      names: "...",
+    },
+    cluster: "devnet",
+  }),
+);
 ```
 
 ---
@@ -262,16 +283,16 @@ Handles Nervos CKB using secp256k1 and the UTXO-based Cell model. CKB is archite
 
 ### How Methods Map to SDK Primitives
 
-| Interface Method | Implementation |
-|---|---|
-| `deriveKeys(seed)` | SHA-256 seed -> `privateKeyToAccount` -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress` |
-| `sendPayment` | `decodeStealthMetaAddress` -> `generateStealthAddress` -> create Cell with `stealth-lock` (args = ephemeral_pub \|\| blake160) |
-| `scanPayments` | `get_cells` RPC filtered by stealth-lock code hash -> `scanStealthCells(cells, ...)` -> return matched Cells with balances |
-| `getBalance` | Sum capacity of all matched stealth Cells |
-| `withdraw` | `deriveStealthPrivateKey` -> sign transaction consuming stealth Cell -> create destination Cell |
-| `registerName` | `buildRegisterName({ name, spendingPubKey, viewingPubKey })` -> create Cell with `wraith-names-type` type script, lock = owner |
-| `resolveName` | `buildResolveName({ name })` -> `get_cells` RPC filtered by type script -> `metaAddressFromNameData(data)` |
-| `fundWallet` | CKB testnet faucet |
+| Interface Method   | Implementation                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `deriveKeys(seed)` | SHA-256 seed -> `privateKeyToAccount` -> sign message -> `deriveStealthKeys(sig)` -> `encodeStealthMetaAddress`                |
+| `sendPayment`      | `decodeStealthMetaAddress` -> `generateStealthAddress` -> create Cell with `stealth-lock` (args = ephemeral_pub \|\| blake160) |
+| `scanPayments`     | `get_cells` RPC filtered by stealth-lock code hash -> `scanStealthCells(cells, ...)` -> return matched Cells with balances     |
+| `getBalance`       | Sum capacity of all matched stealth Cells                                                                                      |
+| `withdraw`         | `deriveStealthPrivateKey` -> sign transaction consuming stealth Cell -> create destination Cell                                |
+| `registerName`     | `buildRegisterName({ name, spendingPubKey, viewingPubKey })` -> create Cell with `wraith-names-type` type script, lock = owner |
+| `resolveName`      | `buildResolveName({ name })` -> `get_cells` RPC filtered by type script -> `metaAddressFromNameData(data)`                     |
+| `fundWallet`       | CKB testnet faucet                                                                                                             |
 
 ### CKB-Specific Considerations
 
@@ -304,19 +325,27 @@ interface CKBConnectorConfig {
 ```typescript
 import { Chain } from "@wraith-protocol/sdk";
 
-chainRegistry.register(Chain.CKB, new CKBConnector({
-  rpcUrl: "https://testnet.ckbapp.dev",
-  explorerUrl: "https://pudge.explorer.nervos.org",
-  contracts: {
-    stealthLockCodeHash: "0x...",
-    namesTypeCodeHash: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
-  },
-  cellDeps: {
-    stealthLock: { txHash: "0x...", index: 0 },
-    namesType: { txHash: "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8", index: 0 },
-  },
-  network: "testnet",
-}));
+chainRegistry.register(
+  Chain.CKB,
+  new CKBConnector({
+    rpcUrl: "https://testnet.ckbapp.dev",
+    explorerUrl: "https://pudge.explorer.nervos.org",
+    contracts: {
+      stealthLockCodeHash: "0x...",
+      namesTypeCodeHash:
+        "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
+    },
+    cellDeps: {
+      stealthLock: { txHash: "0x...", index: 0 },
+      namesType: {
+        txHash:
+          "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8",
+        index: 0,
+      },
+    },
+    network: "testnet",
+  }),
+);
 ```
 
 ---
@@ -335,7 +364,10 @@ class ChainRegistry {
 
   get(chain: string): ChainConnector {
     const c = this.connectors.get(chain);
-    if (!c) throw new Error(`Unsupported chain: "${chain}". Available: ${this.supportedChains().join(", ")}`);
+    if (!c)
+      throw new Error(
+        `Unsupported chain: "${chain}". Available: ${this.supportedChains().join(", ")}`,
+      );
     return c;
   }
 
@@ -377,12 +409,12 @@ The agent core, AI engine, storage, notifications, and scheduling work automatic
 
 ### Key Differences Between Chain Families
 
-| Aspect | EVM | Stellar | Solana | CKB |
-|---|---|---|---|---|
-| Curve | secp256k1 | ed25519 | ed25519 | secp256k1 |
-| Address format | `0x...` (20 bytes) | `G...` (56 chars) | Base58 | bech32m |
-| Meta-address prefix | `st:eth:0x` | `st:xlm:` | `st:sol:` | `st:ckb:` |
-| Contracts | Solidity | Soroban (Rust) | Solana Programs | RISC-V Lock Script |
-| Announcements | EVM events / subgraph | Soroban events / Horizon | Program log events | **Embedded in Cell args** |
-| Native asset | ETH | XLM | SOL | CKB |
-| Account model | Balance-based | Account must exist first | Balance-based | UTXO (Cell) |
+| Aspect              | EVM                   | Stellar                  | Solana             | CKB                       |
+| ------------------- | --------------------- | ------------------------ | ------------------ | ------------------------- |
+| Curve               | secp256k1             | ed25519                  | ed25519            | secp256k1                 |
+| Address format      | `0x...` (20 bytes)    | `G...` (56 chars)        | Base58             | bech32m                   |
+| Meta-address prefix | `st:eth:0x`           | `st:xlm:`                | `st:sol:`          | `st:ckb:`                 |
+| Contracts           | Solidity              | Soroban (Rust)           | Solana Programs    | RISC-V Lock Script        |
+| Announcements       | EVM events / subgraph | Soroban events / Horizon | Program log events | **Embedded in Cell args** |
+| Native asset        | ETH                   | XLM                      | SOL                | CKB                       |
+| Account model       | Balance-based         | Account must exist first | Balance-based      | UTXO (Cell)               |

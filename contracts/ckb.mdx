@@ -1,6 +1,18 @@
 ---
 title: "CKB Contracts"
 description: "Lock script specs and the Cell model for stealth addresses on Nervos CKB"
+keywords:
+  [
+    "CKB contracts",
+    "Nervos",
+    "lock script",
+    "Cell model",
+    "RISC-V",
+    "CKB-VM",
+    "capacity",
+    "type script",
+    "deployment",
+  ]
 ---
 
 CKB scripts (smart contracts) for stealth address operations on the Nervos CKB network. Written in Rust and compiled to RISC-V binaries that run on CKB-VM.
@@ -41,6 +53,7 @@ CKB has a built-in indexer with an RPC method `get_cells` that filters by lock s
 ### Spending = Consuming Cells
 
 To withdraw funds, build a transaction that:
+
 1. **Inputs:** The stealth Cell being consumed
 2. **Outputs:** A new Cell at the destination address
 3. **Witness:** secp256k1 signature with the stealth private key
@@ -51,10 +64,10 @@ The stealth lock script verifies the signature against the pubkey hash in the ar
 
 ## Script Set
 
-| Script | Type | Purpose |
-|---|---|---|
+| Script              | Type        | Purpose                                         |
+| ------------------- | ----------- | ----------------------------------------------- |
 | wraith-stealth-lock | Lock Script | Verifies secp256k1 signatures for stealth Cells |
-| wraith-names-type | Type Script | `.wraith` name registration and resolution |
+| wraith-names-type   | Type Script | `.wraith` name registration and resolution      |
 
 `wraith-stealth-lock` handles stealth payments. `wraith-names-type` handles `.wraith` name registration.
 
@@ -124,14 +137,17 @@ CKB's default lock script (`secp256k1-blake160-sighash-all`) uses 20-byte blake1
 ### Usage
 
 ```typescript
-import { generateStealthAddress, getDeployment } from "@wraith-protocol/sdk/chains/ckb";
+import {
+  generateStealthAddress,
+  getDeployment,
+} from "@wraith-protocol/sdk/chains/ckb";
 
 const deployment = getDeployment("ckb");
 const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 
 // Create a Cell with stealth-lock
 const output = {
-  capacity: "0x" + (200_00000000n).toString(16), // 200 CKB
+  capacity: "0x" + 200_00000000n.toString(16), // 200 CKB
   lock: {
     codeHash: deployment.contracts.stealthLockCodeHash,
     hashType: "data2",
@@ -163,11 +179,11 @@ index: 0
 
 A `.wraith` name Cell has three meaningful fields:
 
-| Field | Content |
-|---|---|
+| Field       | Content                                                                         |
+| ----------- | ------------------------------------------------------------------------------- |
 | `type.args` | 32-byte blake2b hash of the name string (personalization: `"ckb-default-hash"`) |
-| `data` | 66 bytes: `spendingPubKey (33 bytes) \|\| viewingPubKey (33 bytes)` |
-| `lock` | Owner's lock script — whoever can spend this Cell owns the name |
+| `data`      | 66 bytes: `spendingPubKey (33 bytes) \|\| viewingPubKey (33 bytes)`             |
+| `lock`      | Owner's lock script — whoever can spend this Cell owns the name                 |
 
 The type script `args` uniquely identify the name. Two Cells cannot have the same type script (same code hash + same args) because the type script enforces uniqueness at creation time.
 
@@ -184,14 +200,17 @@ The type script runs on every transaction that creates, updates, or destroys a n
 **Data must be exactly 66 bytes.** The data field holds two 33-byte compressed secp256k1 public keys (spending + viewing). The type script rejects any Cell with data that is not exactly 66 bytes. This applies to both creation and update.
 
 **Create:** When a new name Cell is created, the type script verifies:
+
 1. No existing live Cell has the same type script (same code hash and args). CKB enforces this natively — two live Cells cannot share the same type script.
 2. The output data is exactly 66 bytes.
 
 **Update:** When a name Cell is consumed and recreated in the same transaction:
+
 1. The new output data must be exactly 66 bytes.
 2. The lock script on the input Cell must be satisfied (the owner authorized the transaction).
 
 **Destroy:** When a name Cell is consumed without being recreated:
+
 1. The lock script on the input Cell must be satisfied (the owner authorized the destruction).
 2. No further validation — the name is released and can be re-registered.
 
@@ -273,7 +292,7 @@ const { typeScript, data } = buildRegisterName({
 });
 
 const output = {
-  capacity: "0x" + (130_00000000n).toString(16),
+  capacity: "0x" + 130_00000000n.toString(16),
   lock: walletLockScript,
   type: {
     codeHash: typeScript.codeHash,
@@ -333,6 +352,7 @@ ckb-cli deploy gen-txs \
 ### Record Deployment Info
 
 After deployment, record:
+
 - **Code hash:** The blake2b hash of the deployed binary (used as `lock.code_hash` in stealth Cells)
 - **Cell dep:** The transaction hash and index where the script binary Cell lives (required in every transaction that uses the lock)
 
@@ -346,7 +366,8 @@ export const DEPLOYMENTS = {
     explorerUrl: "https://pudge.explorer.nervos.org",
     contracts: {
       stealthLockCodeHash: "0x...",
-      namesTypeCodeHash: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
+      namesTypeCodeHash:
+        "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
     },
     cellDeps: {
       stealthLock: {
@@ -354,7 +375,8 @@ export const DEPLOYMENTS = {
         index: 0,
       },
       namesType: {
-        txHash: "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8",
+        txHash:
+          "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8",
         index: 0,
       },
     },
@@ -367,12 +389,14 @@ export const DEPLOYMENTS = {
 Tests use CKB's native testing framework with `ckb-testtool`:
 
 **wraith-stealth-lock:**
+
 - **Args validation** — rejects args that aren't exactly 53 bytes
 - **Signature verification** — valid stealth key signature passes
 - **Wrong key rejection** — signature from a different key fails
 - **blake160 correctness** — hash matches CKB's standard implementation
 
 **wraith-names-type:**
+
 - **Data validation** — rejects data that isn't exactly 66 bytes
 - **Create** — allows creating a name Cell with valid 66-byte data
 - **Update** — allows updating data when the owner's lock is satisfied
@@ -384,16 +408,16 @@ Tests use CKB's native testing framework with `ckb-testtool`:
 
 ## Differences from Other Chains
 
-| Aspect | EVM (Solidity) | Stellar (Soroban) | Solana (Anchor) | CKB |
-|---|---|---|---|---|
-| Model | Account | Account | Account | UTXO (Cell) |
-| Language | Solidity | Rust | Rust (Anchor) | Rust (RISC-V) |
-| Announcement | Separate event | Separate event | Separate event | **Embedded in Cell** |
-| Scanning source | Subgraph | Soroban RPC | Program logs | `get_cells` RPC |
-| Script count | 4 contracts | 4 contracts | 3 programs | **2 scripts** (lock + type) |
-| Address hash | keccak256 | N/A | N/A | blake2b ("ckb-default-hash") |
-| Shared secret hash | keccak256 | SHA-256 | SHA-256 | SHA-256 |
-| Min balance | None | 1 XLM | ~0.00089 SOL | 61 CKB |
-| Names | On-chain contract | On-chain contract | On-chain program | Type Script (Cell-based) |
+| Aspect             | EVM (Solidity)    | Stellar (Soroban) | Solana (Anchor)  | CKB                          |
+| ------------------ | ----------------- | ----------------- | ---------------- | ---------------------------- |
+| Model              | Account           | Account           | Account          | UTXO (Cell)                  |
+| Language           | Solidity          | Rust              | Rust (Anchor)    | Rust (RISC-V)                |
+| Announcement       | Separate event    | Separate event    | Separate event   | **Embedded in Cell**         |
+| Scanning source    | Subgraph          | Soroban RPC       | Program logs     | `get_cells` RPC              |
+| Script count       | 4 contracts       | 4 contracts       | 3 programs       | **2 scripts** (lock + type)  |
+| Address hash       | keccak256         | N/A               | N/A              | blake2b ("ckb-default-hash") |
+| Shared secret hash | keccak256         | SHA-256           | SHA-256          | SHA-256                      |
+| Min balance        | None              | 1 XLM             | ~0.00089 SOL     | 61 CKB                       |
+| Names              | On-chain contract | On-chain contract | On-chain program | Type Script (Cell-based)     |
 
 The key architectural difference: CKB needs only **two scripts** to support stealth payments and names. The stealth lock handles payments (announcements are implicit in the Cell), and the names type script handles `.wraith` name registration. Other chains need 3-4 separate contracts for the same functionality.

@@ -1,6 +1,18 @@
 ---
 title: "Bring Your Own Model"
 description: "Use OpenAI, Claude, or other AI providers"
+keywords:
+  [
+    "BYOM",
+    "bring your own model",
+    "OpenAI",
+    "Claude",
+    "Gemini",
+    "AI provider",
+    "model configuration",
+    "X-AI-Provider",
+    "X-AI-Key",
+  ]
 ---
 
 By default, Wraith agents use a hosted Gemini model. You can replace it with OpenAI, Claude, or your own Gemini key to reduce cost or use a specific model.
@@ -25,11 +37,11 @@ All agents created from this client use your specified AI provider.
 
 ## Supported Providers
 
-| Provider | `ai.provider` | API Key Format |
-|---|---|---|
-| Google Gemini | `"gemini"` | Gemini API key |
-| OpenAI | `"openai"` | `sk-...` |
-| Anthropic Claude | `"claude"` | Anthropic API key |
+| Provider         | `ai.provider` | API Key Format    |
+| ---------------- | ------------- | ----------------- |
+| Google Gemini    | `"gemini"`    | Gemini API key    |
+| OpenAI           | `"openai"`    | `sk-...`          |
+| Anthropic Claude | `"claude"`    | Anthropic API key |
 
 ### OpenAI
 
@@ -81,13 +93,14 @@ const wraith = new Wraith({
 
 The AI configuration is passed to the TEE server via HTTP headers on every request:
 
-| Header | Value |
-|---|---|
+| Header          | Value                                     |
+| --------------- | ----------------------------------------- |
 | `Authorization` | `Bearer wraith_...` (your Wraith API key) |
-| `X-AI-Provider` | `openai`, `claude`, or `gemini` |
-| `X-AI-Key` | Your AI provider API key |
+| `X-AI-Provider` | `openai`, `claude`, or `gemini`           |
+| `X-AI-Key`      | Your AI provider API key                  |
 
 The TEE server:
+
 1. Receives your chat message
 2. Builds the system prompt with agent identity and tools
 3. Sends the conversation to your specified AI provider
@@ -98,11 +111,11 @@ Your AI key is only used server-side in the TEE. It's never stored — used for 
 
 ## Default vs. BYOM
 
-| Aspect | Default (Gemini) | Bring Your Own |
-|---|---|---|
-| Cost | Included in Wraith API usage | You pay your AI provider directly |
-| Model | Wraith's chosen Gemini model | Your choice |
-| Configuration | None | Pass `ai` option |
+| Aspect        | Default (Gemini)             | Bring Your Own                    |
+| ------------- | ---------------------------- | --------------------------------- |
+| Cost          | Included in Wraith API usage | You pay your AI provider directly |
+| Model         | Wraith's chosen Gemini model | Your choice                       |
+| Configuration | None                         | Pass `ai` option                  |
 
 ## Tool Compatibility
 

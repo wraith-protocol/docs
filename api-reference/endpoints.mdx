@@ -1,6 +1,18 @@
 ---
 title: "API Endpoints"
 description: "Full HTTP API reference for the managed platform"
+keywords:
+  [
+    "API endpoints",
+    "REST API",
+    "authentication",
+    "Bearer token",
+    "agent create",
+    "agents",
+    "chat endpoint",
+    "payment endpoint",
+    "HTTP reference",
+  ]
 ---
 
 The TEE server exposes a REST API. The SDK's `Wraith` and `WraithAgent` classes wrap these endpoints — most developers don't call them directly.
@@ -48,11 +60,11 @@ Create a new agent with a `.wraith` name.
 
 ```typescript
 {
-  id: string;            // UUID
-  name: string;          // "alice"
-  chain: string;         // "horizen"
-  address: string;       // agent's on-chain address
-  metaAddress: string;   // stealth meta-address
+  id: string; // UUID
+  name: string; // "alice"
+  chain: string; // "horizen"
+  address: string; // agent's on-chain address
+  metaAddress: string; // stealth meta-address
 }
 ```
 
@@ -127,8 +139,8 @@ Export the agent's private key. Requires a fresh wallet signature.
 
 ```typescript
 {
-  signature: string;     // fresh signature from owner wallet
-  message: string;       // signed message
+  signature: string; // fresh signature from owner wallet
+  message: string; // signed message
 }
 ```
 
@@ -136,7 +148,7 @@ Export the agent's private key. Requires a fresh wallet signature.
 
 ```typescript
 {
-  secret: string;        // "0x..." — the agent's private key
+  secret: string; // "0x..." — the agent's private key
 }
 ```
 
@@ -173,9 +185,9 @@ Send a natural language message to the AI agent.
 
 ```typescript
 interface ToolCall {
-  name: string;              // "send_payment", "scan_payments", etc.
-  status: string;            // "success" or "error"
-  detail?: string;           // JSON string with tool result
+  name: string; // "send_payment", "scan_payments", etc.
+  status: string; // "success" or "error"
+  detail?: string; // JSON string with tool result
 }
 ```
 
@@ -221,7 +233,7 @@ Array<{
   role: "user" | "agent" | "tool" | "system";
   text: string;
   createdAt: string;
-}>
+}>;
 ```
 
 ### Delete Conversation
@@ -353,13 +365,13 @@ All errors return JSON with a `message` field:
 }
 ```
 
-| Status Code | Meaning |
-|---|---|
-| 400 | Bad request (missing params, invalid signature) |
-| 401 | Unauthorized (invalid API key) |
-| 404 | Agent/invoice/conversation not found |
-| 409 | Conflict (name already taken) |
-| 500 | Server error |
+| Status Code | Meaning                                         |
+| ----------- | ----------------------------------------------- |
+| 400         | Bad request (missing params, invalid signature) |
+| 401         | Unauthorized (invalid API key)                  |
+| 404         | Agent/invoice/conversation not found            |
+| 409         | Conflict (name already taken)                   |
+| 500         | Server error                                    |
 
 ### Example
 

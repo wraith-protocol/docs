@@ -1,6 +1,17 @@
 ---
 title: "Privacy Best Practices"
 description: "Scoring, timing patterns, and address hygiene"
+keywords:
+  [
+    "privacy",
+    "privacy score",
+    "timing analysis",
+    "address hygiene",
+    "address correlation",
+    "unlinkable",
+    "stealth address best practices",
+    "metadata",
+  ]
 ---
 
 Stealth addresses provide strong privacy by default. But certain usage patterns can degrade that privacy. This guide explains what to avoid and how the Wraith agent helps.
@@ -34,13 +45,13 @@ const res = await agent.chat("run a privacy check");
 
 The privacy check starts at 100 points and deducts for observed risks:
 
-| Condition | Deduction | Severity |
-|---|---|---|
-| More than 5 unspent stealth addresses | -10 | Medium |
-| All payment amounts identical | -15 | High |
-| Consecutive payments less than 60 seconds apart | -20 | High |
-| Never withdrawn any payments | -5 | Info |
-| Connected wallet is the agent address | -5 | Info |
+| Condition                                       | Deduction | Severity |
+| ----------------------------------------------- | --------- | -------- |
+| More than 5 unspent stealth addresses           | -10       | Medium   |
+| All payment amounts identical                   | -15       | High     |
+| Consecutive payments less than 60 seconds apart | -20       | High     |
+| Never withdrawn any payments                    | -5        | Info     |
+| Connected wallet is the agent address           | -5        | Info     |
 
 ## What to Avoid
 
@@ -131,6 +142,7 @@ await agent.chat("withdraw all to 0xMyMainWallet");
 ```
 
 Response:
+
 ```
 Privacy concern — withdrawing all stealth addresses to a single
 known wallet links every payment to your identity. Observers can
@@ -155,6 +167,7 @@ await agent.chat("send 0.1 ETH to dave.wraith");
 ```
 
 Response on the third send:
+
 ```
 Payment sent. Note: your last 3 payments were all exactly 0.1 ETH.
 Identical amounts create a fingerprint. Consider varying the amount.
@@ -162,11 +175,11 @@ Identical amounts create a fingerprint. Consider varying the amount.
 
 ## Best Practices Summary
 
-| Practice | Why |
-|---|---|
+| Practice                                    | Why                                                |
+| ------------------------------------------- | -------------------------------------------------- |
 | Use a fresh destination for each withdrawal | Prevents linking stealth addresses to one identity |
-| Space withdrawals at least 1 hour apart | Defeats timing correlation analysis |
-| Never withdraw to your connected wallet | Keeps your identity separate from stealth activity |
-| Vary payment amounts slightly | Prevents amount-based fingerprinting |
-| Use different times of day | Avoids timezone-based profiling |
-| Consolidate stealth addresses periodically | Reduces on-chain footprint |
+| Space withdrawals at least 1 hour apart     | Defeats timing correlation analysis                |
+| Never withdraw to your connected wallet     | Keeps your identity separate from stealth activity |
+| Vary payment amounts slightly               | Prevents amount-based fingerprinting               |
+| Use different times of day                  | Avoids timezone-based profiling                    |
+| Consolidate stealth addresses periodically  | Reduces on-chain footprint                         |
