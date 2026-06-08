@@ -1,0 +1,124 @@
+---
+title: "Stellar Explorer Recipes"
+description: "Link Stellar accounts, transactions, contracts, and assets to block explorers"
+---
+
+Last verified: 2026-06-08
+
+Use explorer links whenever an integration shows an on-chain Stellar result. Wraith recommends `stellar.expert` as the default explorer because it has stable deep links for public network and testnet accounts, transactions, contracts, and assets.
+
+## URL Patterns
+
+Use `public` for Stellar Mainnet and `testnet` for Stellar Testnet.
+
+| Resource | stellar.expert URL |
+|---|---|
+| Account | `https://stellar.expert/explorer/{testnet|public}/account/{G...}` |
+| Transaction | `https://stellar.expert/explorer/{testnet|public}/tx/{hash}` |
+| Contract | `https://stellar.expert/explorer/{testnet|public}/contract/{C...}` |
+| Asset | `https://stellar.expert/explorer/{testnet|public}/asset/{code}-{issuer}` |
+
+<Note>
+  A native XLM balance belongs to the account page. Asset links are for issued assets such as `USDC-G...`.
+</Note>
+
+## Copyable Helper
+
+```typescript
+type StellarExplorerKind = "account" | "tx" | "contract" | "asset";
+type StellarExplorerNetwork = "testnet" | "public";
+
+const STELLAR_EXPERT_BASE = "https://stellar.expert/explorer";
+
+export function stellarExplorerUrl(
+  kind: StellarExplorerKind,
+  value: string,
+  network: StellarExplorerNetwork = "testnet"
+): string {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    throw new Error("Explorer value is required");
+  }
+
+  if (kind === "asset" && !normalized.includes("-")) {
+    throw new Error("Asset links must use CODE-ISSUER, for example USDC-G...");
+  }
+
+  const encoded = encodeURIComponent(normalized);
+  return `${STELLAR_EXPERT_BASE}/${network}/${kind}/${encoded}`;
+}
+
+// Examples
+stellarExplorerUrl("account", "GBZXN7PIRZGNMHGAU...", "testnet");
+stellarExplorerUrl("tx", "6d748ebc07d18d3a0b...", "public");
+stellarExplorerUrl("contract", "CCJLJ2QRBJAAKIG6EL...", "testnet");
+stellarExplorerUrl("asset", "USDC-GA5ZSEJYB37V...", "public");
+```
+
+The helper is intentionally small enough to copy into a frontend, backend job, or notification service. Keep the `network` value attached to the transaction or account record so a testnet transaction never links to Mainnet by accident.
+
+## When to Show Links
+
+Show a Stellar explorer link after every successful transaction submission, account creation, contract deployment, and asset trustline or payment result. If the transaction is still pending, label the action as submitted and update the UI when Horizon confirms it.
+
+Use labels that name the destination:
+
+- `View on stellar.expert`
+- `View transaction on stellar.expert`
+- `View stealth account on stellar.expert`
+
+Avoid vague labels such as `Open in explorer`, especially when a page contains multiple chain actions.
+
+For links that open a new tab, include the usual safety attributes:
+
+```tsx
+<a
+  href={stellarExplorerUrl("tx", txHash, "testnet")}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  View transaction on stellar.expert
+</a>
+```
+
+## Stealth Accounts
+
+A Stellar stealth address is still a normal Stellar account. On an explorer, it appears as a `G...` account with balances, operations, trustlines, and transaction history.
+
+The privacy guarantee is not that the stealth account is hidden from the explorer. The guarantee is that the one-time account is not linkable to the recipient's public identity unless the recipient later reveals that relationship through withdrawals, reuse, metadata, or off-chain disclosure.
+
+Practical UI guidance:
+
+- Show the stealth account link after funding or withdrawal so users can verify settlement.
+- Do not label the account as private on the explorer.
+- Warn users before withdrawing from many stealth accounts into the same destination, because that can reveal common ownership.
+- Keep `.wraith` names, customer identities, and off-chain metadata out of explorer link labels.
+
+## Alternative Explorers
+
+`stellar.expert` should be the default link target, but integrators may expose alternatives in advanced settings or support tooling.
+
+### StellarChain
+
+StellarChain focuses on Stellar account and transaction lookup. Use it as a manual fallback when a user asks for another explorer, and prefer the site search if a deep link format changes.
+
+```text
+https://stellarchain.io/
+```
+
+### StellarBeat
+
+StellarBeat is best suited for network and validator visibility, not transaction receipts. Link to it from infrastructure dashboards or status pages rather than payment receipts.
+
+```text
+https://stellarbeat.io/
+```
+
+## Integration Checklist
+
+- Persist the Stellar network next to every transaction hash, account, contract, and asset identifier.
+- Render `View on stellar.expert` only after the app knows which network produced the result.
+- Use transaction links for receipts and account links for balances.
+- Use contract links for Soroban deployments and contract support tickets.
+- Treat stealth account explorer links as transparent account-history views, not private views.

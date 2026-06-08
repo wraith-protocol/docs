@@ -96,6 +96,7 @@
             "group": "Guides",
             "pages": [
               "guides/stealth-payments",
+              "guides/stellar-explorer-recipes",
               "guides/single-chain-agent",
               "guides/multichain-agent",
               "guides/bring-your-own-model",
