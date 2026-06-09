@@ -98,6 +98,7 @@
               "guides/stealth-payments",
               "guides/single-chain-agent",
               "guides/multichain-agent",
+              "guides/spectre-stellar-cookbook",
               "guides/bring-your-own-model",
               "guides/privacy-best-practices"
             ]

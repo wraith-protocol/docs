@@ -1,0 +1,382 @@
+---
+title: "Spectre + Stellar Cookbook"
+description: "Copy-paste recipes for Stellar-only Wraith agents"
+---
+
+Last verified: 2026-06-09 against Spectre `src/agent/agent.controller.ts`, `src/agent/tools/agent-tools.service.ts`, `src/scheduler/scheduler.service.ts`, and `src/notifications/notification.controller.ts`.
+
+These recipes use a Stellar-only agent. Spectre exposes agent lifecycle and chat over REST, then executes payments, scheduling, name registration, scans, funding, and privacy checks through the agent tool layer.
+
+<Note>
+  External webhook, Slack, and email delivery are not exposed as public REST
+  configuration endpoints yet. Until
+  [wraith-protocol/spectre#2](https://github.com/wraith-protocol/spectre/issues/2)
+  lands, use the notification polling fallback shown in each recipe.
+</Note>
+
+## Shared setup
+
+Set the API host and API key once:
+
+```bash
+export SPECTRE_API_URL="https://api.wraith.dev"
+export WRAITH_API_KEY="wraith_live_abc123"
+export OWNER_WALLET="GCFXWRAITHOWNERTESTNETADDRESS000000000000000000000000"
+export OWNER_SIGNATURE="base64-ed25519-signature"
+export OWNER_MESSAGE="Sign to create Wraith agent"
+```
+
+The HTTP endpoints used below are:
+
+| Action                  | Endpoint                             |
+| ----------------------- | ------------------------------------ |
+| Create agent            | `POST /agent/create`                 |
+| Chat/tool execution     | `POST /agent/:id/chat`               |
+| Status snapshot         | `GET /agent/:id/status`              |
+| Notifications           | `GET /agent/:id/notifications`       |
+| Mark notifications read | `POST /agent/:id/notifications/read` |
+
+Stellar cost planning:
+
+- Testnet funding uses the agent `fund_wallet` tool, which calls the Stellar faucet/friendbot path through the connector.
+- Mainnet agents need enough XLM for the account minimum balance, payment fees, trustlines, and Soroban interaction fees.
+- Stellar's current base reserve is documented as `0.5 XLM`, so a new basic account needs `1 XLM` before extra entries such as trustlines. Stellar's minimum inclusion fee is `100 stroops` (`0.00001 XLM`) per non-Soroban operation when the network is not in surge pricing. See Stellar's [lumens](https://developers.stellar.org/docs/learn/fundamentals/lumens) and [fees](https://developers.stellar.org/docs/learn/fundamentals/fees-resource-limits-metering) docs for current network values.
+
+## Recipe 1: Stellar-only inbound payments agent
+
+Use this for a SaaS that wants to accept private Stellar payments and periodically sweep funds to cold storage.
+
+### 1. Create the agent
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/create" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mybusiness",
+    "ownerWallet": "'"$OWNER_WALLET"'",
+    "signature": "'"$OWNER_SIGNATURE"'",
+    "message": "'"$OWNER_MESSAGE"'",
+    "chain": "stellar"
+  }'
+```
+
+Save the returned `id`:
+
+```bash
+export AGENT_ID="agent-uuid-from-create"
+```
+
+SDK equivalent:
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+const agent = await wraith.createAgent({
+  name: "mybusiness",
+  chain: Chain.Stellar,
+  wallet: process.env.OWNER_WALLET!,
+  signature: process.env.OWNER_SIGNATURE!,
+  message: "Sign to create Wraith agent",
+});
+```
+
+### 2. Fund the agent wallet
+
+For Stellar testnet:
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"fund my Stellar testnet wallet"}'
+```
+
+For mainnet, export the agent address from `GET /agent/:id/status`, then fund it from your treasury CSV/batch payment process:
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/status" \
+  -H "Authorization: Bearer $WRAITH_API_KEY"
+```
+
+Cost estimate: budget at least the account minimum balance, one or more base fees for each payment/announcement transaction, and any trustline reserves required for non-XLM assets.
+
+### 3. Register `mybusiness.wraith`
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"register the name mybusiness.wraith on Stellar"}'
+```
+
+SDK equivalent:
+
+```typescript
+await agent.chat("register the name mybusiness.wraith on Stellar");
+```
+
+### 4. Listen for incoming private payments
+
+Current implementation: poll notifications after Spectre's background scan detects inbound stealth payments.
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/notifications" \
+  -H "Authorization: Bearer $WRAITH_API_KEY"
+```
+
+Sample notification payload:
+
+```json
+{
+  "notifications": [
+    {
+      "id": 42,
+      "type": "payment_received",
+      "title": "Payment Received",
+      "body": "Received 125.0000000 at stealth address GABC...WXYZ.",
+      "read": false,
+      "createdAt": "2026-06-09T04:00:00.000Z"
+    }
+  ],
+  "unreadCount": 1
+}
+```
+
+Target webhook payload once Spectre #2 is implemented:
+
+```json
+{
+  "event": "payment_received",
+  "agentId": "agent-uuid",
+  "chain": "stellar",
+  "amount": "125.0000000",
+  "asset": "XLM",
+  "stealthAddress": "GABC...",
+  "detectedAt": "2026-06-09T04:00:00.000Z"
+}
+```
+
+### 5. Auto-withdraw weekly to cold storage
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message":"schedule a weekly withdrawal of all available Stellar funds to GCOLDTREASURYADDRESS using privacy-safe spacing"
+  }'
+```
+
+SDK equivalent:
+
+```typescript
+await agent.chat(
+  "schedule a weekly withdrawal of all available Stellar funds to GCOLDTREASURYADDRESS using privacy-safe spacing",
+);
+```
+
+Cost estimate: each sweep pays Stellar transaction fees and may require Soroban fees if the scan/announcement path touches contracts. Keep extra XLM above the minimum balance so the sweep does not strand the agent account.
+
+### 6. Keep privacy auto-pilot enabled
+
+Spectre's scheduler already runs background scans and raises a `privacy_alert` notification when stealth-address accumulation crosses the configured threshold.
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"run a privacy check and warn me before sweeping correlated stealth addresses"}'
+```
+
+## Recipe 2: Scheduled payroll agent
+
+Use this for a DAO paying contributors weekly in Stellar USDC while keeping recipients behind `.wraith` names.
+
+### 1. Create and fund a Stellar payroll agent
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/create" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "dao-payroll",
+    "ownerWallet": "'"$OWNER_WALLET"'",
+    "signature": "'"$OWNER_SIGNATURE"'",
+    "message": "'"$OWNER_MESSAGE"'",
+    "chain": "stellar"
+  }'
+```
+
+Fund it with:
+
+- XLM for account reserve, fees, trustlines, and Soroban interaction costs.
+- USDC for the full payroll cycle plus a small buffer for failed/retried payments.
+
+### 2. Configure recurring `.wraith` recipient payments
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message":"schedule 250 USDC to alice.wraith every week on Stellar; schedule 175 USDC to bob.wraith every week on Stellar"
+  }'
+```
+
+SDK equivalent:
+
+```typescript
+await agent.chat(
+  "schedule 250 USDC to alice.wraith every week on Stellar; schedule 175 USDC to bob.wraith every week on Stellar",
+);
+
+const schedules = await agent.chat("list my schedules");
+console.log(schedules.response);
+```
+
+Actual tool path: the agent invokes `schedule_payment` with `recipient`, `amount`, and `interval`. Spectre persists records in `scheduled_payments` and `SchedulerService` executes active schedules every minute.
+
+### 3. Monitor failures and alert Slack
+
+Current implementation: poll notifications for `schedule_error` or `scheduled_payment`.
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/notifications" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  | jq '.notifications[] | select(.type == "schedule_error")'
+```
+
+Bridge this to Slack until first-class webhook delivery exists:
+
+```bash
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/notifications" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  | jq -r '.notifications[] | select(.type == "schedule_error") | .body' \
+  | while read -r body; do
+      curl -sS -X POST "$SLACK_WEBHOOK_URL" \
+        -H "Content-Type: application/json" \
+        -d '{"text":"Wraith payroll alert: '"$body"'"}'
+    done
+```
+
+Target webhook payload once Spectre #2 is implemented:
+
+```json
+{
+  "event": "schedule_error",
+  "agentId": "agent-uuid",
+  "chain": "stellar",
+  "scheduleId": "4f9a2c10",
+  "recipient": "alice.wraith",
+  "amount": "250",
+  "asset": "USDC",
+  "error": "insufficient XLM for trustline reserve"
+}
+```
+
+### 4. Rotate destination meta-addresses monthly
+
+Ask each contributor to rotate their `.wraith` destination monthly, then update the schedule:
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"cancel the weekly schedule for alice.wraith and create a new weekly 250 USDC schedule to alice-2026-07.wraith"}'
+```
+
+Cost estimate: every USDC recipient needs a valid trustline on their receiving path. Keep enough XLM in the payroll agent for transaction fees and enough recipient-side reserve for trustline/account state.
+
+## Recipe 3: Stellar privacy-check agent
+
+Use this for a user who wants recurring analysis of stealth payment patterns and rotation recommendations.
+
+### 1. Create an agent linked to a Stellar meta-address
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/create" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "privacy-analyst",
+    "ownerWallet": "'"$OWNER_WALLET"'",
+    "signature": "'"$OWNER_SIGNATURE"'",
+    "message": "'"$OWNER_MESSAGE"'",
+    "chain": "stellar"
+  }'
+```
+
+Attach the monitoring target in agent memory:
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"remember that my monitored Stellar meta-address is st:xlm:abc123...def456 and run privacy analysis against it"}'
+```
+
+SDK equivalent:
+
+```typescript
+await agent.chat(
+  "remember that my monitored Stellar meta-address is st:xlm:abc123...def456 and run privacy analysis against it",
+);
+```
+
+### 2. Configure a weekly privacy check
+
+The current public API exposes privacy checks through chat and background scheduler alerts, not a dedicated cron configuration endpoint. Use a hosted cron job or CI scheduler to call chat weekly:
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"run a Stellar privacy check and list any rotation recommendations"}'
+```
+
+### 3. Send Slack/email reports
+
+Current fallback: poll notifications and forward `privacy_alert` records.
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/notifications" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  | jq '.notifications[] | select(.type == "privacy_alert")'
+```
+
+Target webhook/email payload once Spectre #2 is implemented:
+
+```json
+{
+  "event": "privacy_alert",
+  "agentId": "agent-uuid",
+  "chain": "stellar",
+  "privacyScore": 75,
+  "severity": "medium",
+  "recommendation": "Withdraw periodically with time delays and rotate destinations."
+}
+```
+
+### 4. Accept or reject auto-rotate recommendations
+
+The current agent supports natural-language confirmation through chat. Keep an explicit acceptance window in your scheduled job:
+
+```bash
+curl -sS "$SPECTRE_API_URL/agent/$AGENT_ID/chat" \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message":"If the latest privacy check recommends auto-rotation, prepare the rotation plan but wait 48 hours for my explicit approval before executing."
+  }'
+```
+
+Cost estimate: analysis is off-chain except for scanning Stellar/Soroban events. Any accepted rotation or withdrawal recommendation still pays normal Stellar transaction fees and may require reserve for new accounts/trustlines.
+
+## Current API gaps filed
+
+The recipes above use current Spectre endpoints for agent lifecycle, chat/tool execution, status, invoices, schedules, and notifications. First-class webhook, Slack, and email delivery for `payment_received`, `scheduled_payment`, `schedule_error`, and `privacy_alert` is tracked in [wraith-protocol/spectre#2](https://github.com/wraith-protocol/spectre/issues/2).
