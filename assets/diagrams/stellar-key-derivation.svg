@@ -1,0 +1,250 @@
+<svg viewBox="0 0 720 330" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="330" fill="transparent" />
+
+  <defs>
+    <marker
+      id="arr-key"
+      viewBox="0 0 10 7"
+      refX="10"
+      refY="3.5"
+      markerWidth="8"
+      markerHeight="6"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <rect
+    x="220"
+    y="12"
+    width="280"
+    height="42"
+    fill="#141414"
+    stroke="#444444"
+    stroke-width="1"
+  />
+  <text
+    x="360"
+    y="31"
+    text-anchor="middle"
+    fill="#e6e1e5"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Wallet signature
+  </text>
+  <text
+    x="360"
+    y="47"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="JetBrains Mono, monospace"
+    font-size="10"
+  >
+    64-byte ed25519 signature
+  </text>
+
+  <line
+    x1="360"
+    y1="54"
+    x2="360"
+    y2="82"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-key)"
+  />
+
+  <rect
+    x="248"
+    y="86"
+    width="224"
+    height="38"
+    fill="#141414"
+    stroke="#c6c6c7"
+    stroke-width="1.5"
+  />
+  <text
+    x="360"
+    y="109"
+    text-anchor="middle"
+    fill="#c6c6c7"
+    font-family="JetBrains Mono, monospace"
+    font-size="12"
+  >
+    domain-separated SHA-256
+  </text>
+
+  <line
+    x1="292"
+    y1="124"
+    x2="202"
+    y2="166"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-key)"
+  />
+  <line
+    x1="428"
+    y1="124"
+    x2="518"
+    y2="166"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-key)"
+  />
+
+  <rect
+    x="38"
+    y="170"
+    width="260"
+    height="54"
+    fill="#141414"
+    stroke="#444444"
+    stroke-width="1"
+  />
+  <text
+    x="168"
+    y="191"
+    text-anchor="middle"
+    fill="#e6e1e5"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Spending seed
+  </text>
+  <text
+    x="168"
+    y="209"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="JetBrains Mono, monospace"
+    font-size="10"
+  >
+    SHA-256("wraith:spending:" || sig)
+  </text>
+
+  <rect
+    x="422"
+    y="170"
+    width="260"
+    height="54"
+    fill="#141414"
+    stroke="#444444"
+    stroke-width="1"
+  />
+  <text
+    x="552"
+    y="191"
+    text-anchor="middle"
+    fill="#e6e1e5"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Viewing seed
+  </text>
+  <text
+    x="552"
+    y="209"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="JetBrains Mono, monospace"
+    font-size="10"
+  >
+    SHA-256("wraith:viewing:" || sig)
+  </text>
+
+  <line
+    x1="168"
+    y1="224"
+    x2="168"
+    y2="252"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-key)"
+  />
+  <line
+    x1="552"
+    y1="224"
+    x2="552"
+    y2="252"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-key)"
+  />
+
+  <rect
+    x="52"
+    y="256"
+    width="232"
+    height="46"
+    fill="#141414"
+    stroke="#22c55e"
+    stroke-width="1.5"
+  />
+  <text
+    x="168"
+    y="276"
+    text-anchor="middle"
+    fill="#22c55e"
+    font-family="JetBrains Mono, monospace"
+    font-size="11"
+  >
+    spending scalar + K_spend
+  </text>
+  <text
+    x="168"
+    y="293"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="10"
+  >
+    authorizes stealth withdrawal
+  </text>
+
+  <rect
+    x="436"
+    y="256"
+    width="232"
+    height="46"
+    fill="#141414"
+    stroke="#c6c6c7"
+    stroke-width="1.5"
+  />
+  <text
+    x="552"
+    y="276"
+    text-anchor="middle"
+    fill="#c6c6c7"
+    font-family="JetBrains Mono, monospace"
+    font-size="11"
+  >
+    viewing key + V_recipient
+  </text>
+  <text
+    x="552"
+    y="293"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="10"
+  >
+    detects matching announcements
+  </text>
+
+  <text
+    x="360"
+    y="322"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="9"
+  >
+    Both branches stay on ed25519; each seed is SHA-512 expanded and clamped
+    before scalar use.
+  </text>
+</svg>

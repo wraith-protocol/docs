@@ -1,0 +1,293 @@
+<svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="360" fill="transparent" />
+
+  <defs>
+    <marker
+      id="arr-scan"
+      viewBox="0 0 10 7"
+      refX="10"
+      refY="3.5"
+      markerWidth="8"
+      markerHeight="6"
+      orient="auto-start-reverse"
+    >
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <rect
+    x="18"
+    y="24"
+    width="154"
+    height="62"
+    fill="#141414"
+    stroke="#444444"
+    stroke-width="1"
+  />
+  <text
+    x="95"
+    y="47"
+    text-anchor="middle"
+    fill="#e6e1e5"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Announcement
+  </text>
+  <text
+    x="95"
+    y="65"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="JetBrains Mono, monospace"
+    font-size="10"
+  >
+    R + tag + address
+  </text>
+
+  <line
+    x1="172"
+    y1="55"
+    x2="224"
+    y2="55"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-scan)"
+  />
+
+  <rect
+    x="228"
+    y="24"
+    width="222"
+    height="62"
+    fill="#141414"
+    stroke="#c6c6c7"
+    stroke-width="1.5"
+  />
+  <text
+    x="339"
+    y="47"
+    text-anchor="middle"
+    fill="#c6c6c7"
+    font-family="JetBrains Mono, monospace"
+    font-size="11"
+  >
+    SHA-256(prefix || R || V)[0]
+  </text>
+  <text
+    x="339"
+    y="65"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="10"
+  >
+    public view-tag prefilter
+  </text>
+
+  <line
+    x1="450"
+    y1="55"
+    x2="502"
+    y2="55"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-scan)"
+  />
+
+  <rect
+    x="506"
+    y="24"
+    width="196"
+    height="62"
+    fill="#141414"
+    stroke="#444444"
+    stroke-width="1"
+  />
+  <text
+    x="604"
+    y="47"
+    text-anchor="middle"
+    fill="#e6e1e5"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Compare byte
+  </text>
+  <text
+    x="604"
+    y="65"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="JetBrains Mono, monospace"
+    font-size="10"
+  >
+    reject about 255/256
+  </text>
+
+  <line
+    x1="604"
+    y1="86"
+    x2="604"
+    y2="124"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-scan)"
+  />
+
+  <rect
+    x="506"
+    y="128"
+    width="196"
+    height="58"
+    fill="#141414"
+    stroke="#767575"
+    stroke-width="1"
+    stroke-dasharray="4,4"
+  />
+  <text
+    x="604"
+    y="151"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Mismatch
+  </text>
+  <text
+    x="604"
+    y="169"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="10"
+  >
+    skip without X25519
+  </text>
+
+  <line
+    x1="604"
+    y1="86"
+    x2="374"
+    y2="126"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-scan)"
+  />
+
+  <rect
+    x="218"
+    y="130"
+    width="244"
+    height="58"
+    fill="#141414"
+    stroke="#22c55e"
+    stroke-width="1.5"
+  />
+  <text
+    x="340"
+    y="152"
+    text-anchor="middle"
+    fill="#22c55e"
+    font-family="Space Grotesk, sans-serif"
+    font-weight="600"
+    font-size="13"
+  >
+    Tag hit
+  </text>
+  <text
+    x="340"
+    y="170"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="JetBrains Mono, monospace"
+    font-size="10"
+  >
+    X25519(viewing_key, R)
+  </text>
+
+  <line
+    x1="340"
+    y1="188"
+    x2="340"
+    y2="226"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-scan)"
+  />
+
+  <rect
+    x="218"
+    y="230"
+    width="244"
+    height="54"
+    fill="#141414"
+    stroke="#444444"
+    stroke-width="1"
+  />
+  <text
+    x="340"
+    y="251"
+    text-anchor="middle"
+    fill="#e6e1e5"
+    font-family="JetBrains Mono, monospace"
+    font-size="11"
+  >
+    s_h = SHA-256("wraith:scalar:" || S)
+  </text>
+  <text
+    x="340"
+    y="268"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="10"
+  >
+    reduce mod ed25519 group order
+  </text>
+
+  <line
+    x1="340"
+    y1="284"
+    x2="340"
+    y2="316"
+    stroke="#767575"
+    stroke-width="1.5"
+    marker-end="url(#arr-scan)"
+  />
+
+  <rect
+    x="176"
+    y="320"
+    width="328"
+    height="34"
+    fill="#141414"
+    stroke="#c6c6c7"
+    stroke-width="1.5"
+  />
+  <text
+    x="340"
+    y="342"
+    text-anchor="middle"
+    fill="#c6c6c7"
+    font-family="JetBrains Mono, monospace"
+    font-size="11"
+  >
+    compare StrKey(K_spend + s_h * G)
+  </text>
+
+  <text
+    x="95"
+    y="334"
+    text-anchor="middle"
+    fill="#767575"
+    font-family="Inter, sans-serif"
+    font-size="9"
+  >
+    Same announcement format, less work for unrelated events.
+  </text>
+</svg>

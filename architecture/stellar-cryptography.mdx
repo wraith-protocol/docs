@@ -1,0 +1,124 @@
+---
+title: "Stellar Cryptography"
+description: "Why Wraith's Stellar stealth-address implementation uses ed25519, X25519, domain separation, view tags, and scalar signing"
+---
+
+This page documents the Stellar implementation as it exists in the SDK. It is meant to be the map auditors and contributors read before changing the protocol surface.
+
+Stellar stays on the Curve25519 family end to end: ed25519 for keys, signatures, and Stellar account addresses; X25519 for Diffie-Hellman after converting the relevant Edwards keys into Montgomery form. The source-of-truth implementation is the Stellar chain package in `wraith-protocol/sdk`.
+
+## Source Map
+
+| Topic                                                                    | SDK source                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spending and viewing key derivation                                      | [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L18-L50)                                                                                                                                                              |
+| Scalar expansion, point addition, address encoding, and `signWithScalar` | [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L23-L143)                                                                                                                                                         |
+| Sender-side stealth address generation, X25519, and view tags            | [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L29-L99)                                                                                                                                                        |
+| Recipient scanning and stealth private scalar derivation                 | [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L21-L193), [`spend.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/spend.ts#L20-L48)                     |
+| Meta-address encoding                                                    | [`constants.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/constants.ts#L5-L9), [`meta-address.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/meta-address.ts#L6-L65) |
+
+## Curve Choice
+
+Wraith uses ed25519 for Stellar because the generated stealth public key must become a normal Stellar account address. The SDK derives 32-byte ed25519 public keys from the spending and viewing seeds, validates meta-address keys as ed25519 points, and encodes stealth public keys with Stellar StrKey's ed25519 public-key encoder. See [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L40-L41), [`meta-address.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/meta-address.ts#L22-L29), and [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L74-L80).
+
+This is different from the EVM and CKB secp256k1 path. On Stellar, translating a stealth key to secp256k1 would create a key that the Stellar account verifier ecosystem cannot use. The implementation instead keeps the public point on ed25519, derives `P_stealth = K_spend + s_h * G` with ed25519 point addition, and then encodes that point as a Stellar `G...` address. The point addition and StrKey conversion are implemented in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L59-L80).
+
+The private side starts from 32-byte seeds, not raw scalars. Each seed is expanded with SHA-512 and clamped to match standard ed25519 scalar derivation before it is stored as `spendingScalar` or `viewingScalar`; the exact expansion is in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L14-L33), and the key derivation calls it from [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L34-L41).
+
+## Key Derivation
+
+![Stellar key derivation](/assets/diagrams/stellar-key-derivation.svg)
+
+The user wallet signs a fixed Stellar message, and Wraith expects a 64-byte ed25519 signature before deriving any stealth keys. The SDK enforces that length in [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L18-L21).
+
+The signature is not split into signature components. Instead, the SDK uses two domain-separated SHA-256 inputs:
+
+- `spendingKey = SHA-256("wraith:spending:" || signature)`
+- `viewingKey = SHA-256("wraith:viewing:" || signature)`
+
+Those prefixes and hashes are implemented in [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L23-L35). The resulting seeds are expanded to ed25519 scalars and public keys in [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L37-L41).
+
+The split gives the scanner and spender separate capabilities. The viewing key can detect matching announcements with the spending public key, while the spending scalar is required to derive the private scalar for a matched stealth address. The scanner documents that split in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L85-L95).
+
+## X25519 ECDH
+
+Ed25519 is the public-key and signature curve used by the Stellar path, but Wraith performs Diffie-Hellman with X25519. The implementation converts the private and public ed25519 key material into Montgomery form and then calls `x25519.getSharedSecret()`. That conversion path is explicit in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L1-L4) and [`computeSharedSecret()`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L54-L62).
+
+This relies on the Curve25519 family relationship between Edwards and Montgomery forms, as specified by [RFC 7748](https://www.rfc-editor.org/rfc/rfc7748). Wraith does not implement the map manually; it delegates the conversion to `@noble/curves/ed25519` and uses the converted keys only for the shared secret in [`computeSharedSecret()`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L58-L61).
+
+The sender computes `S = X25519(r, V_recipient)` before hashing the shared secret to a scalar in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L34-L43). The recipient computes the same shared secret as `S = X25519(viewing_key, R_ephemeral)` when a view tag passes in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L54-L80) and [`spend.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/spend.ts#L20-L27).
+
+## Domain Separation
+
+Every SHA-256 input used for Stellar stealth cryptography has an explicit prefix. The prefixes keep the same input bytes from being interpreted as multiple protocol artifacts.
+
+| Prefix                        | Current use                                                                                                                                                                                                                                                                                                                                  | Separates                                                                                         |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `wraith:spending:`            | Hashes the wallet signature into the spending seed in [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L23-L35).                                                                                                                                                  | Spending authority from viewing authority, even though both start from the same wallet signature. |
+| `wraith:viewing:`             | Hashes the wallet signature into the viewing seed in [`keys.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/keys.ts#L23-L35).                                                                                                                                                   | View-only scanning material from spend-capable material.                                          |
+| `wraith:scalar:`              | Hashes an X25519 shared secret into `s_h` in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L82-L97).                                                                                                                                                       | Stealth-address scalar derivation from key-derivation hashes and view-tag hashes.                 |
+| `wraith:stellar:view-tag:v2:` | Hashes the public tuple `R_ephemeral                                                                                                                                                                                                                                                                                                         |                                                                                                   | V_recipient` into the current one-byte tag in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L8-L85). | Public prefilter tags from secret-derived scalars and the legacy shared-secret tag. |
+| `wraith:tag:`                 | Kept for the legacy shared-secret tag path in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L8-L9) and [`computeViewTag()`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L87-L99). | Backward-compatibility checks from the current public tuple tag.                                  |
+
+The important migration note is that `wraith:tag:` is not the hot-path scanner tag anymore. The current sender returns `computeAnnouncementViewTag(ephPubKey, viewingPubKey)` in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L37-L50), while the legacy scanner is retained only for benchmarks and migration analysis in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L142-L193).
+
+## View Tag Scanning
+
+![Stellar view tag scanning](/assets/diagrams/stellar-view-tag-scan.svg)
+
+The view tag is one byte: `SHA-256("wraith:stellar:view-tag:v2:" || R_ephemeral || V_recipient)[0]`. The SDK constructs that input and returns the first byte in [`computeAnnouncementViewTag()`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L64-L85).
+
+Because the tag is one byte, a random unrelated announcement has a 1/256 chance of passing the prefilter. The SDK comment documents the expected rejection rate as about 255 out of 256 announcements in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L69-L72).
+
+The cost model is intentionally asymmetric:
+
+- Rejected announcements pay one SHA-256 and a byte comparison. The scanner computes the public tag and returns immediately on mismatch in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L42-L57).
+- Candidate announcements that pass the tag pay for X25519, `wraith:scalar:` hashing, ed25519 point addition, and StrKey address encoding in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L66-L82).
+
+The tag is a prefilter, not an authentication proof. The scanner still derives the expected stealth address and compares it with the announced address before recording a match in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L123-L136).
+
+## Address And Scalar Math
+
+Sender-side address derivation is:
+
+```text
+S = X25519(r, V_recipient)
+s_h = SHA-256("wraith:scalar:" || S) mod L
+P_stealth = K_spend + s_h * G
+stealth_address = StrKey(P_stealth)
+```
+
+Each step maps directly to the SDK: shared-secret computation in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L37-L41), scalar hashing in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L82-L97), point addition in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L59-L72), and Stellar address encoding in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L74-L80).
+
+Recipient-side spending scalar derivation is:
+
+```text
+p_stealth = spending_scalar + s_h mod L
+```
+
+The SDK derives that private scalar in [`spend.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/spend.ts#L20-L27) and repeats the same calculation when scan results include spendable matches in [`scan.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scan.ts#L123-L135).
+
+## `signWithScalar`
+
+Standard Stellar SDK signing APIs expect an ed25519 seed. Wraith's stealth withdrawal path has a derived scalar, `p_stealth`, not the original seed that would normally expand into that scalar. The SDK calls this out in [`spend.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/spend.ts#L30-L48).
+
+`signWithScalar()` therefore implements the ed25519 signing equation directly against the derived scalar. It creates a deterministic nonce, computes `R = r * G`, computes the challenge over `R || A || message`, and returns `R || S` as a 64-byte signature. The implementation is in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L99-L143), and the equation follows the same signature shape specified by [RFC 8032](https://www.rfc-editor.org/rfc/rfc8032).
+
+The custom part is not the verifier-facing format. Verifiers still see a normal ed25519 public key and 64-byte signature because the SDK computes `R`, hashes `R || publicKey || message`, and returns `R || S` in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L126-L142). The custom part is how the signer gets a deterministic nonce without the original ed25519 seed prefix; the SDK derives that nonce prefix from `SHA-256(scalarBytes)` in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L117-L124).
+
+## Encoding
+
+There are two encodings to keep separate:
+
+- **Stealth payment address:** the final `P_stealth` public key is encoded as a Stellar `G...` account ID with `StrKey.encodeEd25519PublicKey()` in [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L74-L80).
+- **Meta-address:** the current SDK encodes the recipient's spending and viewing public keys as `st:xlm:` followed by 64 hex characters for each 32-byte key. The prefix is defined in [`constants.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/constants.ts#L5-L9), and the exact `st:xlm:<spending_pubkey_hex><viewing_pubkey_hex>` format is implemented in [`meta-address.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/meta-address.ts#L6-L30).
+
+The decoder validates the `st:xlm:` prefix, checks that the post-prefix payload is exactly 128 hex characters, splits it into two 32-byte keys, and verifies both are valid ed25519 points in [`meta-address.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/meta-address.ts#L32-L65). If reviewers expected StrKey strings inside the meta-address payload, that is a protocol design question rather than the current implementation.
+
+## Reviewer Checklist
+
+- Confirm the current public view tag, `wraith:stellar:view-tag:v2:`, is the intended hot-path tag and that `wraith:tag:` remains legacy-only. The current and legacy paths are side by side in [`stealth.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/stealth.ts#L64-L99).
+- Confirm the meta-address payload should remain hex public-key bytes instead of StrKey-encoded public keys. The implementation is [`meta-address.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/meta-address.ts#L6-L65).
+- Confirm `signWithScalar()` has been reviewed against the RFC 8032 signing equation and Stellar's verifier expectations. The implementation is [`scalar.ts`](https://github.com/wraith-protocol/sdk/blob/a08d0ae07c6354a222a5640db114ba3bfb43dd40/src/chains/stellar/scalar.ts#L99-L143).
+
+This page still needs the acceptance-criteria review by someone who did not implement the SDK code before it becomes the auditor-facing reference.

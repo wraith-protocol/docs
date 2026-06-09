@@ -67,6 +67,7 @@
             "pages": [
               "architecture/overview",
               "architecture/chain-connectors",
+              "architecture/stellar-cryptography",
               "architecture/tee"
             ]
           },
