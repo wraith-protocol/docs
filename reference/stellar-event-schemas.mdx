@@ -1,0 +1,101 @@
+---
+title: "Stellar Event Schemas (v2)"
+description: "Soroban event topic schemas for stealth address announcements"
+---
+
+The `stealth-announcer` contract emits events to notify indexers and clients about new stealth payments. In v2, the event topic schema has been updated to include indexed fields that allow clients to efficiently filter events before downloading the full metadata.
+
+This reference guide documents the v2 event schema, how it differs from v1, and how to query it.
+
+## v1 vs v2 Event Topic Comparison
+
+### v1 Schema (Legacy)
+In v1, the event emitted a single topic, requiring indexers to parse the data payload to extract routing information.
+- **Topic Layout**: `("announce")`
+- **Data Layout**: `(caller, scheme_id, stealth_address, ephemeral_pub_key, metadata)`
+
+### v2 Schema (Current)
+In v2, key routing fields have been moved to the event topics to enable native filtering via the Soroban RPC `getEvents` method.
+- **Topic Layout**: `("announce", scheme_id, view_tag_bucket, metadata_kind)`
+- **Data Layout**: `(caller, stealth_address, ephemeral_pub_key, metadata)`
+
+## v2 Topic Layout Details
+
+The v2 event emits exactly four topics:
+
+1. **`"announce"`**: The literal string identifier for the event.
+2. **`scheme_id`** (u32): The stealth address scheme being used (e.g., `1` for the standard ed25519 scheme).
+3. **`view_tag_bucket`** (u32): A deterministic bucket derived from the view tag to allow prefix filtering.
+4. **`metadata_kind`** (u32): The type of metadata attached to the event.
+
+### `view_tag_bucket` Derivation Rule
+
+To reduce false positives when scanning announcements, clients can filter by the `view_tag_bucket`. 
+- **Rule**: The bucket is derived directly from the first byte of the metadata (`metadata[0]`).
+- **Stability**: This derivation is stable and guaranteed not to change for a given `metadata_kind`.
+
+When querying the RPC, indexers can specify their expected `view_tag_bucket` to dramatically reduce the number of events they need to fetch and process.
+
+### `metadata_kind` Values & Forward-Compat
+
+The `metadata_kind` field ensures forward compatibility for future upgrades to the announcement payload.
+
+- **`0`**: Standard stealth payment metadata (view tag included).
+- **`1+`**: Reserved for future use (e.g., encrypted amounts, multi-asset routing).
+
+**Forward-Compat Semantics**: Indexers and clients *must* gracefully ignore events with a `metadata_kind` they do not recognize. This allows new metadata formats to be deployed without breaking existing indexers.
+
+## Example `getEvents` Filter Queries
+
+You can use the Soroban RPC `getEvents` endpoint to filter for specific topics.
+
+### 1. Fetch all v2 announcements for Scheme 1
+```json
+{
+  "startLedger": 123456,
+  "filters": [
+    {
+      "type": "contract",
+      "contractIds": ["<v2-announcer-contract-id>"],
+      "topics": [
+        ["announce"],
+        ["1"],
+        ["*"],
+        ["*"]
+      ]
+    }
+  ],
+  "pagination": { "limit": 100 }
+}
+```
+
+### 2. Filter by `view_tag_bucket` (e.g., Bucket 42)
+This is the recommended query for clients looking for their own transactions.
+
+```json
+{
+  "startLedger": 123456,
+  "filters": [
+    {
+      "type": "contract",
+      "contractIds": ["<v2-announcer-contract-id>"],
+      "topics": [
+        ["announce"],
+        ["1"],
+        ["42"],
+        ["0"]
+      ]
+    }
+  ],
+  "pagination": { "limit": 100 }
+}
+```
+
+## Migration & Indexer Recommendations
+
+The transition from v1 to v2 involves a new deployment of the `stealth-announcer` contract.
+
+- **Migration Timing**: v1 events remain readable and will not be deleted. v2 is a strictly new deployment with a new contract ID.
+- **Indexer Recommendations**: During the transition period, indexers and wallets *must* listen to both the v1 and v2 contract IDs to ensure no announcements are missed. 
+  
+You can query both simultaneously by including both contract IDs in your `getEvents` filter, or by executing parallel queries for the different topic structures.
