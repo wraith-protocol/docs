@@ -37,6 +37,7 @@ enum Chain {
   Base = "base",
   Stellar = "stellar",
   Solana = "solana",
+  CKB = "ckb",
   All = "all",
 }
 ```
@@ -281,6 +282,10 @@ import type {
   GeneratedStealthAddress,
   Announcement,
   MatchedAnnouncement,
+  FederationRecord,
+  FederationCache,
+  FederationError,
+  FederationErrorCode,
 } from "@wraith-protocol/sdk/chains/stellar";
 ```
 
@@ -325,6 +330,72 @@ interface Announcement {
 interface MatchedAnnouncement extends Announcement {
   stealthPrivateScalar: bigint;
   stealthPubKeyBytes: Uint8Array;
+}
+```
+
+---
+
+## Stellar Federation Types
+
+Exported from `@wraith-protocol/sdk/chains/stellar`:
+
+```typescript
+import type {
+  FederationRecord,
+  FederationCache,
+  FederationError,
+  FederationErrorCode,
+} from "@wraith-protocol/sdk/chains/stellar";
+```
+
+### `FederationRecord`
+
+The resolved result of a `name*domain.com` lookup.
+
+```typescript
+interface FederationRecord {
+  federationAddress: string;       // "alice*example.com" — the address that was queried
+  accountId: string;               // "GABC..." or "st:xlm:..." — resolved destination
+  memoType?: "text" | "id" | "hash";
+  memoValue?: string;              // required for exchange deposit addresses
+}
+```
+
+When `accountId` starts with `st:xlm:` it is a Wraith stealth meta-address and should be decoded with `decodeStealthMetaAddress()` before sending. Otherwise it is a plain `G...` public key.
+
+### `FederationCache`
+
+Pluggable cache interface accepted by `resolveStellarFederation()`. Implement this with any backend (in-memory, Redis, etc.).
+
+```typescript
+interface FederationCache {
+  get(key: string): Promise<FederationRecord | undefined>;
+  set(key: string, record: FederationRecord, ttlMs: number): Promise<void>;
+}
+```
+
+### `FederationErrorCode`
+
+```typescript
+type FederationErrorCode =
+  | "NOT_FOUND"            // federation server returned 404 / unknown address
+  | "DNS_FAILURE"          // could not fetch stellar.toml (network or DNS error)
+  | "NO_FEDERATION_SERVER" // stellar.toml exists but has no FEDERATION_SERVER field
+  | "INVALID_TOML"         // stellar.toml content is malformed
+  | "MALFORMED_RESPONSE"   // federation server response is missing required fields
+  | "TIMEOUT"              // request exceeded options.timeoutMs
+  | "NETWORK_ERROR";       // fetch failed for any other reason
+```
+
+### `FederationError`
+
+Thrown by `resolveStellarFederation()` on any failure. Always check `err.code` rather than `err.message` for programmatic handling.
+
+```typescript
+interface FederationError extends Error {
+  code: FederationErrorCode;
+  message: string;
+  cause?: unknown;    // the underlying network error or parse error, if any
 }
 ```
 

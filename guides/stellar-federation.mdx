@@ -1,0 +1,726 @@
+---
+title: "Stellar Federation Addresses"
+description: "Resolve alice*example.com to a Stellar address using SEP-0002 and the Wraith SDK"
+---
+
+Stellar federation addresses look like `alice*example.com` — a human-readable alias that resolves to a `G...` public key through a lightweight HTTP lookup. This guide covers what federation is, how to set it up for your own domain, how to use the SDK's `resolveStellarFederation()` helper, and the UX and failure-mode considerations for production payment flows.
+
+## What Federation Is
+
+A federation address has the form `name*domain.com`. The `*` separates a username from the domain that operates the federation server for that username. When a wallet or integration wants to pay `alice*example.com`:
+
+1. It fetches `https://example.com/.well-known/stellar.toml`
+2. It reads the `FEDERATION_SERVER` URL from that file
+3. It sends `GET {FEDERATION_SERVER}?q=alice*example.com&type=name`
+4. The server returns a JSON object containing the `stellar_address` (`G...` key) and an optional memo
+
+This is defined in [SEP-0002: Federation Protocol](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0002.md).
+
+### Why Federation Matters for Wraith
+
+Stealth meta-addresses (`st:xlm:...`) are long and unwieldy to share. A federation server bridges the gap: you register `payments*example.com` on your domain's federation server and map it to your `.wraith` stealth meta-address. Anyone who supports federation can now send private payments using the human-readable address.
+
+### Federation vs. `.wraith` Names
+
+| | Stellar Federation | `.wraith` Name |
+|---|---|---|
+| Format | `alice*example.com` | `alice.wraith` |
+| Standard | SEP-0002 | Wraith-specific |
+| Resolution | HTTP to your domain | On-chain Soroban lookup |
+| Custody | You own the domain | Wraith names contract |
+| Memo support | Yes (exchange deposits) | No |
+| Privacy | No — resolves to a public `G...` key by default | Yes — resolves to a stealth meta-address |
+
+They complement each other. You can configure a federation server to return your `.wraith` stealth meta-address as the `stellar_address`, giving you both human-readable names and privacy.
+
+---
+
+## How the Protocol Works
+
+### 1. stellar.toml
+
+Your domain publishes a `stellar.toml` at `https://example.com/.well-known/stellar.toml`. The relevant field:
+
+```toml
+FEDERATION_SERVER="https://federation.example.com/federation"
+```
+
+The `stellar.toml` itself is governed by [SEP-0001](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md).
+
+### 2. Federation request
+
+A GET request to the federation server:
+
+```
+GET https://federation.example.com/federation?q=alice*example.com&type=name
+```
+
+Query parameters:
+
+| Parameter | Value | Description |
+|---|---|---|
+| `q` | `alice*example.com` | The federation address to resolve |
+| `type` | `name` | Lookup type — `name` for address-to-key |
+
+### 3. Federation response
+
+```json
+{
+  "stellar_address": "alice*example.com",
+  "account_id": "GABC...XYZ",
+  "memo_type": "text",
+  "memo": "invoice-4821"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `stellar_address` | string | The federation address that was queried |
+| `account_id` | string | The resolved `G...` Stellar public key |
+| `memo_type` | `"text"` \| `"id"` \| `"hash"` | Optional — memo type for the transaction |
+| `memo` | string | Optional — memo value (required for exchange deposits) |
+
+### 4. Error response
+
+When a name is not found:
+
+```json
+{
+  "detail": "Account not found",
+  "code": "not_found",
+  "status": 404
+}
+```
+
+---
+
+## Setting Up Federation for Your Domain
+
+### Option A — Self-hosted federation server
+
+The SDF publishes a reference Go implementation: [`stellar/go/services/federation`](https://github.com/stellar/go/tree/master/services/federation). It reads from a database and handles `name`, `id`, and `txid` query types.
+
+Minimal setup:
+
+1. Deploy the server (or any server that handles the query format above)
+2. Add `FEDERATION_SERVER` to your `/.well-known/stellar.toml`
+3. Ensure the `stellar.toml` is served over HTTPS with `Access-Control-Allow-Origin: *`
+
+```toml
+# /.well-known/stellar.toml
+NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
+FEDERATION_SERVER="https://federation.example.com/federation"
+```
+
+### Option B — Minimal serverless endpoint
+
+For simple use cases (one account, many usernames with memos), a single serverless function suffices:
+
+```typescript
+// GET /federation?q=alice*example.com&type=name
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const q = url.searchParams.get("q") ?? "";
+  const type = url.searchParams.get("type");
+
+  if (type !== "name") {
+    return Response.json({ code: "not_found", detail: "Only type=name is supported" }, { status: 404 });
+  }
+
+  // Parse "alice" from "alice*example.com"
+  const username = q.split("*")[0]?.toLowerCase();
+  const user = await db.users.findUnique({ where: { federationName: username } });
+
+  if (!user) {
+    return Response.json({ code: "not_found", detail: "Account not found" }, { status: 404 });
+  }
+
+  return Response.json(
+    {
+      stellar_address: q,
+      account_id: user.stellarPublicKey,   // or stealth meta-address
+      ...(user.memoType && { memo_type: user.memoType }),
+      ...(user.memo && { memo: user.memo }),
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",  // required — wallets call cross-origin
+      },
+    }
+  );
+}
+```
+
+Add the `FEDERATION_SERVER` to your `stellar.toml`:
+
+```toml
+FEDERATION_SERVER="https://api.example.com/federation"
+```
+
+### Option C — Third-party federation services
+
+Services like [fed.network](https://www.fed.network/) host federation for you. Register `alice*fed.network` without running any infrastructure.
+
+---
+
+## SDK Helper: `resolveStellarFederation()`
+
+The SDK ships a `resolveStellarFederation()` helper in `@wraith-protocol/sdk/chains/stellar`. It handles the full two-step resolution (stellar.toml fetch → federation GET) with timeout, validation, and error normalisation.
+
+> **Status:** This helper ships in the next SDK release. See the [SDK wave issue](#sdk-wave-tracking) at the bottom of this page for tracking.
+
+### Import
+
+```typescript
+import {
+  resolveStellarFederation,
+  type FederationRecord,
+  type FederationError,
+} from "@wraith-protocol/sdk/chains/stellar";
+```
+
+### Types
+
+```typescript
+interface FederationRecord {
+  federationAddress: string;    // "alice*example.com"
+  accountId: string;            // "GABC..." — resolved G... public key
+  memoType?: "text" | "id" | "hash";
+  memoValue?: string;
+}
+
+type FederationErrorCode =
+  | "NOT_FOUND"           // federation server returned 404 / unknown address
+  | "DNS_FAILURE"         // could not fetch stellar.toml
+  | "NO_FEDERATION_SERVER"// stellar.toml exists but has no FEDERATION_SERVER field
+  | "INVALID_TOML"        // stellar.toml is malformed
+  | "MALFORMED_RESPONSE"  // federation server response is missing required fields
+  | "TIMEOUT"             // request exceeded the timeout threshold
+  | "NETWORK_ERROR";      // fetch failed for any other reason
+
+interface FederationError {
+  code: FederationErrorCode;
+  message: string;
+  cause?: unknown;
+}
+```
+
+### `resolveStellarFederation(address, options?)`
+
+```typescript
+const result = await resolveStellarFederation("alice*example.com");
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `address` | `string` | — | Federation address to resolve, e.g. `alice*example.com` |
+| `options.timeoutMs` | `number` | `5000` | Request timeout in milliseconds |
+| `options.cache` | `FederationCache` | `undefined` | Optional cache implementation (see below) |
+| `options.fetchToml` | `function` | `fetch` | Override the stellar.toml fetch (useful for testing) |
+
+**Returns:** `Promise<FederationRecord>`
+
+Throws a `FederationError` on any failure.
+
+### Basic usage
+
+```typescript
+import { resolveStellarFederation } from "@wraith-protocol/sdk/chains/stellar";
+
+try {
+  const record = await resolveStellarFederation("alice*example.com");
+
+  console.log(record.accountId);    // "GABC...XYZ" — use as payment destination
+  console.log(record.memoType);     // "text" | "id" | "hash" | undefined
+  console.log(record.memoValue);    // "invoice-4821" | undefined
+} catch (err) {
+  // err is FederationError
+  console.error(err.code, err.message);
+}
+```
+
+### With a Wraith stealth payment
+
+After resolving, pass the `accountId` to `generateStealthAddress()` if you're building a custom flow, or hand it to the agent via chat:
+
+```typescript
+import {
+  resolveStellarFederation,
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// The federation server returns a stealth meta-address in account_id
+const record = await resolveStellarFederation("alice*example.com");
+
+// Detect whether the resolved address is a stealth meta-address or a plain G... key
+if (record.accountId.startsWith("st:xlm:")) {
+  // Privacy path — send via stealth address
+  const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(record.accountId);
+  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+  // Send to stealth.stealthAddress + call announcer contract
+} else {
+  // Plain path — send directly to record.accountId
+  // Include record.memoType / record.memoValue if present
+}
+```
+
+### With the managed agent
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { resolveStellarFederation } from "@wraith-protocol/sdk/chains/stellar";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// Resolve first, then instruct the agent with the concrete address
+const record = await resolveStellarFederation("alice*example.com");
+
+const res = await agent.chat(
+  `send 100 USDC to ${record.accountId} on stellar` +
+  (record.memoValue ? ` with memo ${record.memoValue}` : "")
+);
+console.log(res.response);
+```
+
+Or let the agent resolve it directly — the agent supports federation addresses in chat:
+
+```typescript
+// The agent resolves alice*example.com automatically
+const res = await agent.chat("send 100 USDC to alice*example.com on stellar");
+console.log(res.response);
+// "Payment sent — 100 USDC to alice*example.com (resolved to GABC...XYZ) on Stellar."
+```
+
+---
+
+## Caching Considerations
+
+Federation resolution makes two HTTP requests (stellar.toml + federation GET) for every lookup. At scale — or in a payment UI that validates on every keystroke — this adds up.
+
+### Built-in cache interface
+
+`resolveStellarFederation()` accepts a `cache` option conforming to a simple interface:
+
+```typescript
+interface FederationCache {
+  get(key: string): Promise<FederationRecord | undefined>;
+  set(key: string, record: FederationRecord, ttlMs: number): Promise<void>;
+}
+```
+
+### In-memory cache (single process)
+
+```typescript
+import { resolveStellarFederation, type FederationRecord } from "@wraith-protocol/sdk/chains/stellar";
+
+class MemoryFederationCache {
+  private store = new Map<string, { record: FederationRecord; expiresAt: number }>();
+
+  async get(key: string) {
+    const entry = this.store.get(key);
+    if (!entry || Date.now() > entry.expiresAt) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.record;
+  }
+
+  async set(key: string, record: FederationRecord, ttlMs: number) {
+    this.store.set(key, { record, expiresAt: Date.now() + ttlMs });
+  }
+}
+
+const cache = new MemoryFederationCache();
+
+const record = await resolveStellarFederation("alice*example.com", {
+  cache,
+  // stellar.toml is stable — cache for 24 hours
+  // federation records can change — default TTL is 1 hour
+});
+```
+
+### Redis cache (multi-process / serverless)
+
+```typescript
+import { createClient } from "redis";
+
+class RedisFederationCache {
+  private client = createClient({ url: process.env.REDIS_URL });
+
+  constructor() {
+    this.client.connect();
+  }
+
+  async get(key: string) {
+    const raw = await this.client.get(`fed:${key}`);
+    return raw ? (JSON.parse(raw) as FederationRecord) : undefined;
+  }
+
+  async set(key: string, record: FederationRecord, ttlMs: number) {
+    await this.client.setEx(`fed:${key}`, Math.floor(ttlMs / 1000), JSON.stringify(record));
+  }
+}
+
+const record = await resolveStellarFederation("alice*example.com", {
+  cache: new RedisFederationCache(),
+});
+```
+
+### What to cache and for how long
+
+| Item | Recommended TTL | Rationale |
+|---|---|---|
+| `stellar.toml` content | 24 hours | Rarely changes; CORS-accessible static file |
+| Federation record (`name` lookup) | 1 hour | Can change (key rotation, memo updates) |
+| Not-found result | 5 minutes | Avoids hammering on typos, but re-checks promptly |
+
+Never cache a not-found result for longer than a few minutes — the address may just not exist yet, and users expect to retry.
+
+### stellar.toml caching separately
+
+The two-request chain means the stellar.toml fetch is the bottleneck. `resolveStellarFederation()` caches the parsed `FEDERATION_SERVER` URL under the key `toml:{domain}` at the same TTL as the record. If you share a cache across many lookups to the same domain, that first request is paid once per TTL.
+
+---
+
+## Failure Modes
+
+Every step of federation resolution can fail. Handle each case gracefully.
+
+### DNS / HTTPS failure on stellar.toml
+
+The `/.well-known/stellar.toml` file can't be fetched — domain is misconfigured, HTTPS cert is invalid, or the file simply doesn't exist.
+
+```typescript
+try {
+  await resolveStellarFederation("alice*notadomain.invalid");
+} catch (err) {
+  if (err.code === "DNS_FAILURE") {
+    // Show: "Could not reach federation server for notadomain.invalid"
+  }
+}
+```
+
+**UX guidance:** Display a domain-level error. Don't expose the raw network error to users. A message like "We couldn't reach example.com's payment server. Check the address and try again." is clear and actionable.
+
+### No FEDERATION_SERVER in stellar.toml
+
+The domain has a `stellar.toml` but hasn't configured federation.
+
+```typescript
+} catch (err) {
+  if (err.code === "NO_FEDERATION_SERVER") {
+    // Show: "example.com doesn't support federation addresses"
+  }
+}
+```
+
+### Address not found
+
+The federation server responded but doesn't know this username.
+
+```typescript
+} catch (err) {
+  if (err.code === "NOT_FOUND") {
+    // Show: "alice*example.com was not found"
+  }
+}
+```
+
+This is the most common failure in payment UIs. Display it inline, next to the input — not as a modal or page-level error.
+
+### Malformed response
+
+The federation server is reachable but returns a response missing `account_id`, or returns invalid JSON.
+
+```typescript
+} catch (err) {
+  if (err.code === "MALFORMED_RESPONSE") {
+    // Show: "example.com's federation server returned an unexpected response"
+    // Log err.cause for debugging
+    console.error(err.cause);
+  }
+}
+```
+
+### Timeout
+
+The federation server is too slow. Default timeout is 5 seconds; adjust with `options.timeoutMs`.
+
+```typescript
+} catch (err) {
+  if (err.code === "TIMEOUT") {
+    // Show: "The federation server took too long to respond. Try again."
+  }
+}
+```
+
+For payment UIs, 3 seconds is a better timeout — users abandon flows that feel slow.
+
+### Complete error handler
+
+```typescript
+import {
+  resolveStellarFederation,
+  type FederationError,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+function userMessage(err: FederationError, address: string): string {
+  const domain = address.split("*")[1] ?? address;
+  switch (err.code) {
+    case "NOT_FOUND":
+      return `${address} was not found. Check the spelling and try again.`;
+    case "DNS_FAILURE":
+    case "NETWORK_ERROR":
+      return `Couldn't reach ${domain}'s payment server. Check your connection and try again.`;
+    case "NO_FEDERATION_SERVER":
+      return `${domain} doesn't support federation addresses.`;
+    case "MALFORMED_RESPONSE":
+    case "INVALID_TOML":
+      return `${domain}'s payment server returned an unexpected response.`;
+    case "TIMEOUT":
+      return `${domain}'s payment server is taking too long. Try again in a moment.`;
+    default:
+      return "Something went wrong resolving this address. Try again.";
+  }
+}
+
+try {
+  const record = await resolveStellarFederation(address, { timeoutMs: 3000 });
+  // proceed with record.accountId
+} catch (err) {
+  const msg = userMessage(err as FederationError, address);
+  setError(msg); // your UI state setter
+}
+```
+
+---
+
+## UX Patterns
+
+### Input hint
+
+When your payment form accepts a Stellar destination, hint that federation addresses work:
+
+```tsx
+// React example
+<input
+  type="text"
+  placeholder="G... address or alice*example.com"
+  aria-label="Recipient Stellar address or federation address"
+/>
+<p className="hint">
+  You can use a federation address like <code>alice*example.com</code>
+</p>
+```
+
+The hint text matches what SDF-ecosystem wallets use, so users who know federation will immediately recognise it.
+
+### Inline validation with debounce
+
+Don't resolve on every keystroke — wait until the user pauses typing. A federation address is valid when it contains exactly one `*` and a plausible domain.
+
+```typescript
+// Detect if the input looks like a federation address before attempting resolution
+function isFederationAddress(input: string): boolean {
+  const parts = input.split("*");
+  if (parts.length !== 2) return false;
+  const [name, domain] = parts;
+  return (
+    name.length > 0 &&
+    domain.includes(".") &&         // has a TLD separator
+    domain.length > 2 &&
+    !/\s/.test(input)               // no whitespace
+  );
+}
+
+function isStellarAddress(input: string): boolean {
+  return /^G[A-Z2-7]{55}$/.test(input.trim());
+}
+```
+
+```tsx
+// React + debounce
+import { useDeferredValue, useEffect, useState } from "react";
+
+function PaymentForm() {
+  const [input, setInput] = useState("");
+  const [resolved, setResolved] = useState<FederationRecord | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const deferred = useDeferredValue(input);  // built-in React debounce
+
+  useEffect(() => {
+    if (!isFederationAddress(deferred)) {
+      setResolved(null);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    resolveStellarFederation(deferred, { timeoutMs: 3000 })
+      .then((record) => {
+        setResolved(record);
+        setError(null);
+      })
+      .catch((err) => {
+        setResolved(null);
+        setError(userMessage(err, deferred));
+      })
+      .finally(() => setLoading(false));
+  }, [deferred]);
+
+  return (
+    <div>
+      <input
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="G... address or alice*example.com"
+        aria-label="Recipient address"
+        aria-describedby="recipient-hint recipient-status"
+      />
+      <p id="recipient-hint" className="hint">
+        You can use a federation address like <code>alice*example.com</code>
+      </p>
+      <p id="recipient-status" role="status" aria-live="polite">
+        {loading && "Resolving…"}
+        {resolved && `✓ Resolves to ${resolved.accountId.slice(0, 8)}…`}
+        {error && `⚠ ${error}`}
+      </p>
+    </div>
+  );
+}
+```
+
+### Show the resolved address
+
+Once resolved, display a truncated version of the `G...` address alongside the federation alias so users can verify before confirming:
+
+```
+alice*example.com → GABC...XYZ
+```
+
+If the federation server returns a stealth meta-address (`st:xlm:...`), display it as "privacy-protected destination" rather than exposing the raw key.
+
+### Memo handling
+
+When the federation record includes a memo, surface it prominently — exchange deposits will fail silently if the memo is omitted:
+
+```tsx
+{resolved?.memoValue && (
+  <div className="memo-notice" role="alert">
+    <strong>Important:</strong> This address requires a{" "}
+    {resolved.memoType === "id" ? "numeric" : "text"} memo:{" "}
+    <code>{resolved.memoValue}</code>
+  </div>
+)}
+```
+
+### Accessibility checklist
+
+- Use `aria-live="polite"` on the status region so screen readers announce resolution results
+- Never rely on colour alone to indicate success/error — include an icon or text prefix (✓ / ⚠)
+- `role="alert"` on memo notices ensures they are announced immediately
+- Keep the `aria-label` on the input descriptive: "Recipient Stellar address or federation address"
+
+---
+
+## Registering Your Domain for Wraith Payments
+
+To accept private payments via federation, configure your federation server to return your `.wraith` stealth meta-address:
+
+### 1. Get your agent's stealth meta-address
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = await wraith.getAgentByName("payments");
+
+const metaAddress = agent.info.metaAddresses[Chain.Stellar];
+console.log(metaAddress); // "st:xlm:abc123...def456..."
+```
+
+Or via the API:
+
+```bash
+curl https://api.usewraith.xyz/agent/info/payments \
+  -H "Authorization: Bearer $WRAITH_API_KEY"
+# { "metaAddresses": { "stellar": "st:xlm:..." }, ... }
+```
+
+### 2. Return it from your federation server
+
+```typescript
+// Your federation endpoint
+const user = await db.users.findUnique({ where: { federationName: username } });
+
+return Response.json({
+  stellar_address: q,
+  // Return the stealth meta-address — senders using the Wraith SDK
+  // will detect the "st:xlm:" prefix and send via stealth
+  account_id: user.wraithMetaAddress,  // "st:xlm:abc123..."
+});
+```
+
+Senders using `resolveStellarFederation()` will receive the `st:xlm:...` value in `record.accountId` and can branch on it as shown in the SDK section above.
+
+### 3. Publish your stellar.toml
+
+```toml
+# /.well-known/stellar.toml
+NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
+FEDERATION_SERVER="https://api.example.com/federation"
+
+# Optional: advertise your Wraith integration
+[DOCUMENTATION]
+ORG_NAME="Example Inc."
+ORG_URL="https://example.com"
+```
+
+Serve with:
+
+```
+Content-Type: text/plain; charset=UTF-8
+Access-Control-Allow-Origin: *
+```
+
+The `Access-Control-Allow-Origin: *` header is required — wallets call `stellar.toml` from browser contexts.
+
+---
+
+## SDK Wave Tracking
+
+`resolveStellarFederation()` is scheduled for inclusion in the Stellar SDK wave. Until it ships:
+
+- Use the raw two-request pattern (fetch `stellar.toml`, parse `FEDERATION_SERVER`, call the endpoint)
+- Or use `@stellar/stellar-sdk`'s built-in federation resolver: `StellarSdk.Federation.Server.resolve(address)`
+
+```typescript
+import { Federation } from "@stellar/stellar-sdk";
+
+// Built-in resolver — no Wraith dependency required
+const record = await Federation.Server.resolve("alice*example.com");
+console.log(record.account_id);   // "GABC..."
+console.log(record.memo_type);    // "text" | undefined
+console.log(record.memo);         // "invoice-4821" | undefined
+```
+
+The Wraith `resolveStellarFederation()` helper adds normalised error codes, TypeScript-first types, a pluggable cache interface, and timeout control on top of this baseline.
+
+---
+
+## Related
+
+- [Stellar Crypto Primitives](/sdk/chains/stellar) — `generateStealthAddress`, `decodeStealthMetaAddress`, and the full stealth address flow
+- [Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook) — production recipes that use federation addresses as payment destinations
+- [How Stealth Payments Work](/guides/stealth-payments) — the cryptography behind stealth addresses
+- [SEP-0002: Federation Protocol](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0002.md) — the full specification
+- [SEP-0001: Stellar Info File](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md) — stellar.toml format

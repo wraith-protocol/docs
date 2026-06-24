@@ -423,3 +423,38 @@ This replaces the need to manually query `sorobanServer.getEvents()` and parse X
 
 > [!NOTE]
 > For advanced use cases and indexer building, refer to the [Stellar Event Schemas (v2)](/reference/stellar-event-schemas) documentation to learn how to natively filter topics via the RPC.
+
+## Federation Address Resolution
+
+The SDK includes a `resolveStellarFederation()` helper for resolving `alice*example.com` federation addresses to Stellar public keys before sending payments.
+
+```typescript
+import { resolveStellarFederation } from "@wraith-protocol/sdk/chains/stellar";
+
+const record = await resolveStellarFederation("alice*example.com");
+console.log(record.accountId);   // "GABC..." or "st:xlm:..." stealth meta-address
+console.log(record.memoType);    // "text" | "id" | "hash" | undefined
+console.log(record.memoValue);   // memo value if required (e.g. exchange deposits)
+```
+
+If the resolved `accountId` is a stealth meta-address (`st:xlm:...`), decode it and pass it straight to `generateStealthAddress()`:
+
+```typescript
+import {
+  resolveStellarFederation,
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const record = await resolveStellarFederation("alice*example.com");
+
+if (record.accountId.startsWith("st:xlm:")) {
+  const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(record.accountId);
+  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+  // Send to stealth.stealthAddress and call the announcer contract
+} else {
+  // Send directly to record.accountId, include record.memoValue if present
+}
+```
+
+See the [Stellar Federation Addresses guide](/guides/stellar-federation) for the full reference: SEP-0002 protocol details, caching, failure modes, UX patterns, and how to register your own domain.
