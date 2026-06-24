@@ -99,7 +99,8 @@
               "guides/single-chain-agent",
               "guides/multichain-agent",
               "guides/bring-your-own-model",
-              "guides/privacy-best-practices"
+              "guides/privacy-best-practices",
+              "guides/spectre-stellar-cookbook"
             ]
           }
         ]

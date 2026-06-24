@@ -1,0 +1,1107 @@
+---
+title: "Spectre + Stellar Cookbook"
+description: "Three production-ready recipes for building Stellar agents with Wraith"
+---
+
+Three complete recipes for building Stellar agents in production. Each is copy-pasteable and covers the full lifecycle: agent creation, funding, payments, webhooks, and privacy automation.
+
+> These recipes use `Chain.Stellar` throughout. For multichain variants, see the [Multichain Agent guide](/guides/multichain-agent).
+
+---
+
+## Recipe 1: SaaS Accepting Stellar Payments Privately
+
+A SaaS product that receives USDC payments on Stellar, webhooks on every incoming payment, auto-withdraws to cold storage weekly, and keeps privacy autopilot running.
+
+### What you build
+
+- A `payments.wraith` agent on Stellar
+- Webhook handler that fires on every incoming stealth payment
+- Weekly cron: scan → withdraw to cold storage → privacy check
+- Privacy autopilot that warns before any risky action
+
+### Step 1 — Create the agent
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+// Use your company's Stellar keypair to prove ownership
+const ownerKeypair = Keypair.fromSecret(process.env.OWNER_SECRET!);
+const message = "Sign to create Wraith agent";
+const signature = ownerKeypair.sign(Buffer.from(message));
+
+const agent = await wraith.createAgent({
+  name: "payments",          // → payments.wraith
+  chain: Chain.Stellar,
+  wallet: ownerKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+
+console.log("Agent ID:         ", agent.info.id);
+console.log("Stellar address:  ", agent.info.addresses[Chain.Stellar]);
+console.log("Meta-address:     ", agent.info.metaAddresses[Chain.Stellar]);
+// st:xlm:abc123...def456...  ← publish this on your pricing page
+```
+
+**curl equivalent:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/create \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "payments",
+    "chain": "stellar",
+    "wallet": "GABC...your-stellar-pubkey",
+    "signature": "hex-encoded-ed25519-signature",
+    "message": "Sign to create Wraith agent"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "id": "a1b2c3d4-...",
+  "name": "payments",
+  "chain": "stellar",
+  "address": "GABC...agent-address",
+  "metaAddress": "st:xlm:abc123...def456..."
+}
+```
+
+### Step 2 — Fund the agent (testnet)
+
+Stellar testnet funding uses Friendbot. The agent handles this automatically:
+
+```typescript
+const res = await agent.chat("fund my wallet");
+// "Wallet funded via Friendbot. Balance: 10,000 XLM"
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "fund my wallet" }'
+```
+
+> **Friendbot note:** Friendbot funds with 10,000 XLM on testnet. Mainnet requires a real XLM source — send at least 1.5 XLM to the agent address to activate the account (Stellar minimum balance) plus gas reserves.
+
+**Cost estimate (mainnet):**
+| Operation | Fee |
+|---|---|
+| Agent account activation | 1 XLM (minimum balance) |
+| Each Soroban announcement | ~0.00001 XLM base fee + Soroban resource fee ≈ 0.0001–0.001 XLM |
+| USDC transfer via stealth-sender | ~0.00001 XLM base + resource fee ≈ 0.0001–0.001 XLM |
+| `.wraith` name registration | ~0.00001 XLM base + resource fee ≈ 0.0001–0.001 XLM |
+
+### Step 3 — Register the name on-chain
+
+The SDK registers `payments.wraith` automatically during `createAgent`. To resolve it manually:
+
+```bash
+curl https://api.usewraith.xyz/agent/info/payments \
+  -H "Authorization: Bearer $WRAITH_API_KEY"
+```
+
+```json
+{
+  "id": "a1b2c3d4-...",
+  "name": "payments",
+  "chains": ["stellar"],
+  "addresses": { "stellar": "GABC..." },
+  "metaAddresses": { "stellar": "st:xlm:abc123..." }
+}
+```
+
+### Step 4 — Webhook on incoming payment
+
+Poll notifications on a schedule, or wire up a background worker:
+
+```typescript
+// poll-payments.ts — run every 60 seconds
+async function pollIncoming(agentId: string) {
+  const res = await fetch(
+    `https://api.usewraith.xyz/agent/${agentId}/notifications`,
+    { headers: { Authorization: `Bearer ${process.env.WRAITH_API_KEY}` } }
+  );
+  const { notifications, unreadCount } = await res.json();
+
+  if (unreadCount === 0) return;
+
+  for (const n of notifications.filter((n: any) => !n.read)) {
+    if (n.type === "payment_received") {
+      await handleIncomingPayment(n);
+    }
+  }
+
+  // Mark all read
+  await fetch(
+    `https://api.usewraith.xyz/agent/${agentId}/notifications/read`,
+    { method: "POST", headers: { Authorization: `Bearer ${process.env.WRAITH_API_KEY}` } }
+  );
+}
+```
+
+**Sample notification payload:**
+
+```json
+{
+  "id": 42,
+  "type": "payment_received",
+  "title": "Payment received",
+  "body": "50 USDC received at stealth address GABC...xyz via payments.wraith",
+  "read": false,
+  "createdAt": "2025-01-15T14:30:00Z"
+}
+```
+
+Your handler extracts amount, token, and stealth address from the `body` field:
+
+```typescript
+async function handleIncomingPayment(notification: any) {
+  // Parse: "50 USDC received at stealth address GABC...xyz via payments.wraith"
+  const match = notification.body.match(
+    /^(\S+)\s+(\S+)\s+received at stealth address\s+(\S+)/
+  );
+  if (!match) return;
+
+  const [, amount, token, stealthAddress] = match;
+
+  // Your business logic: create invoice record, unlock subscription, etc.
+  await db.payments.create({
+    amount,
+    token,
+    stealthAddress,
+    receivedAt: notification.createdAt,
+  });
+
+  console.log(`Received ${amount} ${token} at ${stealthAddress}`);
+}
+```
+
+### Step 5 — Auto-withdraw to cold storage weekly
+
+Schedule this with your platform's cron (AWS EventBridge, GitHub Actions, Vercel Cron, etc.):
+
+```typescript
+// weekly-withdraw.ts
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+export async function weeklyWithdraw() {
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(process.env.AGENT_ID!);
+
+  // 1. Scan for any new incoming payments first
+  const scan = await agent.chat("scan for payments on stellar");
+  console.log("Scan:", scan.response);
+
+  // 2. Check balance before withdrawal
+  const balance = await agent.getBalance();
+  console.log("Balance:", balance.tokens);
+
+  // 3. Withdraw USDC to cold storage — agent warns on privacy issues
+  const withdraw = await agent.chat(
+    `withdraw all USDC to ${process.env.COLD_STORAGE_ADDRESS} on stellar`
+  );
+  console.log("Withdraw:", withdraw.response);
+
+  // 4. Keep a small XLM reserve for fees, withdraw the rest
+  const xlmWithdraw = await agent.chat(
+    `withdraw XLM to ${process.env.COLD_STORAGE_ADDRESS} on stellar, keep 5 XLM for fees`
+  );
+  console.log("XLM Withdraw:", xlmWithdraw.response);
+}
+```
+
+**curl equivalent (for use in shell-based cron):**
+
+```bash
+# 1. Scan
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "scan for payments on stellar"}'
+
+# 2. Withdraw USDC to cold storage
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"message\": \"withdraw all USDC to $COLD_STORAGE_ADDRESS on stellar\"}"
+```
+
+### Step 6 — Privacy autopilot
+
+Enable privacy autopilot to get weekly analysis and preemptive warnings built into the agent's behavior:
+
+```typescript
+// privacy-autopilot.ts — run weekly, or after large payment batches
+export async function privacyAutopilot(agentId: string) {
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(agentId);
+
+  const check = await agent.chat("run a privacy check on stellar");
+  console.log(check.response);
+  // Privacy Score: 92/100
+  // Issues:
+  //   - (info) 2 unspent stealth addresses
+  // Best Practices:
+  //   - Space withdrawals at least 1 hour apart
+
+  // If score drops below threshold, alert your team
+  const scoreMatch = check.response.match(/Privacy Score: (\d+)\/100/);
+  if (scoreMatch && parseInt(scoreMatch[1]) < 70) {
+    await alertOpsTeam(check.response);
+  }
+}
+```
+
+**Full production setup (single file):**
+
+```typescript
+// agent-setup.ts
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import cron from "node-cron";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// Poll for payments every 60s
+setInterval(() => pollIncoming(process.env.AGENT_ID!), 60_000);
+
+// Weekly withdrawal + privacy check (every Sunday at 02:00 UTC)
+cron.schedule("0 2 * * 0", async () => {
+  await weeklyWithdraw();
+  await privacyAutopilot(process.env.AGENT_ID!);
+});
+```
+
+---
+
+## Recipe 2: DAO Weekly Payroll in USDC on Stellar
+
+A DAO pays contributors weekly in USDC via `.wraith` stealth addresses on Stellar. Failures are monitored, destinations rotate monthly.
+
+### What you build
+
+- A `dao-payroll.wraith` agent on Stellar
+- Weekly scheduled payments to N `.wraith` recipients
+- Failure monitoring with retry logic
+- Monthly destination rotation for enhanced privacy
+
+### Step 1 — Create the payroll agent
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const treasuryKeypair = Keypair.fromSecret(process.env.TREASURY_SECRET!);
+
+const message = "Sign to create Wraith payroll agent";
+const signature = treasuryKeypair.sign(Buffer.from(message));
+
+const agent = await wraith.createAgent({
+  name: "dao-payroll",
+  chain: Chain.Stellar,
+  wallet: treasuryKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+
+console.log("Payroll agent:", agent.info.id);
+console.log("Address:", agent.info.addresses[Chain.Stellar]);
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/create \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "dao-payroll",
+    "chain": "stellar",
+    "wallet": "GABC...treasury-pubkey",
+    "signature": "hex-signature",
+    "message": "Sign to create Wraith payroll agent"
+  }'
+```
+
+### Step 2 — Define the payroll registry
+
+Store contributors and their current `.wraith` destinations:
+
+```typescript
+// payroll-registry.ts
+export interface Contributor {
+  id: string;
+  name: string;
+  wraithName: string;       // e.g. "alice.wraith"
+  weeklyUSDC: number;       // e.g. 500
+  active: boolean;
+}
+
+// In production: load from your DAO's on-chain registry or database
+export const contributors: Contributor[] = [
+  { id: "c1", name: "Alice",   wraithName: "alice.wraith",   weeklyUSDC: 500, active: true },
+  { id: "c2", name: "Bob",     wraithName: "bob.wraith",     weeklyUSDC: 750, active: true },
+  { id: "c3", name: "Carol",   wraithName: "carol.wraith",   weeklyUSDC: 300, active: true },
+];
+```
+
+### Step 3 — Weekly payroll run
+
+```typescript
+// payroll-run.ts
+import { Wraith } from "@wraith-protocol/sdk";
+import { contributors } from "./payroll-registry";
+
+interface PayrollResult {
+  contributorId: string;
+  wraithName: string;
+  amount: number;
+  status: "success" | "failed";
+  error?: string;
+  conversationId?: string;
+}
+
+export async function runWeeklyPayroll(): Promise<PayrollResult[]> {
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(process.env.PAYROLL_AGENT_ID!);
+  const results: PayrollResult[] = [];
+
+  const active = contributors.filter((c) => c.active);
+  console.log(`Running payroll for ${active.length} contributors`);
+
+  for (const contributor of active) {
+    try {
+      const res = await agent.chat(
+        `send ${contributor.weeklyUSDC} USDC to ${contributor.wraithName} on stellar`
+      );
+
+      const success = res.toolCalls?.some(
+        (t) => t.name === "send_payment" && t.status === "success"
+      );
+
+      results.push({
+        contributorId: contributor.id,
+        wraithName: contributor.wraithName,
+        amount: contributor.weeklyUSDC,
+        status: success ? "success" : "failed",
+        error: success ? undefined : res.response,
+        conversationId: res.conversationId,
+      });
+
+      // Space payments 30 seconds apart — avoids timing correlation
+      await new Promise((r) => setTimeout(r, 30_000));
+    } catch (err: any) {
+      results.push({
+        contributorId: contributor.id,
+        wraithName: contributor.wraithName,
+        amount: contributor.weeklyUSDC,
+        status: "failed",
+        error: err.message,
+      });
+    }
+  }
+
+  return results;
+}
+```
+
+**curl equivalent (single payment):**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "send 500 USDC to alice.wraith on stellar"}'
+```
+
+**Sample success response:**
+
+```json
+{
+  "response": "Payment sent — 500 USDC to alice.wraith via stealth address GABC...xyz on Stellar.",
+  "toolCalls": [
+    {
+      "name": "send_payment",
+      "status": "success",
+      "detail": "{\"txHash\":\"a1b2c3...\",\"stealthAddress\":\"GABC...xyz\",\"amount\":\"500\",\"token\":\"USDC\"}"
+    }
+  ],
+  "conversationId": "conv-uuid-..."
+}
+```
+
+### Step 4 — Monitor failures and retry
+
+```typescript
+// payroll-monitor.ts
+export async function monitorAndRetry(
+  results: PayrollResult[],
+  agentId: string
+) {
+  const failed = results.filter((r) => r.status === "failed");
+  if (failed.length === 0) {
+    console.log("All payroll payments succeeded.");
+    return;
+  }
+
+  console.warn(`${failed.length} payment(s) failed. Retrying in 10 minutes...`);
+
+  // Wait 10 minutes before retrying (network hiccups, Soroban congestion)
+  await new Promise((r) => setTimeout(r, 10 * 60_000));
+
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(agentId);
+
+  for (const failure of failed) {
+    console.log(`Retrying ${failure.wraithName}: ${failure.error}`);
+    try {
+      const res = await agent.chat(
+        `send ${failure.amount} USDC to ${failure.wraithName} on stellar`
+      );
+      console.log(`Retry result for ${failure.wraithName}:`, res.response);
+    } catch (err: any) {
+      // After retry failure: alert ops, log for manual resolution
+      console.error(`Retry failed for ${failure.wraithName}:`, err.message);
+      await alertOps({
+        contributor: failure.wraithName,
+        amount: failure.amount,
+        error: err.message,
+      });
+    }
+  }
+}
+
+// Alert function — wire to Slack, PagerDuty, email, etc.
+async function alertOps(info: {
+  contributor: string;
+  amount: number;
+  error: string;
+}) {
+  await fetch(process.env.SLACK_WEBHOOK_URL!, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: `Payroll failure: ${info.amount} USDC to ${info.contributor}\nError: ${info.error}`,
+    }),
+  });
+}
+```
+
+### Step 5 — Monthly destination rotation
+
+Contributors update their `.wraith` destination monthly to prevent pattern analysis across pay periods. Your DAO governance process submits new names; your code updates the registry:
+
+```typescript
+// rotation.ts
+export async function rotateDestinations(
+  updates: Array<{ contributorId: string; newWraithName: string }>
+) {
+  for (const update of updates) {
+    const contributor = contributors.find((c) => c.id === update.contributorId);
+    if (!contributor) continue;
+
+    const old = contributor.wraithName;
+    contributor.wraithName = update.newWraithName;
+
+    console.log(`Rotated ${contributor.name}: ${old} → ${update.newWraithName}`);
+
+    // Persist to your database
+    await db.contributors.update({
+      where: { id: update.contributorId },
+      data: { wraithName: update.newWraithName },
+    });
+  }
+}
+```
+
+To rotate, contributors call `wraith.getAgentByName("alice")` on a new agent and share the new `.wraith` name with the DAO treasurer. No personal information changes hands — only a new Wraith name.
+
+### Step 6 — Full payroll scheduler
+
+```typescript
+// scheduler.ts
+import cron from "node-cron";
+
+// Every Friday at 16:00 UTC
+cron.schedule("0 16 * * 5", async () => {
+  console.log("Starting weekly payroll...");
+
+  // Pre-fund check: ensure balance covers this week's payroll
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(process.env.PAYROLL_AGENT_ID!);
+  const balance = await agent.getBalance();
+
+  const totalUSDC = contributors
+    .filter((c) => c.active)
+    .reduce((sum, c) => sum + c.weeklyUSDC, 0);
+
+  const available = parseFloat(balance.tokens?.["USDC"] ?? "0");
+  if (available < totalUSDC) {
+    await alertOps({
+      contributor: "TREASURY",
+      amount: totalUSDC - available,
+      error: `Insufficient USDC: need ${totalUSDC}, have ${available}`,
+    });
+    return;
+  }
+
+  const results = await runWeeklyPayroll();
+  await monitorAndRetry(results, process.env.PAYROLL_AGENT_ID!);
+
+  // Log results
+  const succeeded = results.filter((r) => r.status === "success").length;
+  console.log(`Payroll complete: ${succeeded}/${results.length} payments succeeded`);
+});
+
+// First of each month: prompt for destination rotation
+cron.schedule("0 9 1 * *", async () => {
+  console.log("Monthly rotation reminder — update contributor destinations if needed");
+  // Trigger your DAO governance flow here
+});
+```
+
+**Cost estimate (weekly, 10 contributors):**
+| Item | Estimate |
+|---|---|
+| 10 × stealth-sender calls | ~0.001–0.01 XLM total |
+| 10 × announcer events | ~0.001–0.01 XLM total |
+| USDC token transfers (inside Soroban) | Included in above resource fee |
+| Monthly name rotation (10 updates) | ~0.001–0.01 XLM total |
+
+Stellar fees are low enough that the per-payment overhead is negligible compared to the USDC amounts.
+
+---
+
+## Recipe 3: User Privacy-Check Agent
+
+A weekly background agent that analyzes stealth payment patterns, sends Slack/email reports, and makes auto-rotate recommendations.
+
+### What you build
+
+- A `privacy-monitor.wraith` agent on Stellar
+- Weekly privacy analysis job
+- Structured report with per-issue severity
+- Auto-rotate recommendations with actionable `.wraith` name suggestions
+
+### Step 1 — Create the monitoring agent
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const monitorKeypair = Keypair.fromSecret(process.env.MONITOR_SECRET!);
+
+const message = "Sign to create Wraith privacy monitor";
+const signature = monitorKeypair.sign(Buffer.from(message));
+
+const agent = await wraith.createAgent({
+  name: "privacy-monitor",
+  chain: Chain.Stellar,
+  wallet: monitorKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+
+console.log("Monitor agent:", agent.info.id);
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/create \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "privacy-monitor",
+    "chain": "stellar",
+    "wallet": "GABC...monitor-pubkey",
+    "signature": "hex-signature",
+    "message": "Sign to create Wraith privacy monitor"
+  }'
+```
+
+### Step 2 — Run the weekly privacy analysis
+
+```typescript
+// privacy-analysis.ts
+import { Wraith } from "@wraith-protocol/sdk";
+
+export interface PrivacyReport {
+  agentId: string;
+  score: number;
+  issues: PrivacyIssue[];
+  recommendations: string[];
+  rawResponse: string;
+  analyzedAt: string;
+}
+
+export interface PrivacyIssue {
+  severity: "high" | "medium" | "info";
+  description: string;
+}
+
+export async function analyzePrivacy(agentId: string): Promise<PrivacyReport> {
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(agentId);
+
+  // Ask the agent for a detailed privacy check
+  const res = await agent.chat(
+    "run a detailed privacy check on stellar and list all issues by severity"
+  );
+
+  return parsePrivacyReport(agentId, res.response);
+}
+
+function parsePrivacyReport(agentId: string, raw: string): PrivacyReport {
+  // Extract score: "Privacy Score: 85/100"
+  const scoreMatch = raw.match(/Privacy Score:\s*(\d+)\/100/i);
+  const score = scoreMatch ? parseInt(scoreMatch[1]) : 100;
+
+  // Extract issues: lines matching "(high|medium|info) ..."
+  const issueLines = [...raw.matchAll(/\((\w+)\)\s+(.+)/g)];
+  const issues: PrivacyIssue[] = issueLines.map(([, severity, description]) => ({
+    severity: severity as PrivacyIssue["severity"],
+    description: description.trim(),
+  }));
+
+  // Extract best practices / recommendations block
+  const recBlock = raw.split(/Best Practices:|Recommendations:/i)[1] ?? "";
+  const recommendations = recBlock
+    .split("\n")
+    .map((l) => l.replace(/^[-•*]\s*/, "").trim())
+    .filter(Boolean);
+
+  return {
+    agentId,
+    score,
+    issues,
+    recommendations,
+    rawResponse: raw,
+    analyzedAt: new Date().toISOString(),
+  };
+}
+```
+
+**curl equivalent:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "run a detailed privacy check on stellar and list all issues by severity"}'
+```
+
+**Sample agent response:**
+
+```
+Privacy Score: 72/100
+
+Issues:
+- (high) All recent payments are the same amount (500 USDC × 6 payments)
+- (medium) 8 unspent stealth addresses older than 30 days
+- (info) Last withdrawal was 45 days ago
+
+Best Practices:
+- Vary payment amounts by ±5–10% to prevent amount fingerprinting
+- Consolidate stealth addresses: withdraw and rotate to fresh destination
+- Schedule regular withdrawals — monthly at minimum
+```
+
+### Step 3 — Send Slack and email reports
+
+```typescript
+// reporters.ts
+
+// Slack report
+export async function sendSlackReport(report: PrivacyReport) {
+  const emoji = report.score >= 85 ? "✅" : report.score >= 70 ? "⚠️" : "🚨";
+  const highCount = report.issues.filter((i) => i.severity === "high").length;
+
+  const blocks = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: `${emoji} Weekly Privacy Report` },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Score*\n${report.score}/100` },
+        { type: "mrkdwn", text: `*High-severity issues*\n${highCount}` },
+        { type: "mrkdwn", text: `*Agent*\n${report.agentId.slice(0, 8)}...` },
+        { type: "mrkdwn", text: `*Analyzed*\n${report.analyzedAt.slice(0, 10)}` },
+      ],
+    },
+  ];
+
+  if (report.issues.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Issues:*\n" +
+          report.issues
+            .map((i) => `• \`${i.severity.toUpperCase()}\` ${i.description}`)
+            .join("\n"),
+      },
+    } as any);
+  }
+
+  if (report.recommendations.length > 0) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          "*Recommendations:*\n" +
+          report.recommendations.map((r) => `• ${r}`).join("\n"),
+      },
+    } as any);
+  }
+
+  await fetch(process.env.SLACK_WEBHOOK_URL!, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blocks }),
+  });
+}
+
+// Email report via SendGrid (swap for any email provider)
+export async function sendEmailReport(report: PrivacyReport, to: string) {
+  const subject =
+    report.score >= 85
+      ? `Privacy Report: All clear (${report.score}/100)`
+      : `Privacy Report: Action needed (${report.score}/100)`;
+
+  const html = `
+    <h2>Weekly Privacy Report — ${report.analyzedAt.slice(0, 10)}</h2>
+    <p><strong>Score:</strong> ${report.score}/100</p>
+    <h3>Issues</h3>
+    <ul>
+      ${report.issues.map((i) => `<li><strong>${i.severity}</strong>: ${i.description}</li>`).join("")}
+    </ul>
+    <h3>Recommendations</h3>
+    <ul>
+      ${report.recommendations.map((r) => `<li>${r}</li>`).join("")}
+    </ul>
+  `;
+
+  await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: "privacy@yoursaas.com" },
+      subject,
+      content: [{ type: "text/html", value: html }],
+    }),
+  });
+}
+```
+
+### Step 4 — Auto-rotate recommendations
+
+When the privacy score drops below a threshold, the agent suggests new `.wraith` names to rotate to:
+
+```typescript
+// auto-rotate.ts
+export async function generateRotationPlan(
+  agentId: string,
+  report: PrivacyReport
+): Promise<string[]> {
+  // Only generate rotation plan when score is poor
+  if (report.score >= 80) return [];
+
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = wraith.agent(agentId);
+
+  const res = await agent.chat(
+    "given the privacy issues found, should I rotate my .wraith name? " +
+    "If so, suggest 3 alternative name formats I could register."
+  );
+
+  // Parse suggested names from response
+  const names = [...res.response.matchAll(/`([a-z0-9-]{3,32}\.wraith)`/g)].map(
+    ([, name]) => name
+  );
+
+  return names;
+}
+
+export async function applyRotation(
+  currentAgentId: string,
+  newName: string
+): Promise<void> {
+  // Note: rotating a .wraith name requires creating a new agent and
+  // migrating balances. The old name can be released via the Soroban
+  // wraith-names contract.
+  // 
+  // This is a known limitation — see the follow-up issue below.
+  console.log(
+    `Rotation to ${newName} requires manual migration. ` +
+    `See: https://github.com/wraith-protocol/spectre/issues/NEW`
+  );
+}
+```
+
+### Step 5 — Full weekly job
+
+```typescript
+// weekly-privacy-job.ts
+import cron from "node-cron";
+
+// Every Monday at 08:00 UTC
+cron.schedule("0 8 * * 1", async () => {
+  console.log("Starting weekly privacy analysis...");
+
+  const agentIds = process.env.MONITORED_AGENT_IDS!.split(",");
+
+  for (const agentId of agentIds) {
+    const report = await analyzePrivacy(agentId);
+
+    await sendSlackReport(report);
+    await sendEmailReport(report, process.env.PRIVACY_REPORT_EMAIL!);
+
+    if (report.score < 70) {
+      const rotationPlan = await generateRotationPlan(agentId, report);
+      if (rotationPlan.length > 0) {
+        console.log(`Rotation plan for ${agentId}:`, rotationPlan);
+        await sendSlackReport({
+          ...report,
+          rawResponse:
+            `Auto-rotate suggestions: ${rotationPlan.join(", ")}\n\n` +
+            report.rawResponse,
+        });
+      }
+    }
+
+    // Store report for trend tracking
+    await db.privacyReports.create({ data: report });
+  }
+});
+```
+
+**curl — run an on-demand privacy check:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "run a detailed privacy check on stellar and list all issues by severity"}'
+```
+
+---
+
+## Missing Features — Follow-up Issues
+
+The following capabilities are referenced in this cookbook but are not yet available in the Spectre/Wraith platform. File these against the Spectre backend repo when it is available, or raise them with the Wraith team directly.
+
+### Issue 1 — Webhook push delivery
+
+**Feature:** Push payment events to a developer-supplied URL instead of requiring polling `GET /agent/:id/notifications`.
+
+**Used in:** Recipe 1, Step 4
+
+**Proposed API:**
+
+```
+POST /agent/:id/webhooks
+{
+  "url": "https://yoursaas.com/hooks/wraith",
+  "events": ["payment_received", "invoice_paid"],
+  "secret": "whsec_..."
+}
+```
+
+When a payment arrives, POST to the registered URL with an `X-Wraith-Signature` HMAC header for verification. This eliminates polling and enables serverless architectures (Lambda, Vercel Functions, Cloudflare Workers).
+
+**Workaround:** Poll `GET /agent/:id/notifications` every 60 seconds. See Recipe 1, Step 4.
+
+---
+
+### Issue 2 — In-place `.wraith` name rotation
+
+**Feature:** Update a name's stealth meta-address without creating a new agent or migrating balances.
+
+**Used in:** Recipe 2 Step 5, Recipe 3 Step 4
+
+**Proposed API:**
+
+```
+PATCH /agent/:id/meta-address
+{
+  "signature": "...",
+  "message": "...",
+  "chain": "stellar"
+}
+```
+
+Or a name-transfer endpoint that moves ownership to a new agent without requiring a full migration.
+
+**Workaround:** Create a new agent with a new name, update the payroll registry, and let the old agent drain. The old name can be released via the Soroban `wraith-names` contract `release()` function.
+
+---
+
+### Issue 3 — Structured privacy score endpoint
+
+**Feature:** `GET /agent/:id/privacy-score?chain=stellar` returning machine-readable JSON instead of requiring callers to parse natural language.
+
+**Used in:** Recipe 3, Step 2
+
+**Proposed response:**
+
+```json
+{
+  "score": 72,
+  "chain": "stellar",
+  "analyzedAt": "2025-01-15T08:00:00Z",
+  "issues": [
+    { "severity": "high", "code": "IDENTICAL_AMOUNTS", "description": "..." },
+    { "severity": "medium", "code": "STALE_STEALTH_ADDRESSES", "description": "..." }
+  ],
+  "recommendations": ["Vary payment amounts by ±5–10%", "..."]
+}
+```
+
+**Workaround:** Call `POST /agent/:id/chat` with `"run a detailed privacy check on stellar and list all issues by severity"` and parse the score with `/Privacy Score:\s*(\d+)\/100/i`. See Recipe 3, Step 2 for the full parser implementation.
+
+---
+
+### Issue 4 — `batch_send` via agent chat
+
+**Feature:** Allow the agent to use the Soroban `stealth-sender` `batch_send` operation when multiple payments go out in one run, reducing Soroban resource fees from N × per-tx to 1 × batch.
+
+**Used in:** Recipe 2, Step 3
+
+**Proposed instruction:**
+
+```
+"batch send on stellar: 500 USDC to alice.wraith, 750 USDC to bob.wraith, 300 USDC to carol.wraith"
+```
+
+**Workaround:** Issue individual sends with 30-second spacing. For 10 contributors the fee difference is small, but it scales linearly — critical for DAOs with 20+ members.
+
+---
+
+### Issue 5 — Reserve-aware XLM withdrawal (needs verification)
+
+**Feature / verification needed:** The instruction `"withdraw XLM to <address>, keep 5 XLM for fees"` must correctly calculate the surplus and never withdraw below the Stellar minimum balance (1 XLM base + base reserves per entry).
+
+**Used in:** Recipe 1, Step 5
+
+**Risk:** A silent failure here drops the agent below minimum balance and breaks all future Stellar transactions — a hard-to-debug production incident.
+
+**Test cases needed:**
+- `"withdraw XLM, keep 5 XLM for fees"` — should withdraw `balance - 5 XLM`
+- Balance already at or below 5 XLM — should return an error, not withdraw
+- Equivalent phrasings: `"reserve 5 XLM"`, `"leave 5 XLM for gas"`
+
+**Workaround until verified:** Query `GET /agent/:id/status` for the current balance and calculate the safe withdrawal amount before issuing the chat command.
+
+---
+
+## Common Patterns
+
+### Reconnect to an existing agent
+
+All three recipes reconnect to a pre-created agent by ID. Store the agent ID in your environment after the first `createAgent` call:
+
+```typescript
+// Reconnect — no new agent is created
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// Or by name
+const agent = await wraith.getAgentByName("payments");
+```
+
+```bash
+# Get agent info by name
+curl https://api.usewraith.xyz/agent/info/payments \
+  -H "Authorization: Bearer $WRAITH_API_KEY"
+```
+
+### Check agent status
+
+```bash
+curl https://api.usewraith.xyz/agent/$AGENT_ID/status \
+  -H "Authorization: Bearer $WRAITH_API_KEY"
+```
+
+```json
+{
+  "balance": "9998.5",
+  "tokens": { "USDC": "4500.00" },
+  "pendingInvoices": 0,
+  "address": "GABC...",
+  "metaAddress": "st:xlm:abc123...",
+  "chain": "stellar"
+}
+```
+
+### Error handling
+
+```typescript
+try {
+  const res = await agent.chat("send 500 USDC to alice.wraith on stellar");
+} catch (err: any) {
+  // err.message mirrors the API error body
+  // "Insufficient balance" | "Name 'alice' not found" | etc.
+  console.error(err.message);
+}
+```
+
+All API errors follow:
+
+```json
+{ "message": "Insufficient balance", "statusCode": 400 }
+```
+
+| Code | When |
+|---|---|
+| 400 | Invalid params, insufficient balance, bad signature |
+| 401 | Invalid API key |
+| 404 | Agent or name not found |
+| 409 | Name already registered |
+| 500 | Server / TEE error |
+
+### Stellar account activation
+
+New stealth addresses on Stellar require a `createAccount` operation (not `payment`) to activate the account with the 1 XLM minimum balance. The Wraith agent handles this automatically. If you're using the low-level SDK:
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/stellar";
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// stealth.stealthAddress is a G... address with no on-chain existence yet
+// Use Operation.createAccount to fund it for the first time
+// Use stealth-sender contract for subsequent USDC transfers
+```
+
+See [Stellar Crypto Primitives](/sdk/chains/stellar) and [Stellar Contracts](/contracts/stellar) for the low-level details.
+
+---
+
+## Related
+
+- [Single-Chain Agent](/guides/single-chain-agent) — full agent lifecycle reference
+- [Multichain Agent](/guides/multichain-agent) — extend these recipes to EVM chains
+- [Privacy Best Practices](/guides/privacy-best-practices) — scoring algorithm and what to avoid
+- [Stellar Crypto Primitives](/sdk/chains/stellar) — low-level ed25519 stealth functions
+- [Stellar Contracts](/contracts/stellar) — Soroban contract interfaces
+- [API Reference](/api-reference/endpoints) — full HTTP endpoint spec
