@@ -58,7 +58,7 @@ The chain connector determines how the raw seed becomes usable keys:
 
 Every time an operation needs agent keys (sending a payment, scanning, withdrawing), the keys are re-derived from the TEE root secret. No private key material touches disk.
 
-```typescript
+```typescript no-check
 // Every chat message re-derives keys
 async chat(agentId: string, message: string) {
   const agent = await this.db.agents.findOneBy({ id: agentId });
