@@ -1,0 +1,9 @@
+{
+  "type": "module",
+  "scripts": {
+    "generate:stellar-reference": "node scripts/generate-stellar-reference.ts",
+    "check:stellar-reference": "node scripts/generate-stellar-reference.ts --check --allow-missing",
+    "mint:validate": "mint validate",
+    "mint:broken-links": "mint broken-links"
+  }
+}
