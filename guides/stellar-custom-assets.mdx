@@ -1,0 +1,822 @@
+---
+title: "Stellar Custom Assets (USDC)"
+description: "Send and receive stealth USDC payments on Stellar — trustlines, SAC mechanics, and path payments"
+---
+
+Most real-world Stellar integrations use USDC, not XLM. This guide covers everything you need to send and receive stealth USDC (and other Stellar assets) without running into trustline errors, clawback surprises, or SAC authorization blocks.
+
+> **Quick answer:** USDC (Circle) has no restrictive flags and is fully compatible with Wraith stealth payments. The SDK handles trustlines automatically on Protocol 22+. Skip to [Send USDC via the agent](#send-usdc-via-the-managed-agent) if you just need the code.
+
+---
+
+## Stellar Asset Contracts (SAC) Overview
+
+Every Stellar asset — including USDC — has a Stellar Asset Contract (SAC): a built-in Soroban contract that exposes a standard [SEP-41 token interface](https://developers.stellar.org/docs/tokens/token-interface) for on-chain interactions. SACs are what allow Soroban contracts like `stealth-sender` to transfer USDC atomically alongside an announcement.
+
+The SAC interface is similar to ERC-20:
+
+```
+transfer(from, to, amount)
+balance(id) → i128
+approve(from, spender, amount, expiration_ledger)
+allowance(from, spender) → i128
+burn(from, amount)
+```
+
+The SAC also exposes Stellar-specific admin functions: `mint`, `clawback`, `set_authorized`, and `trust`.
+
+### How stealth-sender uses the SAC
+
+When you call `stealth-sender.send(token, stealth_address, amount, ...)`:
+
+1. **`token.trust(stealth_address)`** — creates the trustline on the stealth address if it doesn't exist (Protocol 22+, no-op if it already exists)
+2. **`token.transfer(caller, stealth_address, amount)`** — moves tokens from the caller to the stealth address
+3. **`announcer.announce(...)`** — emits the stealth payment announcement
+
+All three operations execute atomically in one Soroban transaction. If any step fails, nothing happens.
+
+### Trustlines
+
+Every Stellar account must hold a trustline for each non-native asset it wants to hold. Before Protocol 22 (Yardstick), this required a separate `changeTrust` operation from the stealth address — which meant deriving the private scalar and signing a separate transaction before the payment.
+
+Protocol 22 added `SAC.trust(addr)`, callable from within a contract. `stealth-sender` calls it automatically. The sender pays 0.5 XLM in base reserve per new trustline entry created. This amount is locked in the stealth address account — it comes back when the trustline is closed.
+
+---
+
+## USDC Issuer Addresses
+
+Always verify the issuer before integrating. Accepting USDC from an unknown issuer address is not the same as Circle's USDC.
+
+| Asset | Network | Issuer Address |
+|---|---|---|
+| USDC | Mainnet | `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN` |
+| USDC | Testnet | `GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5` |
+| EURC | Mainnet | `GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP` |
+| EURC | Testnet | `GB3Q6QDZYTHWT7E5PVS3W7FUT5GVAFC5KSZFFLPU25GO7VTC3NM2ZTVO` |
+| XLM  | Any | Native (no issuer required) |
+
+Sources: [Circle USDC Contract Addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses).
+
+### SAC contract address derivation
+
+The SAC contract address for any Stellar asset is deterministic. Derive it from the issuer address and asset code:
+
+```typescript
+import { Asset, Contract } from "@stellar/stellar-sdk";
+
+// USDC testnet SAC address
+const usdcAsset = new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+const sacContractId = usdcAsset.contractId("Test SDF Network ; September 2015");
+// Returns the C... contract address for USDC on testnet
+```
+
+The `stealth-sender` `token` parameter takes this contract address — not the issuer `G...` address.
+
+---
+
+## Send USDC via the Managed Agent
+
+The simplest path. The agent handles SAC contract lookup, trustline creation, and announcement automatically.
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// Send USDC to a .wraith name
+const res = await agent.chat("send 100 USDC to alice.wraith on stellar");
+console.log(res.response);
+// "Payment sent — 100 USDC to alice.wraith via stealth address GABC...xyz on Stellar."
+```
+
+To send to a raw address or specify the exact amount:
+
+```typescript
+const res = await agent.chat(
+  "send 250.50 USDC to GABC...recipientMetaAddress on stellar"
+);
+```
+
+Check your USDC balance:
+
+```typescript
+const balance = await agent.getBalance();
+console.log(balance.tokens["USDC"]); // "1000.0000000"
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "send 100 USDC to alice.wraith on stellar"}'
+```
+
+---
+
+## Sender Flow: Low-Level USDC via stealth-sender
+
+Use this when you're building a custom integration with the Soroban contracts directly, outside the managed agent.
+
+### Step 1 — Derive the SAC address
+
+```typescript
+import {
+  Asset,
+  Contract,
+  Networks,
+  TransactionBuilder,
+  SorobanRpc,
+} from "@stellar/stellar-sdk";
+import {
+  generateStealthAddress,
+  decodeStealthMetaAddress,
+  getDeployment,
+  SCHEME_ID,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const deployment = getDeployment("stellar");
+
+// USDC testnet
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const USDC_CODE   = "USDC";
+const NETWORK     = Networks.TESTNET; // "Test SDF Network ; September 2015"
+
+const usdcAsset      = new Asset(USDC_CODE, USDC_ISSUER);
+const usdcContractId = usdcAsset.contractId(NETWORK);
+// C... address — this is the `token` parameter to stealth-sender.send()
+```
+
+### Step 2 — Generate the stealth address
+
+```typescript
+// Recipient has shared their stealth meta-address
+const recipientMetaAddress = "st:xlm:abc123...def456...";
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(recipientMetaAddress);
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// stealth.stealthAddress — G... address that will receive the USDC
+// stealth.ephemeralPubKey — Uint8Array, 32 bytes
+// stealth.viewTag — 0-255
+```
+
+### Step 3 — Check sender trustline and balance
+
+Before sending, verify the sender holds USDC and has enough XLM for the new trustline reserve (0.5 XLM per entry):
+
+```typescript
+import { Horizon } from "@stellar/stellar-sdk";
+
+const horizonUrl = deployment.horizonUrl; // "https://horizon-testnet.stellar.org"
+const server = new Horizon.Server(horizonUrl);
+
+const senderAccount = await server.loadAccount(senderKeypair.publicKey());
+
+// Find USDC balance
+const usdcBalance = senderAccount.balances.find(
+  (b) => b.asset_type === "credit_alphanum4" &&
+         b.asset_code === "USDC" &&
+         b.asset_issuer === USDC_ISSUER
+);
+
+if (!usdcBalance) {
+  throw new Error("Sender has no USDC trustline — fund before sending");
+}
+if (parseFloat(usdcBalance.balance) < amount) {
+  throw new Error(`Insufficient USDC: have ${usdcBalance.balance}, need ${amount}`);
+}
+
+// Check XLM reserve for trustline creation
+const xlmBalance = parseFloat(
+  senderAccount.balances.find((b) => b.asset_type === "native")?.balance ?? "0"
+);
+const MIN_XLM_FOR_TRUSTLINE = 0.5; // 0.5 XLM per new ledger entry
+if (xlmBalance < MIN_XLM_FOR_TRUSTLINE + 0.01 /* fee buffer */) {
+  throw new Error(`Insufficient XLM for trustline reserve: have ${xlmBalance}, need ${MIN_XLM_FOR_TRUSTLINE + 0.01}`);
+}
+```
+
+### Step 4 — Invoke stealth-sender
+
+```typescript
+import { xdr, Contract as SorobanContract } from "@stellar/stellar-sdk";
+import { bytesToHex } from "@wraith-protocol/sdk/chains/stellar";
+
+const sorobanServer = new SorobanRpc.Server(deployment.sorobanUrl);
+const senderContractId = deployment.contracts.sender; // from getDeployment()
+
+const senderContract = new SorobanContract(senderContractId);
+
+// Build view tag metadata: first byte is the view tag
+const metadata = new Uint8Array([stealth.viewTag]);
+
+// USDC has 7 decimal places — 100 USDC = 100_0000000 stroops-equivalent
+const USDC_DECIMALS = 7;
+const amountInSmallestUnit = BigInt(Math.round(amount * 10 ** USDC_DECIMALS));
+
+const account = await sorobanServer.getAccount(senderKeypair.publicKey());
+
+const tx = new TransactionBuilder(account, {
+  fee: "1000000",                      // 0.1 XLM fee cap — Soroban ops are more expensive
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    senderContract.call(
+      "send",
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeAccount(
+          xdr.AccountID.publicKeyTypeEd25519(
+            Buffer.from(senderKeypair.rawPublicKey())
+          )
+        )
+      ),
+      // token: USDC SAC contract address
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeContract(
+          Buffer.from(usdcContractId, "hex")
+        )
+      ),
+      // stealth_address
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeAccount(
+          xdr.AccountID.publicKeyTypeEd25519(
+            Buffer.from(
+              // Convert G... address to raw 32-byte public key
+              Keypair.fromPublicKey(stealth.stealthAddress).rawPublicKey()
+            )
+          )
+        )
+      ),
+      // amount (i128)
+      xdr.ScVal.scvI128(
+        new xdr.Int128Parts({
+          hi: xdr.Int64.fromString("0"),
+          lo: xdr.Uint64.fromString(amountInSmallestUnit.toString()),
+        })
+      ),
+      // scheme_id
+      xdr.ScVal.scvU32(SCHEME_ID),
+      // ephemeral_pub_key (BytesN<32>)
+      xdr.ScVal.scvBytes(Buffer.from(stealth.ephemeralPubKey)),
+      // metadata (view tag)
+      xdr.ScVal.scvBytes(Buffer.from(metadata)),
+    )
+  )
+  .setTimeout(30)
+  .build();
+
+// Simulate first to get the resource footprint
+const simResult = await sorobanServer.simulateTransaction(tx);
+if (SorobanRpc.Api.isSimulationError(simResult)) {
+  throw new Error(`Simulation failed: ${simResult.error}`);
+}
+
+// Assemble and sign
+const assembledTx = SorobanRpc.assembleTransaction(tx, simResult).build();
+assembledTx.sign(senderKeypair);
+
+// Submit
+const submitResult = await sorobanServer.sendTransaction(assembledTx);
+console.log("Tx hash:", submitResult.hash);
+```
+
+> **Decimal precision:** USDC on Stellar uses **7 decimal places**. `100 USDC = 1_000_000_0` (`1e7`) in the smallest unit. Pass this as an `i128` to the SAC. Passing the wrong scale is the most common integration mistake.
+
+### Step 5 — Account creation for the stealth address
+
+If the stealth address has never been activated on Stellar (no XLM), USDC can't be held there — the account doesn't exist. The `trust()` call inside `stealth-sender` will fail with `AccountMissingError`.
+
+Solution: fund the stealth address with the minimum balance (1 XLM) before or in the same transaction:
+
+```typescript
+import { Operation } from "@stellar/stellar-sdk";
+
+// Add createAccount operation BEFORE the stealth-sender call
+// This creates the stealth address account with enough XLM for:
+//   1 base reserve (0.5 XLM) + 1 trustline entry (0.5 XLM) = 1 XLM minimum
+const tx = new TransactionBuilder(account, { fee: "1000000", networkPassphrase: NETWORK })
+  .addOperation(
+    Operation.createAccount({
+      destination: stealth.stealthAddress,
+      startingBalance: "1",     // 1 XLM — covers base reserve + one trustline
+    })
+  )
+  // Then invoke stealth-sender in the same transaction
+  .addOperation(senderContract.call("send", /* ... */))
+  .setTimeout(30)
+  .build();
+```
+
+The `createAccount` and the Soroban `send` can coexist in the same transaction envelope. Simulate and assemble as normal after adding both operations.
+
+---
+
+## Recipient Flow: Trustlines on Stealth Addresses
+
+When someone sends you USDC to a stealth address, the `trust()` call inside `stealth-sender` creates the trustline automatically (Protocol 22+). You don't need to do anything before the payment arrives.
+
+After scanning and detecting the payment, you'll want to spend or withdraw the USDC. Here's what to know.
+
+### Scanning for USDC payments
+
+Scanning works the same as for XLM. `fetchAnnouncements` returns all announcements regardless of asset type. The asset type isn't encoded in the announcement — you discover what the stealth address holds by querying the balance.
+
+```typescript
+import {
+  fetchAnnouncements,
+  scanAnnouncements,
+  deriveStealthKeys,
+  pubKeyToStellarAddress,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Horizon } from "@stellar/stellar-sdk";
+
+// 1. Derive keys from your Stellar wallet
+const sig = myKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+// 2. Fetch all announcements
+const announcements = await fetchAnnouncements("stellar");
+
+// 3. Find ones addressed to you
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+// 4. For each match, check what assets it holds
+const horizon = new Horizon.Server("https://horizon-testnet.stellar.org");
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+for (const m of matched) {
+  const stealthAddr = m.stealthAddress;
+
+  try {
+    const account = await horizon.loadAccount(stealthAddr);
+    for (const balance of account.balances) {
+      if (
+        balance.asset_type === "credit_alphanum4" &&
+        balance.asset_code === "USDC" &&
+        balance.asset_issuer === USDC_ISSUER
+      ) {
+        console.log(`Stealth address ${stealthAddr} holds ${balance.balance} USDC`);
+        console.log("Private scalar:", m.stealthPrivateScalar);
+        // Use m.stealthPrivateScalar + m.stealthPubKeyBytes to sign withdrawal tx
+      }
+    }
+  } catch {
+    // Account doesn't exist yet — payment hasn't been confirmed
+  }
+}
+```
+
+### Auto-establish trustline on withdrawal address
+
+When you withdraw USDC from a stealth address to your main wallet, the destination must already hold a USDC trustline. If it doesn't, the SAC `transfer()` fails with `TrustlineMissingError`.
+
+Check before withdrawing:
+
+```typescript
+import { Operation, TransactionBuilder } from "@stellar/stellar-sdk";
+
+async function ensureUsdcTrustline(
+  destinationAddress: string,
+  destinationKeypair: any, // keypair for destination
+  server: Horizon.Server,
+  sorobanServer: SorobanRpc.Server
+) {
+  const account = await server.loadAccount(destinationAddress);
+  const hasTrustline = account.balances.some(
+    (b) =>
+      b.asset_type === "credit_alphanum4" &&
+      b.asset_code === "USDC" &&
+      b.asset_issuer === USDC_ISSUER
+  );
+
+  if (hasTrustline) return; // nothing to do
+
+  // Create trustline via changeTrust
+  const tx = new TransactionBuilder(account, {
+    fee: "100",
+    networkPassphrase: NETWORK,
+  })
+    .addOperation(
+      Operation.changeTrust({
+        asset: new Asset("USDC", USDC_ISSUER),
+        // limit: "1000000" — optional; omit for maximum
+      })
+    )
+    .setTimeout(30)
+    .build();
+
+  tx.sign(destinationKeypair);
+  await server.submitTransaction(tx);
+  console.log("USDC trustline created on destination");
+}
+```
+
+### Signing withdrawals from a stealth address
+
+Withdrawing USDC from a stealth address requires signing with the derived stealth scalar — not a standard seed. Use `signStellarTransaction`:
+
+```typescript
+import {
+  signStellarTransaction,
+  pubKeyToStellarAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+import {
+  TransactionBuilder,
+  Operation,
+  Asset,
+  Keypair,
+} from "@stellar/stellar-sdk";
+
+// m is a MatchedAnnouncement from scanAnnouncements()
+const stealthAddress = m.stealthAddress;
+const stealthScalar  = m.stealthPrivateScalar;
+const stealthPubKey  = m.stealthPubKeyBytes;
+
+// Load the stealth address account
+const account = await sorobanServer.getAccount(stealthAddress);
+
+// Build transfer from stealth address to your main wallet
+// Option 1: Use the SAC transfer (Soroban)
+// Option 2: Use classic Stellar payment operation (simpler for account-to-account)
+
+// Classic payment (simpler, works for account-to-account USDC transfer)
+const tx = new TransactionBuilder(await server.loadAccount(stealthAddress), {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.payment({
+      destination: myMainWallet,
+      asset: new Asset("USDC", USDC_ISSUER),
+      amount: "100",     // USDC amount as string with up to 7 decimal places
+    })
+  )
+  .setTimeout(30)
+  .build();
+
+// Sign with stealth scalar (NOT standard keypair signing)
+const txHash   = tx.hash();                              // 32-byte Buffer
+const sig      = signStellarTransaction(txHash, stealthScalar, stealthPubKey);
+const pubKeyStr = pubKeyToStellarAddress(stealthPubKey); // G... address
+
+tx.addSignature(pubKeyStr, Buffer.from(sig).toString("base64"));
+
+// Submit
+await server.submitTransaction(tx);
+```
+
+---
+
+## Path Payments: Receive a Different Asset
+
+Stellar's path payment operations let a sender pay in one asset while the recipient receives a different asset. A sender can pay XLM and you receive USDC at the stealth address — the DEX swap happens atomically.
+
+### How it works with stealth addresses
+
+The stealth address must hold a trustline for the destination asset (the asset the recipient receives). The `stealth-sender` contract currently supports single-asset sends only. For path payments, use the classic Stellar `PathPaymentStrictReceive` or `PathPaymentStrictSend` operations directly.
+
+```typescript
+import { Operation, Asset } from "@stellar/stellar-sdk";
+
+// Sender pays XLM, recipient stealth address receives USDC
+const tx = new TransactionBuilder(senderAccount, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.pathPaymentStrictReceive({
+      sendAsset: Asset.native(),                      // Sender pays XLM
+      sendMax: "10",                                  // Max XLM to spend
+      destination: stealth.stealthAddress,            // Stealth address receives
+      destAsset: new Asset("USDC", USDC_ISSUER),      // Recipient gets USDC
+      destAmount: "5",                                // Exactly 5 USDC received
+      path: [],                                       // Empty = let network find path
+    })
+  )
+  .setTimeout(30)
+  .build();
+
+tx.sign(senderKeypair);
+await server.submitTransaction(tx);
+```
+
+> **Important:** Classic payment operations don't call the `stealth-sender` contract, so no announcement is emitted. You need a separate announcement transaction for the recipient to scan and detect the payment.
+
+### Emitting the announcement separately
+
+After the path payment succeeds, announce it:
+
+```typescript
+import { SCHEME_ID } from "@wraith-protocol/sdk/chains/stellar";
+
+const announcerContract = new SorobanContract(deployment.contracts.announcer);
+const metadata = new Uint8Array([stealth.viewTag]);
+
+const announceTx = new TransactionBuilder(senderAccount, {
+  fee: "1000000",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    announcerContract.call(
+      "announce",
+      /* caller */           xdr.ScVal.scvAddress(/* sender address */),
+      /* scheme_id */        xdr.ScVal.scvU32(SCHEME_ID),
+      /* stealth_address */  xdr.ScVal.scvAddress(/* stealth G... address */),
+      /* ephemeral_pub_key */xdr.ScVal.scvBytes(Buffer.from(stealth.ephemeralPubKey)),
+      /* metadata */         xdr.ScVal.scvBytes(Buffer.from(metadata)),
+    )
+  )
+  .setTimeout(30)
+  .build();
+
+const simResult = await sorobanServer.simulateTransaction(announceTx);
+const assembled = SorobanRpc.assembleTransaction(announceTx, simResult).build();
+assembled.sign(senderKeypair);
+await sorobanServer.sendTransaction(assembled);
+```
+
+> **Note:** The two-transaction path-payment pattern is a current limitation. The `stealth-sender` contract only supports direct SAC transfers. A `stealth-sender-path` variant supporting `PathPaymentStrictReceive` atomically is a candidate for a future contract upgrade.
+
+### Finding payment paths
+
+Before building a path payment, query Horizon for available paths:
+
+```typescript
+// Find XLM → USDC paths
+const paths = await server
+  .strictReceivePaths()
+  .destinationAsset(new Asset("USDC", USDC_ISSUER))
+  .destinationAmount("5")
+  .sourceAccount(senderKeypair.publicKey())
+  .call();
+
+for (const path of paths.records) {
+  console.log(
+    `Send ${path.source_amount} ${path.source_asset_code ?? "XLM"} → receive 5 USDC via ${path.path.length} hops`
+  );
+}
+```
+
+---
+
+## Fees
+
+Stellar fees have two components: a base fee (per operation, very cheap) and a Soroban resource fee (for smart contract execution, varies with computation and storage).
+
+### USDC operations cost table
+
+| Operation | Base fee | Soroban resource fee | Total estimate | Notes |
+|---|---|---|---|---|
+| `changeTrust` (establish trustline) | 0.00001 XLM | — | **~0.00001 XLM** | Classic operation, no Soroban |
+| `payment` USDC (classic) | 0.00001 XLM | — | **~0.00001 XLM** | Classic, no SAC involved |
+| `stealth-sender.send()` single | 0.00001 XLM base | 0.0001–0.001 XLM | **~0.001 XLM** | Includes `trust()` + `transfer()` + `announce()` |
+| `stealth-sender.batch_send()` N recipients | 0.00001 XLM base | 0.001–0.01 XLM | **~0.01 XLM** | Scales sub-linearly with N |
+| `announcer.announce()` only | 0.00001 XLM base | 0.00005–0.0005 XLM | **~0.0005 XLM** | For path-payment + separate announce |
+| `createAccount` + `stealth-sender.send()` | 0.00001 XLM base | 0.0001–0.001 XLM | **~0.001 XLM + 1 XLM reserve** | 1 XLM goes to stealth addr as reserve |
+| Classic `pathPaymentStrictReceive` | 0.00001 XLM | — | **~0.00001 XLM** | No Soroban |
+
+**Reserve cost per new trustline: 0.5 XLM** (locked in the stealth address, not a fee — returned when the trustline is closed).
+
+### Fee estimation in code
+
+Soroban fees vary with ledger state. Always simulate before submitting:
+
+```typescript
+const simResult = await sorobanServer.simulateTransaction(tx);
+if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
+  console.log("Estimated fee (stroops):", simResult.minResourceFee);
+  // 1 XLM = 10,000,000 stroops
+  console.log("Estimated fee (XLM):", parseInt(simResult.minResourceFee) / 1e7);
+}
+```
+
+Set your fee budget conservatively — fee caps in Soroban prevent overpayment. The assembled transaction will include the exact required fee from simulation.
+
+---
+
+## SAC Compatibility Matrix
+
+Results from the June 2026 internal audit of `stealth-sender` v1.2 against Stellar Protocol 22. Source: `contracts/stellar/audits/2026-06-sac-compatibility.md`.
+
+| Asset | Issuer flags | `stealth-sender` compatible | Trustline auto-create | Clawback risk | Recommendation |
+|---|---|---|---|---|---|
+| XLM (native) | — | ✅ Yes | N/A | ❌ None | ✅ Safe |
+| USDC (Circle) | None | ✅ Yes | ✅ Protocol 22+ | ❌ None | ✅ Safe |
+| EURC (Circle) | None | ✅ Yes | ✅ Protocol 22+ | ❌ None | ✅ Safe |
+| Generic asset (no flags) | None | ✅ Yes | ✅ Protocol 22+ | ❌ None | ✅ Safe |
+| Asset with `AUTH_REQUIRED` | `AUTH_REQUIRED` | ⚠️ Blocked | ✅ Created but frozen | ❌ None | ⚠️ Manual issuer auth needed |
+| Asset with `AUTH_REVOCABLE` | `AUTH_REVOCABLE` | ✅ Yes (unless deauthed) | ✅ Protocol 22+ | ❌ None | ⚠️ Monitor for deauth events |
+| Asset with clawback | `AUTH_CLAWBACK_ENABLED` + `AUTH_REVOCABLE` | ✅ Yes | ✅ Protocol 22+ | ✅ **Issuer CAN claw back** | ❌ Not recommended |
+| Asset with all flags | All three | ⚠️ Blocked | ✅ Created but frozen | ✅ **Issuer CAN claw back** | ❌ Incompatible |
+
+### Checking flags before sending
+
+```typescript
+import { Horizon } from "@stellar/stellar-sdk";
+
+async function checkAssetFlags(assetCode: string, issuerAddress: string) {
+  const server = new Horizon.Server("https://horizon-testnet.stellar.org");
+  const issuerAccount = await server.loadAccount(issuerAddress);
+
+  const flags = issuerAccount.flags;
+  return {
+    authRequired:  flags.auth_required,    // AUTH_REQUIRED
+    authRevocable: flags.auth_revocable,   // AUTH_REVOCABLE
+    authClawback:  flags.auth_clawback_enabled, // AUTH_CLAWBACK_ENABLED
+  };
+}
+
+const flags = await checkAssetFlags("USDC", USDC_ISSUER);
+console.log(flags);
+// { authRequired: false, authRevocable: false, authClawback: false }
+// ✅ USDC is safe — no flags set
+```
+
+---
+
+## AUTH_REQUIRED and Clawback Warnings
+
+### AUTH_REQUIRED
+
+When an asset issuer sets `AUTH_REQUIRED`, every new trustline starts frozen. The `trust()` call in `stealth-sender` creates the trustline successfully, but `transfer()` immediately fails with `BalanceDeauthorizedError` (SAC error code 11).
+
+The issuer must call `set_authorized(stealth_address, true)` before the transfer can proceed. But since stealth addresses are one-time addresses generated per payment, the issuer has no way to know the address in advance.
+
+**This breaks the stealth payment model.** Do not use `stealth-sender` with `AUTH_REQUIRED` assets.
+
+If you must transact with `AUTH_REQUIRED` assets:
+- Send to the recipient's main account using classic Stellar payment operations
+- Handle key management and privacy separately
+- The Wraith agent will refuse to send `AUTH_REQUIRED` assets via stealth and explain why
+
+```typescript
+// Agent response for AUTH_REQUIRED assets:
+const res = await agent.chat("send 100 ACME to alice.wraith on stellar");
+// "Cannot send ACME via stealth addresses — this asset requires issuer
+//  authorization for each trustline (AUTH_REQUIRED flag is set). Use a
+//  direct payment to alice's main Stellar account instead."
+```
+
+### AUTH_CLAWBACK_ENABLED
+
+When an issuer sets `AUTH_CLAWBACK_ENABLED` (which also requires `AUTH_REVOCABLE`), the issuer can call `clawback(stealth_address, amount)` at any time to remove the balance from any address — including your stealth address.
+
+This is incompatible with the guarantees stealth payments are meant to provide. A recipient has no way to prevent or contest a clawback.
+
+The Wraith agent surfaces a warning when it detects clawback-enabled assets:
+
+```typescript
+const res = await agent.chat("send 100 CBDC to alice.wraith on stellar");
+// "Warning: CBDC has AUTH_CLAWBACK_ENABLED — the issuer can reclaim
+//  funds from any address, including stealth addresses. Stealth addresses
+//  do not protect against issuer clawback.
+//
+//  Proceed anyway?"
+```
+
+You can confirm or cancel. The warning is informational — the send will work at the protocol level.
+
+### Checking at runtime
+
+```typescript
+async function warnIfRisky(assetCode: string, issuerAddress: string): Promise<string[]> {
+  const warnings: string[] = [];
+  const flags = await checkAssetFlags(assetCode, issuerAddress);
+
+  if (flags.authRequired) {
+    warnings.push(
+      `AUTH_REQUIRED: ${assetCode} requires issuer authorization per trustline. ` +
+      `Stealth payments will be blocked.`
+    );
+  }
+  if (flags.authClawback) {
+    warnings.push(
+      `AUTH_CLAWBACK_ENABLED: ${assetCode} issuer can reclaim balances from stealth addresses.`
+    );
+  }
+  if (flags.authRevocable && !flags.authClawback) {
+    warnings.push(
+      `AUTH_REVOCABLE: ${assetCode} issuer can freeze trustlines. ` +
+      `Funds could be locked (not clawed back) without warning.`
+    );
+  }
+  return warnings;
+}
+```
+
+---
+
+## Testnet Example: End-to-End USDC Stealth Payment
+
+A complete testnet flow using the managed agent. Copy-paste and run.
+
+### Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+```bash
+# .env
+WRAITH_API_KEY=wraith_live_...
+AGENT_ID=         # from wraith.createAgent()
+```
+
+### Full flow
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+// ── Sender setup ──────────────────────────────────────────────────────────
+const senderAgent = await wraith.createAgent({
+  name: "usdc-sender",
+  chain: Chain.Stellar,
+  wallet: senderKeypair.publicKey(),
+  signature: Buffer.from(senderKeypair.sign(Buffer.from("Sign to create Wraith agent"))).toString("hex"),
+  message: "Sign to create Wraith agent",
+});
+
+// Fund with testnet XLM via Friendbot
+await senderAgent.chat("fund my wallet");
+
+// Get USDC on testnet — USDC testnet faucet or trade via Stellar DEX
+// For testing: the agent can request testnet USDC if a faucet is configured
+// Alternatively: swap some testnet XLM for testnet USDC via the DEX
+await senderAgent.chat("swap 100 XLM for USDC on stellar");
+// or: manually fund the agent with testnet USDC
+
+// Check balance
+const balance = await senderAgent.getBalance();
+console.log("Sender USDC:", balance.tokens["USDC"]);
+// "100.0000000"
+
+// ── Recipient setup ───────────────────────────────────────────────────────
+const recipientAgent = await wraith.createAgent({
+  name: "usdc-recipient",
+  chain: Chain.Stellar,
+  wallet: recipientKeypair.publicKey(),
+  signature: Buffer.from(recipientKeypair.sign(Buffer.from("Sign to create Wraith agent"))).toString("hex"),
+  message: "Sign to create Wraith agent",
+});
+
+await recipientAgent.chat("fund my wallet");
+
+// Get recipient's stealth meta-address
+const recipientMetaAddress = recipientAgent.info.metaAddresses[Chain.Stellar];
+console.log("Recipient meta-address:", recipientMetaAddress);
+// "st:xlm:abc123..."
+
+// ── Send 50 USDC to recipient ─────────────────────────────────────────────
+const sendResult = await senderAgent.chat(
+  "send 50 USDC to usdc-recipient.wraith on stellar"
+);
+console.log(sendResult.response);
+// "Payment sent — 50 USDC to usdc-recipient.wraith via stealth address GABC...xyz on Stellar."
+// Trustline was auto-created on the stealth address.
+// Announcement was emitted on Soroban.
+
+// ── Recipient scans ───────────────────────────────────────────────────────
+// Wait a few seconds for the transaction to confirm
+await new Promise((r) => setTimeout(r, 5000));
+
+const scanResult = await recipientAgent.chat("scan for payments on stellar");
+console.log(scanResult.response);
+// "Found 1 incoming payment:
+//   - 50 USDC at stealth address GABC...xyz"
+
+// ── Recipient withdraws ────────────────────────────────────────────────────
+const withdrawResult = await recipientAgent.chat(
+  "withdraw all USDC to GXYZ...myMainWallet on stellar"
+);
+console.log(withdrawResult.response);
+// "Privacy note: withdrawing to a single destination links all stealth addresses.
+//  Withdrawn 50 USDC from 1 stealth address to GXYZ...myMainWallet."
+
+// ── Verify USDC testnet issuer ────────────────────────────────────────────
+// Always verify issuer addresses on testnet before going to mainnet
+const USDC_TESTNET_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const USDC_MAINNET_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+console.log("Using testnet USDC issuer:", USDC_TESTNET_ISSUER);
+```
+
+---
+
+## Related
+
+- [Stellar Crypto Primitives](/sdk/chains/stellar) — low-level stealth address functions including `signStellarTransaction` and `scanAnnouncements`
+- [Stellar Contracts](/contracts/stellar) — `stealth-sender.send()` and `batch_send()` interface details
+- [Stellar Federation Addresses](/guides/stellar-federation) — resolve `alice*example.com` to a stealth meta-address
+- [Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook) — production USDC payment and payroll recipes
+- [Stellar Event Schemas (v2)](/reference/stellar-event-schemas) — filter announcements by view tag bucket
+- [Circle USDC on Stellar](https://developers.circle.com/stablecoins/quickstart-transfer-usdc-stellar) — Circle's official Stellar USDC quickstart
+- [SAC documentation](https://developers.stellar.org/docs/tokens/stellar-asset-contract) — Stellar Asset Contract reference
