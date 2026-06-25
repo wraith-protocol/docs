@@ -1,0 +1,534 @@
+---
+title: "Stellar Mainnet Deployment"
+description: "Operator guide for running Wraith Stellar contracts on mainnet — hosting, funding, contract addresses, RPC, monitoring, and incident response"
+---
+
+This guide is for **operators** deploying and running Wraith Stellar contracts on mainnet: validators, custody providers, and Spectre instance hosts. It covers everything from hardware requirements to upgrade governance.
+
+<Warning>
+  All contract addresses on this page are **placeholder values** (`CPLACEHOLDER...`). They will be
+  replaced with canonical mainnet addresses once the Stellar mainnet deployment completes. Do not
+  use these addresses in production until that update lands.
+</Warning>
+
+---
+
+## Hardware and Hosting Requirements
+
+Wraith runs inside a **Trusted Execution Environment (TEE)** — specifically Phala Network's Intel TDX infrastructure. Your host machine must support TDX attestation.
+
+### Minimum Specs
+
+| Resource | Minimum | Recommended |
+|---|---|---|
+| CPU | 4 vCPU (TDX-capable) | 8 vCPU |
+| RAM | 8 GB | 16 GB |
+| Disk | 50 GB SSD | 100 GB NVMe SSD |
+| Network | 100 Mbps | 1 Gbps |
+| OS | Ubuntu 22.04 LTS | Ubuntu 22.04 LTS |
+
+### TEE Requirements
+
+- Intel TDX support (4th Gen Xeon Scalable or later, or AMD SEV-SNP as fallback)
+- Phala DStack runtime installed
+- Remote attestation endpoint reachable from the TEE
+
+### Cloud Providers
+
+Phala's managed TEE hosting is the recommended path for most operators. If you're running bare-metal:
+
+| Provider | TDX Support | Notes |
+|---|---|---|
+| Phala Network (managed) | Yes | Recommended — handles attestation |
+| Azure Confidential VMs | Yes | DCsv3 / DCdsv3 series |
+| GCP Confidential VMs | Partial | AMD SEV-SNP only |
+| Hetzner (bare metal) | Yes | Requires Xeon 4th Gen node |
+
+---
+
+## Stellar Account Funding
+
+Stellar accounts must meet minimum reserve requirements before they can hold data or interact with contracts.
+
+### Base Reserve Model
+
+Stellar's reserve is 0.5 XLM per base reserve. Each account needs:
+
+| Item | Reserve |
+|---|---|
+| Base account reserve | 1 XLM (2 × 0.5) |
+| Each trustline | 0.5 XLM |
+| Each data entry | 0.5 XLM |
+| Each offer | 0.5 XLM |
+
+### Operator Funding Checklist
+
+Before deploying contracts, fund the following accounts:
+
+```bash
+# 1. Deployer account — needs enough XLM for deployment fees + contract storage
+stellar account fund <DEPLOYER_ADDRESS> --network mainnet
+
+# 2. Admin account — used for contract initialization and upgrade governance
+stellar account fund <ADMIN_ADDRESS> --network mainnet
+
+# 3. Spectre operator account — used by the TEE server to sign transactions
+stellar account fund <OPERATOR_ADDRESS> --network mainnet
+```
+
+**Recommended funding amounts:**
+
+| Account | Minimum XLM | Purpose |
+|---|---|---|
+| Deployer | 100 XLM | Contract deployment fees |
+| Admin | 50 XLM | Init + governance transactions |
+| Operator (Spectre) | 200 XLM | Ongoing transaction fees |
+
+Keep the operator account above **50 XLM** at all times. Set up an alert at that threshold (see [Monitoring](#monitoring--alerting)).
+
+### Soroban Contract Storage Fees
+
+Soroban contracts require rent payments for persistent storage. The `stealth-registry` and `wraith-names` contracts write persistent data and will accumulate storage costs over time. Budget for:
+
+- **Initial deployment fees**: ~2–5 XLM per contract
+- **Ongoing storage rent**: variable — depends on number of registered users and announcements
+
+---
+
+## Contract Address Registry
+
+The following are the **canonical mainnet contract addresses** for Wraith Stellar contracts. All values are placeholders until the mainnet deployment is complete.
+
+<Warning>
+  These addresses are placeholders. They will be updated in this page and in
+  `contracts/stellar/MAINNET_READINESS.md` when mainnet deploy goes live.
+</Warning>
+
+### Mainnet
+
+| Contract | Address | Version |
+|---|---|---|
+| `stealth-announcer` | `CPLACEHOLDER_ANNOUNCER_MAINNET` | v2 |
+| `stealth-registry` | `CPLACEHOLDER_REGISTRY_MAINNET` | v1 |
+| `stealth-sender` | `CPLACEHOLDER_SENDER_MAINNET` | v1 |
+| `wraith-names` | `CPLACEHOLDER_NAMES_MAINNET` | v1 |
+
+### Testnet (reference)
+
+| Contract | Address | Version |
+|---|---|---|
+| `stealth-announcer` | `CPLACEHOLDER_ANNOUNCER_TESTNET` | v2 |
+| `stealth-registry` | `CPLACEHOLDER_REGISTRY_TESTNET` | v1 |
+| `stealth-sender` | `CPLACEHOLDER_SENDER_TESTNET` | v1 |
+| `wraith-names` | `CPLACEHOLDER_NAMES_TESTNET` | v1 |
+
+### Configuring the Spectre Server
+
+Set these contract IDs in your environment:
+
+```bash
+# .env or environment config
+STELLAR_NETWORK=mainnet
+STELLAR_ANNOUNCER_CONTRACT_ID=CPLACEHOLDER_ANNOUNCER_MAINNET
+STELLAR_REGISTRY_CONTRACT_ID=CPLACEHOLDER_REGISTRY_MAINNET
+STELLAR_SENDER_CONTRACT_ID=CPLACEHOLDER_SENDER_MAINNET
+STELLAR_NAMES_CONTRACT_ID=CPLACEHOLDER_NAMES_MAINNET
+STELLAR_OPERATOR_SECRET=<your-operator-secret-key>
+```
+
+---
+
+## Connecting to Mainnet RPC Providers
+
+Wraith uses Soroban RPC for event fetching (`getEvents`) and transaction submission. Choose a provider based on your throughput needs.
+
+### Recommended Providers
+
+| Provider | Endpoint | Free Tier | Rate Limit | Notes |
+|---|---|---|---|---|
+| **Stellar Foundation** | `https://mainnet.stellar.validationcloud.io/v1/<API_KEY>` | Yes | 25 req/s | Official, best for production |
+| **Validation Cloud** | `https://mainnet.stellar.validationcloud.io/v1/<API_KEY>` | Yes | 25 req/s | High reliability |
+| **QuickNode** | `https://<slug>.stellar-mainnet.quiknode.pro/<API_KEY>` | No | 50 req/s | Good for high-volume |
+| **Ankr** | `https://rpc.ankr.com/stellar_soroban` | Yes | 15 req/s | Budget option |
+| **Self-hosted (stellar-core + soroban-rpc)** | `http://localhost:8000` | N/A | Unlimited | Best for validators |
+
+### Configuring the RPC URL
+
+```bash
+STELLAR_RPC_URL=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
+STELLAR_HORIZON_URL=https://horizon.stellar.org
+STELLAR_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
+```
+
+### Rate Limit Considerations
+
+The `stealth-announcer` contract is queried on every scanning cycle. With a 5-second scan interval and 25 req/s limit, you have headroom for normal operation. If you're running a high-traffic Spectre instance, either:
+
+1. Use a paid RPC plan with higher limits
+2. Implement a local caching layer for `getEvents` responses
+3. Increase the scan interval to reduce RPC calls
+
+---
+
+## Soroban RPC Retention Windows
+
+Soroban RPC nodes do **not** retain event history indefinitely. Understanding retention windows is critical for reliable scanning.
+
+### Retention Limits
+
+| Node type | Typical retention | Default |
+|---|---|---|
+| Public Soroban RPC | ~17,280 ledgers (~24 hours) | Varies by provider |
+| Self-hosted (default) | ~17,280 ledgers | Configurable |
+| Self-hosted (archive mode) | Full history | Requires more disk |
+
+One ledger closes roughly every **5–6 seconds**, so 17,280 ledgers ≈ 24 hours.
+
+### What This Means for Scanning
+
+The Wraith scanner tracks `lastProcessedLedger` and resumes from that checkpoint. If the scanner is **offline for more than ~24 hours**, it may miss announcements that have aged out of the RPC retention window.
+
+```typescript
+// The Stellar connector tracks ledger position
+const events = await sorobanServer.getEvents({
+  startLedger: lastProcessedLedger,
+  filters: [{
+    type: "contract",
+    contractIds: [ANNOUNCER_CONTRACT_ID],
+    topics: [["announce"], ["1"], ["*"], ["*"]], // v2 schema
+  }],
+});
+```
+
+### Mitigating Retention Gaps
+
+**Option 1: Archive node** — Run your own Soroban RPC node with full history enabled. Highest reliability, more disk required.
+
+**Option 2: Dual-provider** — Subscribe to two independent RPC providers. If one goes down, fall over to the other before the retention window expires.
+
+**Option 3: Horizon fallback** — For missed windows, Horizon's transaction history can reconstruct announcement events, though it requires additional parsing.
+
+**Option 4: Increase scan frequency** — Keep `lastProcessedLedger` moving so you stay well within the retention window.
+
+<Note>
+  For details on the v2 indexed event topics and how to use `view_tag_bucket` for
+  efficient filtering, see [Stellar Event Schemas (v2)](/reference/stellar-event-schemas).
+</Note>
+
+---
+
+## Failover and Redundancy
+
+### RPC Failover
+
+Configure multiple RPC endpoints in priority order:
+
+```bash
+STELLAR_RPC_URL_PRIMARY=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
+STELLAR_RPC_URL_FALLBACK=https://<slug>.stellar-mainnet.quiknode.pro/<API_KEY>
+```
+
+The Spectre server will automatically retry on the fallback if the primary returns a 5xx or times out after 10 seconds.
+
+### Multi-Region Deployment
+
+For custody providers and high-availability setups:
+
+```
+Region A (Primary)
+  └── Spectre TEE instance
+  └── Soroban RPC (primary provider)
+  └── Postgres (primary)
+
+Region B (Standby)
+  └── Spectre TEE instance (warm standby)
+  └── Soroban RPC (fallback provider)
+  └── Postgres (replica)
+```
+
+Key considerations:
+- TEE attestation is per-instance — both instances attest independently
+- Postgres replication keeps agent state consistent across regions
+- Only one instance should be actively scanning at a time to avoid duplicate announcement processing (use a distributed lock or leader election)
+
+### Health Checks
+
+The Spectre server exposes `/health` for readiness probes:
+
+```bash
+curl https://your-spectre-instance.com/health
+# { "status": "ok", "chain": "stellar", "lastLedger": 12345678 }
+```
+
+Configure your load balancer or orchestrator to route traffic only to healthy instances.
+
+---
+
+## Monitoring and Alerting
+
+### Prometheus Metrics
+
+The Spectre server exports Prometheus-compatible metrics at `/metrics`. Key metrics for Stellar operators:
+
+| Metric | Type | Description |
+|---|---|---|
+| `wraith_stellar_last_processed_ledger` | Gauge | Most recent ledger scanned |
+| `wraith_stellar_announcements_processed_total` | Counter | Total announcements processed |
+| `wraith_stellar_scan_duration_seconds` | Histogram | Time per scan cycle |
+| `wraith_stellar_rpc_errors_total` | Counter | Soroban RPC errors by type |
+| `wraith_stellar_operator_balance_xlm` | Gauge | Operator account XLM balance |
+| `wraith_stellar_tx_submission_errors_total` | Counter | Failed transaction submissions |
+| `wraith_stellar_contract_calls_total` | Counter | Contract invocations by contract name |
+
+### Recommended Alerts
+
+Add these to your Prometheus alerting rules:
+
+```yaml
+# prometheus/alerts/stellar.yml
+groups:
+  - name: wraith_stellar
+    rules:
+      # Ledger processing has stalled
+      - alert: StellarScannerStalled
+        expr: increase(wraith_stellar_last_processed_ledger[5m]) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stellar scanner has not advanced in 10 minutes"
+
+      # Operator account running low
+      - alert: StellarOperatorLowBalance
+        expr: wraith_stellar_operator_balance_xlm < 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Operator account below 50 XLM — top up soon"
+
+      # High RPC error rate
+      - alert: StellarRPCErrors
+        expr: rate(wraith_stellar_rpc_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Elevated Soroban RPC error rate"
+
+      # Ledger lag — scanner falling behind live ledger
+      - alert: StellarLedgerLag
+        expr: stellar_live_ledger - wraith_stellar_last_processed_ledger > 1000
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Scanner more than 1000 ledgers behind live tip"
+
+      # Transaction submission failures
+      - alert: StellarTxSubmissionErrors
+        expr: rate(wraith_stellar_tx_submission_errors_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Stellar transaction submissions failing"
+```
+
+### Grafana Dashboard
+
+A reference Grafana dashboard JSON is available at `monitoring/grafana/stellar-operator.json` in the contracts repo. It includes:
+
+- Scan lag (live ledger vs. last processed)
+- Announcements per minute
+- Operator account balance over time
+- RPC error rate
+- Transaction submission success rate
+
+---
+
+## Incident Response Runbook
+
+Use this template to document and resolve production incidents.
+
+### Runbook Template
+
+```markdown
+## Incident: [TITLE]
+
+**Severity**: P1 / P2 / P3
+**Started**: [ISO timestamp]
+**Resolved**: [ISO timestamp or "ongoing"]
+**On-call**: [name]
+
+---
+
+### Symptoms
+- [ ] Scanner stalled (StellarScannerStalled alert firing)
+- [ ] Operator balance low (StellarOperatorLowBalance alert firing)
+- [ ] RPC errors elevated
+- [ ] Transaction submissions failing
+- [ ] TEE attestation failure
+- [ ] Other: ___
+
+---
+
+### Immediate Actions
+
+1. Check `/health` endpoint — is the instance responding?
+2. Check Prometheus — which alerts are firing?
+3. Check Stellar network status at https://status.stellar.org
+4. Check RPC provider status page
+
+---
+
+### Diagnosis
+
+**Scanner stalled:**
+- Check `wraith_stellar_last_processed_ledger` — is it moving?
+- Check RPC connectivity: `curl $STELLAR_RPC_URL -d '{"jsonrpc":"2.0","method":"getLatestLedger","id":1}'`
+- Check if retention window was exceeded — compare last processed ledger to live ledger
+
+**Low operator balance:**
+- Fund the operator account: `stellar payment send --amount 500 --asset XLM --source <FUNDER> --destination <OPERATOR>`
+- Review transaction volume and adjust funding cadence
+
+**RPC errors:**
+- Switch to fallback RPC: update `STELLAR_RPC_URL` and restart
+- Verify API key is valid and not rate-limited
+- Check provider status page
+
+**Transaction submission failures:**
+- Check sequence number conflicts (concurrent submissions)
+- Check fee bump — base fee may be insufficient during congestion
+- Inspect error code from Horizon: `TRANSACTION_FAILED`, `INSUFFICIENT_FEE`, etc.
+
+**TEE attestation failure:**
+- Check Phala DStack status
+- Re-attest the instance: see Phala operator docs
+- Do NOT restart if attestation is actively being verified by a client
+
+---
+
+### Escalation
+
+| Severity | Response time | Escalate to |
+|---|---|---|
+| P1 | 15 min | Core team + Stellar validator contact |
+| P2 | 1 hour | On-call engineer |
+| P3 | Next business day | Engineering backlog |
+
+---
+
+### Post-Incident
+
+- [ ] Root cause identified
+- [ ] Fix deployed or workaround documented
+- [ ] Alert thresholds adjusted if needed
+- [ ] Runbook updated
+```
+
+### Common Issues Quick Reference
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| Scanner stalled >10 min | RPC timeout or rate limit | Switch to fallback RPC |
+| Scanner stalled >24 hr | Retention window exceeded | Restore from archive node or Horizon fallback |
+| `INSUFFICIENT_FEE` errors | Network congestion | Increase base fee multiplier in config |
+| `BAD_SEQ` errors | Sequence number conflict | Check for duplicate Spectre instances running |
+| `ACCOUNT_NOT_FOUND` | Operator account not funded | Fund and re-check trustlines |
+| Attestation rejected | TDX quote expired | Re-run attestation flow |
+
+---
+
+## Upgrade Governance
+
+Soroban contracts are not upgradeable by default. Wraith uses an **admin key + governance proposal** model for contract upgrades.
+
+### Upgrade Procedure
+
+**1. Propose the upgrade**
+
+New contract WASM is built, audited, and published. An upgrade proposal is created in the Wraith governance forum (GitHub Discussions) with:
+- The new contract hash
+- What changed and why
+- A review window (minimum 72 hours for minor, 14 days for major)
+- Validator sign-off requirement (minimum 2 independent Stellar operators)
+
+**2. Operator review**
+
+Operators verify the proposed WASM hash against the published source:
+
+```bash
+# Build the contract locally from the tagged release
+cd contracts/stellar/stealth-announcer
+soroban contract build
+
+# Get the hash of the built WASM
+sha256sum target/wasm32-unknown-unknown/release/stealth_announcer.wasm
+
+# Compare against the hash in the proposal
+```
+
+**3. Admin execution**
+
+Once review and sign-off are complete, the admin key executes the upgrade via Soroban's `update_current_contract_wasm`:
+
+```bash
+soroban contract invoke \
+  --id <CONTRACT_ID> \
+  --network mainnet \
+  --source <ADMIN_SECRET_KEY> \
+  -- upgrade \
+  --new_wasm_hash <WASM_HASH>
+```
+
+**4. Verification**
+
+After upgrade, verify the new WASM hash is live:
+
+```bash
+soroban contract info --id <CONTRACT_ID> --network mainnet
+```
+
+Monitor for errors in the first 30 minutes post-upgrade before closing the incident window.
+
+### Admin Key Security
+
+The admin key controls contract upgrades. It must be:
+- Held in cold storage (hardware wallet or air-gapped machine)
+- Never stored in environment variables or CI/CD systems
+- Protected by a multisig policy where practical (Stellar's built-in multisig)
+
+Recommended multisig threshold: **2-of-3** across independent operators.
+
+```bash
+# Add a co-signer to the admin account
+stellar account set-options \
+  --source <ADMIN_ADDRESS> \
+  --signer-key <COSIGNER_1_PUBLIC_KEY> \
+  --signer-weight 1
+
+# Set thresholds: 2-of-3 required for high-threshold operations
+stellar account set-options \
+  --source <ADMIN_ADDRESS> \
+  --low-threshold 1 \
+  --med-threshold 2 \
+  --high-threshold 2
+```
+
+### Upgrade History
+
+| Version | Date | Contracts Upgraded | Notes |
+|---|---|---|---|
+| v1.0.0 | TBD (mainnet launch) | All | Initial mainnet deployment |
+
+---
+
+## Related Resources
+
+- [Stellar Contracts Reference](/contracts/stellar) — full contract interface documentation
+- [Stellar Event Schemas (v2)](/reference/stellar-event-schemas) — announcement event topics and filtering
+- [Architecture Overview](/architecture/overview) — Spectre TEE server internals
+- [TEE Security](/architecture/tee) — key derivation and attestation model
+- `contracts/stellar/MAINNET_READINESS.md` — pre-launch checklist in the contracts repo

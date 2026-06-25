@@ -19,30 +19,30 @@ npm install @stellar/stellar-sdk
 
 ```typescript
 import {
-  deriveStealthKeys,
-  generateStealthAddress,
-  computeSharedSecret,
-  computeViewTag,
-  checkStealthAddress,
-  scanAnnouncements,
-  deriveStealthPrivateScalar,
-  signStellarTransaction,
-  signWithScalar,
-  encodeStealthMetaAddress,
-  decodeStealthMetaAddress,
-  seedToScalar,
-  hashToScalar,
-  deriveStealthPubKey,
-  pubKeyToStellarAddress,
-  bytesToHex,
-  hexToBytes,
-  fetchAnnouncements,
-  getDeployment,
-  DEPLOYMENTS,
-  STEALTH_SIGNING_MESSAGE,
-  SCHEME_ID,
-  META_ADDRESS_PREFIX,
-  L,
+  deriveStealthKeys,
+  generateStealthAddress,
+  computeSharedSecret,
+  computeViewTag,
+  checkStealthAddress,
+  scanAnnouncements,
+  deriveStealthPrivateScalar,
+  signStellarTransaction,
+  signWithScalar,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  seedToScalar,
+  hashToScalar,
+  deriveStealthPubKey,
+  pubKeyToStellarAddress,
+  bytesToHex,
+  hexToBytes,
+  fetchAnnouncements,
+  getDeployment,
+  DEPLOYMENTS,
+  STEALTH_SIGNING_MESSAGE,
+  SCHEME_ID,
+  META_ADDRESS_PREFIX,
+  L,
 } from "@wraith-protocol/sdk/chains/stellar";
 ```
 
@@ -50,31 +50,31 @@ import {
 
 ```typescript
 interface StealthKeys {
-  spendingKey: Uint8Array;       // 32-byte seed
-  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
-  viewingKey: Uint8Array;        // 32-byte seed
-  viewingScalar: bigint;         // clamped scalar
-  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
-  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
+  spendingKey: Uint8Array;       // 32-byte seed
+  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
+  viewingKey: Uint8Array;        // 32-byte seed
+  viewingScalar: bigint;         // clamped scalar
+  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
+  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
 }
 
 interface GeneratedStealthAddress {
-  stealthAddress: string;        // Stellar G... address
-  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
-  viewTag: number;               // 0-255
+  stealthAddress: string;        // Stellar G... address
+  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
+  viewTag: number;               // 0-255
 }
 
 interface Announcement {
-  schemeId: number;
-  stealthAddress: string;        // G... address
-  caller: string;                // G... address
-  ephemeralPubKey: string;       // hex-encoded 32 bytes
-  metadata: string;              // hex-encoded, first byte = view tag
+  schemeId: number;
+  stealthAddress: string;        // G... address
+  caller: string;                // G... address
+  ephemeralPubKey: string;       // hex-encoded 32 bytes
+  metadata: string;              // hex-encoded, first byte = view tag
 }
 
 interface MatchedAnnouncement extends Announcement {
-  stealthPrivateScalar: bigint;
-  stealthPubKeyBytes: Uint8Array;
+  stealthPrivateScalar: bigint;
+  stealthPubKeyBytes: Uint8Array;
 }
 ```
 
@@ -98,7 +98,7 @@ interface MatchedAnnouncement extends Announcement {
 const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: Stellar\nNote: This signature is used for key derivation only and does not authorize any transaction.";
 const SCHEME_ID = 1;
 const META_ADDRESS_PREFIX = "st:xlm:";
-const L = 2n**252n + 27742317777372353535851937790883648493n;  // ed25519 group order
+const L = 2n**252n + 27742317777372353535851937790883648493n;  // ed25519 group order
 ```
 
 ---
@@ -113,12 +113,12 @@ Derive spending and viewing key pairs from a 64-byte ed25519 signature.
 const signature = stellarKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
 const keys = deriveStealthKeys(signature);
 
-console.log(keys.spendingKey);       // Uint8Array (32-byte seed)
-console.log(keys.spendingScalar);    // bigint (clamped scalar)
-console.log(keys.viewingKey);        // Uint8Array (32-byte seed)
-console.log(keys.viewingScalar);     // bigint (clamped scalar)
-console.log(keys.spendingPubKey);    // Uint8Array (32-byte public key)
-console.log(keys.viewingPubKey);     // Uint8Array (32-byte public key)
+console.log(keys.spendingKey);       // Uint8Array (32-byte seed)
+console.log(keys.spendingScalar);    // bigint (clamped scalar)
+console.log(keys.viewingKey);        // Uint8Array (32-byte seed)
+console.log(keys.viewingScalar);     // bigint (clamped scalar)
+console.log(keys.spendingPubKey);    // Uint8Array (32-byte public key)
+console.log(keys.viewingPubKey);     // Uint8Array (32-byte public key)
 ```
 
 **Algorithm:**
@@ -186,13 +186,13 @@ Generate a one-time stealth address for a Stellar recipient.
 
 ```typescript
 const result = generateStealthAddress(
-  keys.spendingPubKey,
-  keys.viewingPubKey
+  keys.spendingPubKey,
+  keys.viewingPubKey
 );
 
-console.log(result.stealthAddress);  // "G..." (Stellar address)
+console.log(result.stealthAddress);  // "G..." (Stellar address)
 console.log(result.ephemeralPubKey); // Uint8Array (32 bytes)
-console.log(result.viewTag);        // 0-255
+console.log(result.viewTag);        // 0-255
 ```
 
 **Algorithm:**
@@ -209,16 +209,16 @@ Check if an announcement belongs to you.
 
 ```typescript
 const result = checkStealthAddress(
-  ephemeralPubKey,
-  keys.viewingKey,
-  keys.spendingPubKey,
-  viewTag
+  ephemeralPubKey,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  viewTag
 );
 
 if (result.isMatch) {
-  console.log(result.stealthAddress);     // "G..."
-  console.log(result.hashScalar);         // bigint
-  console.log(result.stealthPubKeyBytes); // Uint8Array
+  console.log(result.stealthAddress);     // "G..."
+  console.log(result.hashScalar);         // bigint
+  console.log(result.stealthPubKeyBytes); // Uint8Array
 }
 ```
 
@@ -228,16 +228,16 @@ Scan announcements and return matches with their private scalars.
 
 ```typescript
 const matched = scanAnnouncements(
-  announcements,
-  keys.viewingKey,
-  keys.spendingPubKey,
-  keys.spendingScalar
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
 );
 
 for (const m of matched) {
-  console.log(m.stealthAddress);         // "G..."
-  console.log(m.stealthPrivateScalar);   // bigint
-  console.log(m.stealthPubKeyBytes);     // Uint8Array
+  console.log(m.stealthAddress);         // "G..."
+  console.log(m.stealthPrivateScalar);   // bigint
+  console.log(m.stealthPubKeyBytes);     // Uint8Array
 }
 ```
 
@@ -249,9 +249,9 @@ Derive the private scalar for a specific stealth address.
 
 ```typescript
 const scalar = deriveStealthPrivateScalar(
-  keys.spendingScalar,
-  keys.viewingKey,
-  ephemeralPubKey
+  keys.spendingScalar,
+  keys.viewingKey,
+  ephemeralPubKey
 );
 // bigint — (spendingScalar + hashScalar) mod L
 ```
@@ -331,16 +331,16 @@ const bytes = hexToBytes("abcd");
 
 ```typescript
 import {
-  deriveStealthKeys,
-  generateStealthAddress,
-  scanAnnouncements,
-  deriveStealthPrivateScalar,
-  signStellarTransaction,
-  encodeStealthMetaAddress,
-  decodeStealthMetaAddress,
-  pubKeyToStellarAddress,
-  STEALTH_SIGNING_MESSAGE,
-  SCHEME_ID,
+  deriveStealthKeys,
+  generateStealthAddress,
+  scanAnnouncements,
+  deriveStealthPrivateScalar,
+  signStellarTransaction,
+  encodeStealthMetaAddress,
+  decodeStealthMetaAddress,
+  pubKeyToStellarAddress,
+  STEALTH_SIGNING_MESSAGE,
+  SCHEME_ID,
 } from "@wraith-protocol/sdk/chains/stellar";
 
 // 1. Recipient: derive keys from Stellar wallet signature
@@ -357,22 +357,22 @@ const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 // stealth.stealthAddress is a G... address
 
 // 4. Sender: send XLM via createAccount tx to stealth.stealthAddress
-//    Sender: call Soroban announcer contract
+//    Sender: call Soroban announcer contract
 
 // 5. Recipient: scan announcements (from Soroban events)
 const matched = scanAnnouncements(
-  announcements,
-  keys.viewingKey,
-  keys.spendingPubKey,
-  keys.spendingScalar
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
 );
 
 // 6. Recipient: sign transaction from stealth address
 for (const m of matched) {
-  const txHash = transaction.hash(); // 32-byte tx hash
-  const sig = signStellarTransaction(txHash, m.stealthPrivateScalar, m.stealthPubKeyBytes);
-  transaction.addSignature(pubKeyToStellarAddress(m.stealthPubKeyBytes), sig);
-  // Submit to Horizon
+  const txHash = transaction.hash(); // 32-byte tx hash
+  const sig = signStellarTransaction(txHash, m.stealthPrivateScalar, m.stealthPubKeyBytes);
+  transaction.addSignature(pubKeyToStellarAddress(m.stealthPubKeyBytes), sig);
+  // Submit to Horizon
 }
 ```
 
@@ -391,14 +391,14 @@ The SDK ships with deployed contract addresses and RPC URLs for supported Stella
 ```typescript
 const deployment = getDeployment("stellar");
 // {
-//   network: "testnet",
-//   networkPassphrase: "Test SDF Network ; September 2015",
-//   horizonUrl: "https://horizon-testnet.stellar.org",
-//   sorobanUrl: "https://soroban-testnet.stellar.org",
-//   contracts: {
-//     announcer: "CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL",
-//     names: "CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV",
-//   },
+//   network: "testnet",
+//   networkPassphrase: "Test SDF Network ; September 2015",
+//   horizonUrl: "https://horizon-testnet.stellar.org",
+//   sorobanUrl: "https://soroban-testnet.stellar.org",
+//   contracts: {
+//     announcer: "CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL",
+//     names: "CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV",
+//   },
 // }
 ```
 

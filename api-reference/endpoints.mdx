@@ -34,7 +34,7 @@ Create a new agent with a `.wraith` name.
 
 **Request:**
 
-```typescript
+```typescript no-check
 {
   name: string;          // "alice" (becomes alice.wraith)
   chain: string;         // "horizen" | "stellar" | "ethereum" | ...
@@ -154,7 +154,7 @@ Send a natural language message to the AI agent.
 
 **Request:**
 
-```typescript
+```typescript no-check
 {
   message: string;
   conversationId?: string;  // continue existing conversation
@@ -163,7 +163,7 @@ Send a natural language message to the AI agent.
 
 **Response:**
 
-```typescript
+```typescript no-check
 {
   response: string;          // agent's text reply
   toolCalls?: ToolCall[];    // tools the agent executed
@@ -276,7 +276,7 @@ GET /agent/:id/notifications
 
 **Response:**
 
-```typescript
+```typescript no-check
 {
   notifications: Notification[];
   unreadCount: number;
@@ -363,7 +363,7 @@ All errors return JSON with a `message` field:
 
 ### Example
 
-```typescript
+```typescript no-check
 // 400 Bad Request
 {
   "message": "Name must be 3-32 characters, lowercase alphanumeric and hyphens only",

@@ -347,7 +347,7 @@ class ChainRegistry {
 
 ### Usage in Agent Service
 
-```typescript
+```typescript no-check
 async sendPayment(agentId: string, recipient: string, amount: string) {
   const agent = await this.db.agents.findOneBy({ id: agentId });
   const connector = this.chainRegistry.get(agent.chain);

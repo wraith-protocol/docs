@@ -1,0 +1,585 @@
+---
+title: "Stellar Offline Transaction Signing"
+description: "Build transactions online, sign them on an air-gapped machine, and submit them without the private key ever touching an internet-connected device"
+---
+
+Cold storage and air-gapped wallets keep private keys on a machine that never connects to the internet. Signing a Stellar transaction with such a setup requires moving data — not keys — between the online and offline environments. This guide walks through the full workflow, QR code transfer patterns, hardware wallet integration, and stealth-specific guidance.
+
+<Note>
+  All account IDs and secret keys in code examples are illustrative. Never use example keys in
+  production.
+</Note>
+
+---
+
+## Threat Model: When Offline Signing Actually Helps
+
+Offline signing protects against a specific class of threats. Understanding what it does and does not cover helps you decide when the operational overhead is justified.
+
+### Threats it mitigates
+
+| Threat | How offline signing helps |
+|---|---|
+| Malware on the online machine exfiltrating keys | Private key never exists on the online machine |
+| Supply chain compromise of an npm package | Signing happens in an isolated environment with no network access |
+| Remote code execution via a compromised RPC response | Offline machine has no RPC connection to exploit |
+| Key extraction from memory on the submission machine | Key is not present at submission time |
+
+### Threats it does NOT mitigate
+
+| Threat | Why |
+|---|---|
+| Malware on the **offline** machine | If the air gap is broken at any point, keys are at risk |
+| Social engineering into signing a malicious transaction | You must verify the transaction contents before signing |
+| Side-channel attacks on the offline hardware | Requires additional hardware-level mitigations |
+| Loss of the offline device | Requires a separate backup and recovery strategy |
+
+### When the overhead is worth it
+
+Use offline signing when:
+- The account holds funds that justify the operational cost (large custody accounts, multisig coordinators)
+- Regulatory or compliance requirements mandate cold storage
+- You are managing stealth withdrawal keys for an organization and want the derived scalar to never touch an online machine
+
+For small day-to-day amounts, the Wraith agent handles signing automatically and the overhead is not justified.
+
+---
+
+## Three-Step Workflow
+
+```
+ONLINE MACHINE                    OFFLINE MACHINE
+─────────────────                 ────────────────────
+1. Build transaction  ──XDR──▶   2. Inspect + sign
+   (no private key)   ◀──XDR──   3. Return signed XDR
+4. Submit to network
+```
+
+### Step 1 — Build the transaction (online machine)
+
+Load the source account to get the current sequence number, construct the transaction, and export it as XDR. No private key is needed at this stage.
+
+```typescript
+import {
+  Keypair,
+  Operation,
+  TransactionBuilder,
+  Asset,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const NETWORK_PASSPHRASE = "Test SDF Future Network ; October 2022"; // futurenet
+const RPC_URL = "https://rpc-futurenet.stellar.org";
+
+const server = new SorobanRpc.Server(RPC_URL);
+
+async function buildUnsignedTransaction(params: {
+  sourceAccountId: string;
+  destinationId: string;
+  amount: string;
+  asset: Asset;
+}): Promise<string> {
+  const { sourceAccountId, destinationId, amount, asset } = params;
+
+  // Fetch sequence number — this is the only network call required
+  const sourceAccount = await server.getAccount(sourceAccountId);
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.payment({
+        destination: destinationId,
+        asset,
+        amount,
+      })
+    )
+    .setTimeout(300) // 5 minutes — generous window for manual offline signing
+    .build();
+
+  // XDR is safe to transfer — it contains no secret information
+  return tx.toXDR();
+}
+
+const unsignedXdr = await buildUnsignedTransaction({
+  sourceAccountId: "G...SOURCE",
+  destinationId: "G...DESTINATION",
+  amount: "10.0000000",
+  asset: Asset.native(),
+});
+
+console.log("Unsigned XDR (transfer to offline machine):");
+console.log(unsignedXdr);
+```
+
+<Note>
+  The XDR contains the transaction details but no keys. It is safe to move across the network,
+  display as a QR code, or write to a USB drive.
+</Note>
+
+### Step 2 — Inspect and sign (offline machine)
+
+On the offline machine, decode the XDR to verify the transaction contents before signing. Never sign XDR you have not inspected.
+
+```typescript
+import { Transaction, Networks } from "@stellar/stellar-sdk";
+
+const NETWORK_PASSPHRASE = "Test SDF Future Network ; October 2022";
+
+function inspectTransaction(xdr: string): void {
+  const tx = new Transaction(xdr, NETWORK_PASSPHRASE);
+
+  console.log("=== TRANSACTION INSPECTION ===");
+  console.log("Source account:", tx.source);
+  console.log("Sequence number:", tx.sequence);
+  console.log("Fee:", tx.fee, "stroops");
+  console.log("Operations:");
+
+  for (const op of tx.operations) {
+    console.log(" -", op.type);
+    if (op.type === "payment") {
+      console.log("   Destination:", op.destination);
+      console.log("   Amount:     ", op.amount);
+      console.log("   Asset:      ", op.asset.isNative() ? "XLM" : op.asset.code);
+    }
+  }
+  console.log("==============================");
+}
+
+function signTransaction(xdr: string, signerSecret: string): string {
+  const keypair = Keypair.fromSecret(signerSecret);
+  const tx = new Transaction(xdr, NETWORK_PASSPHRASE);
+
+  inspectTransaction(xdr); // Always inspect before signing
+  tx.sign(keypair);
+
+  return tx.toXDR();
+}
+
+// On the offline machine:
+inspectTransaction(unsignedXdr);
+
+// Verify the output looks correct, then sign
+const signedXdr = signTransaction(unsignedXdr, "S...COLD_STORAGE_SECRET");
+console.log("Signed XDR (transfer back to online machine):");
+console.log(signedXdr);
+```
+
+<Warning>
+  Always call `inspectTransaction` before signing. A malicious party could modify the XDR in
+  transit to change the destination or amount. Your eyes are the last line of defence.
+</Warning>
+
+### Step 3 — Submit (online machine)
+
+Take the signed XDR back to the online machine and submit it. The private key is not needed here.
+
+```typescript
+import { Transaction } from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+async function submitSignedTransaction(signedXdr: string): Promise<void> {
+  const server = new SorobanRpc.Server(RPC_URL);
+  const tx = new Transaction(signedXdr, NETWORK_PASSPHRASE);
+
+  const result = await server.sendTransaction(tx);
+
+  if (result.status === "ERROR") {
+    throw new Error(`Submission failed: ${JSON.stringify(result.errorResult)}`);
+  }
+
+  console.log("Submitted:", result.hash);
+
+  // Poll for confirmation
+  let status = await server.getTransaction(result.hash);
+  while (status.status === "NOT_FOUND") {
+    await new Promise(r => setTimeout(r, 3000));
+    status = await server.getTransaction(result.hash);
+  }
+
+  if (status.status === "SUCCESS") {
+    console.log("Confirmed in ledger", status.ledger);
+  } else {
+    console.error("Transaction failed. Result XDR:", status.resultXdr);
+  }
+}
+
+await submitSignedTransaction(signedXdr);
+```
+
+---
+
+## SDK Helpers
+
+<Note>
+  A dedicated `prepareOfflineStellarTransaction` helper is coming to
+  `@wraith-protocol/sdk/chains/stellar` in an upcoming release. It will wrap the sequence number
+  fetch and XDR serialization steps with a cleaner interface. The patterns below use current
+  primitives; the helper API will be a drop-in replacement.
+</Note>
+
+Until the helper ships, the primitives you need are already available:
+
+```typescript
+import {
+  deriveStealthKeys,
+  deriveStealthPrivateScalar,
+  signWithScalar,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+import {
+  Keypair,
+  Transaction,
+  TransactionBuilder,
+  Operation,
+  Asset,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+```
+
+### Utility: encode XDR for offline transfer
+
+Base64 encodes are printable and compact. For QR codes, keep XDR under ~500 bytes (simple payments are well within this limit).
+
+```typescript
+function xdrToBase64(xdr: string): string {
+  // XDR is already base64 in the Stellar SDK; this is an identity for clarity
+  return Buffer.from(xdr, "base64").toString("base64");
+}
+
+function base64ToXdr(b64: string): string {
+  return b64; // XDR strings from the SDK are already base64-encoded
+}
+
+// Verify round-trip
+const roundTripped = base64ToXdr(xdrToBase64(unsignedXdr));
+console.log("Round-trip valid:", roundTripped === unsignedXdr);
+```
+
+---
+
+## QR Code Transfer Patterns
+
+QR codes are the most common way to move XDR between an online and an offline machine without a USB drive or network connection. A simple Stellar payment XDR is typically 200–400 bytes — comfortably within QR code capacity.
+
+### Generating a QR code (online machine)
+
+```typescript
+// Install: npm install qrcode
+import QRCode from "qrcode";
+
+async function xdrToQR(xdr: string, outputPath: string): Promise<void> {
+  // XDR strings from the Stellar SDK are already base64; use as-is
+  await QRCode.toFile(outputPath, xdr, {
+    errorCorrectionLevel: "M", // Medium — good balance of density and error recovery
+    type: "png",
+    width: 512,
+  });
+  console.log("QR code saved to", outputPath);
+}
+
+await xdrToQR(unsignedXdr, "unsigned-tx.png");
+```
+
+Display `unsigned-tx.png` on the online machine's screen. The offline machine scans it with a phone or dedicated QR scanner.
+
+### Scanning a QR code (offline machine)
+
+If the offline machine has a camera, use any QR scanning library or CLI tool. The scanned string is the raw XDR — pass it directly to `signTransaction`.
+
+```bash
+# Example using zbarcam (Linux) to scan and print QR content to stdout
+zbarcam --raw --oneshot /dev/video0
+```
+
+```typescript
+// The scanned string is the XDR — sign it directly
+const scannedXdr = "<output from QR scanner>";
+const signedXdr = signTransaction(scannedXdr, "S...COLD_STORAGE_SECRET");
+```
+
+### Returning the signed XDR
+
+After signing, generate a second QR code on the offline machine containing the signed XDR. Scan it on the online machine, then submit.
+
+```bash
+# CLI approach on the offline machine (no npm required)
+node -e "
+const QRCode = require('qrcode');
+const signedXdr = process.argv[1];
+QRCode.toString(signedXdr, { type: 'terminal' }, (err, str) => { console.log(str); });
+" "<signed-xdr>"
+```
+
+### USB drive fallback
+
+For environments where cameras are not permitted:
+
+1. Write the unsigned XDR to a text file on a USB drive
+2. Carry the drive to the offline machine, sign, write the signed XDR back
+3. Carry the drive back to the online machine and submit
+
+```bash
+# Write unsigned XDR to USB
+echo "$UNSIGNED_XDR" > /media/usb/unsigned-tx.txt
+
+# On offline machine: read, sign, write back
+SIGNED_XDR=$(node sign.js "$(cat /media/usb/unsigned-tx.txt)" "$COLD_SECRET")
+echo "$SIGNED_XDR" > /media/usb/signed-tx.txt
+
+# On online machine: submit
+node submit.js "$(cat /media/usb/signed-tx.txt)"
+```
+
+<Warning>
+  USB drives can carry malware. Use a dedicated, write-protected drive for key transfers, and scan
+  it on the online machine before use. Never plug an untrusted USB drive into the offline machine.
+</Warning>
+
+---
+
+## Hardware Wallet Integration
+
+Hardware wallets (Ledger, Trezor) store private keys in a secure element that never exposes the raw key. The device signs transaction bytes and returns only the signature.
+
+### Current limitations
+
+<Warning>
+  Wraith stealth keys are **derived** keys — they use a domain-separated SHA-256 derivation from
+  your wallet signature, not the BIP-32 path that hardware wallets natively expose. As of today,
+  **Ledger and Trezor cannot directly sign with a Wraith-derived stealth scalar** because the
+  derivation happens outside the device's firmware.
+
+  Hardware wallet support for stealth key derivation is planned. Until it ships, hardware wallets
+  can be used to authorize the **source account** of a transaction (e.g., a multisig coordinator
+  account), but the stealth address itself must be signed with a software-derived scalar kept in
+  cold storage separately.
+</Warning>
+
+### What hardware wallets CAN do today
+
+A Ledger or Trezor can authorize operations where your **regular Stellar keypair** is the signer — for example, as one of the signers in a multisig source account, or as the funding account for a stealth withdrawal.
+
+```typescript
+// Using @ledgerhq/hw-transport-node-hid and @ledgerhq/hw-app-stellar
+import Transport from "@ledgerhq/hw-transport-node-hid";
+import Stellar from "@ledgerhq/hw-app-stellar";
+import { Transaction, xdr, Keypair } from "@stellar/stellar-sdk";
+
+async function signWithLedger(txXdr: string): Promise<string> {
+  const transport = await Transport.create();
+  const stellar = new Stellar(transport);
+
+  // BIP-32 path for Stellar — account index 0
+  const PATH = "44'/148'/0'";
+
+  // Get the public key from the Ledger to verify which account we're signing for
+  const { publicKey } = await stellar.getPublicKey(PATH, true); // true = display on device
+  console.log("Signing with Ledger public key:", publicKey);
+
+  const tx = new Transaction(txXdr, NETWORK_PASSPHRASE);
+
+  // The Ledger signs the transaction hash and returns the raw signature
+  const result = await stellar.signTransaction(PATH, tx.hash());
+
+  // Attach the signature to the transaction
+  const keypair = Keypair.fromPublicKey(publicKey);
+  tx.signatures.push(
+    xdr.DecoratedSignature.decDecoratedSignature({
+      hint: keypair.signatureHint(),
+      signature: Buffer.from(result.signature, "hex"),
+    })
+  );
+
+  await transport.close();
+  return tx.toXDR();
+}
+
+// Build unsigned transaction on online machine, transfer XDR to Ledger-connected machine
+const ledgerSignedXdr = await signWithLedger(unsignedXdr);
+```
+
+### Verifying the address on the Ledger screen
+
+Pass `true` as the second argument to `getPublicKey` — this displays the address on the Ledger screen so you can confirm it matches the source account before signing. **Always do this** when signing significant transactions.
+
+---
+
+## Stealth Withdrawal Guidance
+
+Stealth withdrawals have a property that makes offline signing especially valuable: the **derived stealth private scalar** only needs to exist on the offline machine. It never needs to touch an internet-connected device.
+
+### Why stealth keys are well-suited for cold storage
+
+The stealth private scalar is derived deterministically from your master keypair signature:
+
+```typescript
+import { deriveStealthKeys, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
+import { Keypair } from "@stellar/stellar-sdk";
+
+// This derivation can happen entirely offline
+const masterKeypair = Keypair.fromSecret("S...MASTER_SECRET"); // never goes online
+const sig = masterKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+// keys.spendingScalar is the value needed to sign a stealth withdrawal
+// It can be re-derived on demand — you don't need to store it
+```
+
+Because the scalar is **re-derivable**, you can:
+- Keep only the master secret on the offline machine
+- Re-derive the stealth scalar at signing time
+- Never persist the scalar itself
+
+### Full offline stealth withdrawal workflow
+
+```typescript
+// ── ONLINE MACHINE ──────────────────────────────────────────────
+import {
+  scanAnnouncements,
+  fetchAnnouncements,
+  getDeployment,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const server = new SorobanRpc.Server(RPC_URL);
+
+// 1. Scan for payments (online — uses the viewing key, not the spending key)
+//    The viewing key CAN go online — it only detects payments, not spends.
+import { deriveStealthKeys, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const viewingKeypair = Keypair.fromSecret("S...VIEWING_MASTER"); // lower sensitivity
+const viewingSig = viewingKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const viewingKeys = deriveStealthKeys(viewingSig);
+
+const deployment = getDeployment("futurenet");
+const announcements = await fetchAnnouncements(deployment, server);
+
+// Pass null for spendingKey — we only need detection, not the private scalar
+const matched = scanAnnouncements(
+  announcements,
+  viewingKeys.viewingKey,
+  viewingKeys.spendingPubKey,
+  null // spending key stays offline
+);
+
+// 2. Build the withdrawal transaction (no spending key needed)
+import { TransactionBuilder, Operation, Asset, BASE_FEE } from "@stellar/stellar-sdk";
+
+const payment = matched[0]; // the payment you want to withdraw
+
+const feePayerAccount = await server.getAccount("G...FEE_PAYER");
+const withdrawalTx = new TransactionBuilder(feePayerAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: NETWORK_PASSPHRASE,
+})
+  .addOperation(
+    Operation.payment({
+      source: payment.stealthAddress,  // stealth address as operation source
+      destination: "G...DESTINATION",
+      asset: Asset.native(),
+      amount: "4.5000000",
+    })
+  )
+  .setTimeout(300)
+  .build();
+
+const unsignedXdr = withdrawalTx.toXDR();
+
+// ── Transfer XDR to offline machine via QR or USB ───────────────
+
+// ── OFFLINE MACHINE ─────────────────────────────────────────────
+import {
+  deriveStealthKeys,
+  scanAnnouncements,
+  signWithScalar,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Transaction, xdr, Keypair } from "@stellar/stellar-sdk";
+
+// Re-derive the stealth scalar from the master spending key (never leaves offline machine)
+const spendingMaster = Keypair.fromSecret("S...SPENDING_MASTER");
+const spendingSig = spendingMaster.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const spendingKeys = deriveStealthKeys(spendingSig);
+
+// Re-derive the stealth scalar for this specific payment
+// (In practice, you scan again offline to get the matched entry with the scalar)
+const tx = new Transaction(unsignedXdr, NETWORK_PASSPHRASE);
+
+// Inspect before signing
+console.log("Source of payment op:", tx.operations[0].source);
+console.log("Destination:", (tx.operations[0] as any).destination);
+console.log("Amount:", (tx.operations[0] as any).amount);
+
+// Sign with the stealth private scalar
+const { signature, hint } = signWithScalar(
+  payment.stealthPrivateScalar,   // derived offline, never transmitted
+  payment.stealthPubKeyBytes,
+  tx.hash()
+);
+
+tx.signatures.push(
+  xdr.DecoratedSignature.decDecoratedSignature({ hint, signature })
+);
+
+const signedXdr = tx.toXDR();
+
+// ── Transfer signed XDR back to online machine ──────────────────
+
+// ── ONLINE MACHINE ──────────────────────────────────────────────
+await submitSignedTransaction(signedXdr);
+```
+
+### Key separation: viewing key vs. spending key
+
+| Key | Sensitivity | Can go online? | Why |
+|---|---|---|---|
+| Viewing key | Medium | Yes (with care) | Only detects incoming payments; cannot spend |
+| Spending key | High | No | Derives the scalar that authorizes spending |
+| Stealth scalar | High | No | Direct spending authority for a specific stealth address |
+
+Keeping the viewing key on an online watch-only instance lets you monitor incoming payments continuously without exposing spending authority.
+
+---
+
+## End-to-End Workflow Summary
+
+```
+ONLINE MACHINE                         OFFLINE MACHINE
+──────────────────────────────         ────────────────────────────
+1. Scan announcements (viewing key)
+2. Identify payment to withdraw
+3. Fetch source account sequence
+4. Build unsigned transaction XDR
+5. Export XDR (QR / USB)          ──▶  6. Scan / read XDR
+                                        7. Inspect transaction details
+                                        8. Re-derive stealth scalar
+                                        9. Sign XDR with scalar
+                                        10. Export signed XDR (QR / USB)
+11. Scan / read signed XDR        ◀──
+12. Submit to Soroban RPC
+13. Poll for confirmation
+```
+
+### Common errors
+
+| Error | Cause | Fix |
+|---|---|---|
+| `tx_bad_seq` | Sequence number stale (account used between build and submit) | Rebuild the transaction with the new sequence number |
+| `tx_too_late` | `setTimeout` window expired before submission | Rebuild with a longer timeout; move faster or automate the transfer |
+| `tx_bad_auth` | Wrong key signed, or stealth scalar mismatch | Verify the stealth address matches the scanned announcement |
+| `op_src_not_exist` | Stealth address not found on-chain | Verify the announcement was processed and the address was funded |
+
+---
+
+## See Also
+
+- [Stellar Primitives](/sdk/chains/stellar) — full SDK reference including `signWithScalar` and `deriveStealthPrivateScalar`
+- [Privacy Best Practices](/guides/privacy-best-practices) — operational security for stealth withdrawals
+- [Stellar Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) — combine offline signing with N-of-M multisig coordination
+- [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment) — production RPC setup and monitoring
