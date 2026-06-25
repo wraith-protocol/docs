@@ -120,7 +120,8 @@
               "guides/privacy-best-practices",
               "guides/spectre-stellar-cookbook",
               "guides/stellar-federation",
-              "guides/stellar-custom-assets"
+              "guides/stellar-custom-assets",
+              "guides/stellar-swap-stealth"
             ]
           }
         ]

@@ -483,6 +483,8 @@ Stellar's path payment operations let a sender pay in one asset while the recipi
 
 The stealth address must hold a trustline for the destination asset (the asset the recipient receives). The `stealth-sender` contract currently supports single-asset sends only. For path payments, use the classic Stellar `PathPaymentStrictReceive` or `PathPaymentStrictSend` operations directly.
 
+For the sender-flow that swaps USDC into XLM and delivers the result to a stealth address, see [Stellar Swap-then-Stealth](/guides/stellar-swap-stealth).
+
 ```typescript
 import { Operation, Asset } from "@stellar/stellar-sdk";
 

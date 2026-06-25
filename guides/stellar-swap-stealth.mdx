@@ -1,0 +1,240 @@
+---
+title: "Stellar Swap-then-Stealth"
+description: "Swap USDC to XLM and deliver the result privately to a Stellar stealth address."
+---
+
+Swap-then-stealth is the Stellar pattern for a sender who holds a stablecoin like USDC and wants the recipient to receive native XLM privately at a one-time stealth address.
+
+This guide covers:
+- when to use swap-then-stealth
+- the SDK helper pattern
+- slippage protection and liquidity checks
+- failure handling
+- a worked USDC → XLM example on testnet
+
+## When to use swap-then-stealth
+
+Use this pattern when:
+
+- the sender holds USDC (or another non-native asset)
+- the recipient wants XLM to pay fees, settle, or withdraw
+- the recipient must receive funds at a private stealth address
+- you want the swap and delivery to be atomic
+
+Do not use swap-then-stealth when the recipient can receive the same asset directly. For same-asset stealth transfers, use direct `stealth-sender` flows instead.
+
+## How it works
+
+On Stellar, a `PathPaymentStrictReceive` or `PathPaymentStrictSend` can swap one asset for another through the on-chain DEX.
+
+The swap-then-stealth pattern routes the resulting XLM to a one-time stealth address and attaches a stealth announcement in the same transaction. This keeps the final recipient private while still using Stellar liquidity.
+
+The transaction is atomic:
+- if the swap cannot be executed because liquidity is missing, slippage is too high, or the stealth delivery fails, the entire transaction is rejected.
+- no partial state is committed.
+
+The key components are:
+
+1. a stealth recipient meta-address (`st:xlm:...`)
+2. a one-time stealth address derived from that meta-address
+3. a path payment that swaps USDC into XLM for the stealth address
+4. a stealth announcement so the recipient can scan and detect the payment
+
+## SDK `buildStellarSwapAndStealth` usage
+
+Some SDK versions expose a helper that builds the atomic swap + stealth announcement transaction for you.
+
+```typescript
+import { Asset, Networks } from "@stellar/stellar-sdk";
+import { buildStellarSwapAndStealth } from "@wraith-protocol/sdk/chains/stellar";
+
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+const txData = buildStellarSwapAndStealth({
+  recipientMetaAddress: "st:xlm:abcdef123456...",
+  sourceAsset: new Asset("USDC", USDC_ISSUER),
+  destinationAsset: Asset.native(),
+  destinationAmount: "8.5",
+  maxSlippageBps: 50,
+  networkPassphrase: Networks.TESTNET,
+});
+
+const signedTx = await signTransactionWithSenderWallet(txData.transaction);
+await submitTransaction(signedTx);
+
+console.log("Stealth address:", txData.stealthAddress);
+console.log("View tag:", txData.viewTag);
+```
+
+If your installed SDK version does not yet expose `buildStellarSwapAndStealth`, or if you prefer full control over the swap path and announcement payload, the same result can be achieved with the manual pattern in the following sections.
+
+## Slippage protection patterns
+
+For stablecoin-to-XLM swaps, slippage protection is essential. Use strict receive semantics when the recipient needs an exact XLM amount. Use strict send semantics when the sender wants to cap the amount of USDC spent.
+
+Preferred patterns:
+
+- `PathPaymentStrictReceive` with `destinationAmount` and `sendMax`
+- `PathPaymentStrictSend` with `sendAmount` and `destMin`
+- `maxSlippageBps` to express tolerance in basis points
+- `1%` or `50 bps` for stablecoin → XLM as a starting point
+
+A swap-then-stealth helper should also support explicit maximum source amounts, so the transaction never spends more USDC than intended.
+
+## Liquidity availability checks before submission
+
+Check Horizon for available USDC→XLM paths before sending. If no path exists, the transaction will fail.
+
+```typescript
+import { Asset, Horizon } from "@stellar/stellar-sdk";
+
+const server = new Horizon.Server("https://horizon-testnet.stellar.org");
+const usdc = new Asset("USDC", USDC_ISSUER);
+
+const paths = await server
+  .strictReceivePaths([usdc], Asset.native(), "8.5")
+  .call();
+
+if (paths.records.length === 0) {
+  throw new Error("No USDC→XLM liquidity path available for 8.5 XLM");
+}
+
+const bestPath = paths.records[0];
+const requiredUsdc = parseFloat(bestPath.source_amount);
+if (requiredUsdc > 20) {
+  throw new Error(`Swap would cost ${requiredUsdc} USDC, which exceeds budget`);
+}
+```
+
+Also verify the sender has:
+
+- enough USDC balance for the swap
+- enough XLM for transaction fees and any new account creation
+- enough reserve if the stealth address needs to be created first
+
+## Failure handling
+
+Stellar transactions are atomic. If any operation fails, the whole transaction is rolled back.
+
+Handle the common failure cases explicitly:
+
+- `op_too_few_offers` / no path available
+- `op_low_reserve` / underfunded sender
+- `op_underfunded` / insufficient source asset balance
+- `op_line_full` / destination trustline limit reached
+- announcement failure when the announce op is separate
+
+If `buildStellarSwapAndStealth` returns a transaction payload, submit it and inspect the Stellar result codes on failure. If the announcement is built separately, make sure the swap succeeded before marking the payment complete.
+
+## Worked example: USDC → XLM stealth send
+
+This example swaps USDC into XLM and delivers the result to a one-time stealth address.
+
+```typescript
+import {
+  Asset,
+  Contract,
+  Keypair,
+  Networks,
+  Operation,
+  Horizon,
+  TransactionBuilder,
+  xdr,
+  rpc,
+} from "@stellar/stellar-sdk";
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+  getDeployment,
+  SCHEME_ID,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const NETWORK = Networks.TESTNET;
+const HORIZON = "https://horizon-testnet.stellar.org";
+
+const senderKeypair = Keypair.fromSecret(process.env.SENDER_SECRET!);
+const recipientMetaAddress = "st:xlm:abcdef123456...";
+const usdcAsset = new Asset("USDC", USDC_ISSUER);
+
+const server = new Horizon.Server(HORIZON);
+const sorobanServer = new rpc.Server(HORIZON);
+const deployment = getDeployment("stellar");
+
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(recipientMetaAddress);
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+const pathResult = await server
+  .strictReceivePaths([usdcAsset], Asset.native(), "8.5")
+  .call();
+
+if (pathResult.records.length === 0) {
+  throw new Error("No USDC→XLM path available");
+}
+
+const bestPath = pathResult.records[0];
+const sendMax = parseFloat(bestPath.source_amount) * 1.01;
+
+const senderAccount = await server.loadAccount(senderKeypair.publicKey());
+const announcer = new Contract(deployment.contracts.announcer);
+
+const metadata = new Uint8Array([stealth.viewTag]);
+const tx = new TransactionBuilder(senderAccount, {
+  fee: "1000000",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.pathPaymentStrictReceive({
+      sendAsset: usdcAsset,
+      sendMax: sendMax.toFixed(7),
+      destination: stealth.stealthAddress,
+      destAsset: Asset.native(),
+      destAmount: "8.5",
+      path: [],
+    }),
+  )
+  .addOperation(
+    announcer.call(
+      "announce",
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeAccount(
+          xdr.AccountId.publicKeyTypeEd25519(
+            senderKeypair.rawPublicKey(),
+          ),
+        ),
+      ),
+      xdr.ScVal.scvU32(SCHEME_ID),
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeAccount(
+          xdr.AccountId.publicKeyTypeEd25519(
+            Keypair.fromPublicKey(stealth.stealthAddress).rawPublicKey(),
+          ),
+        ),
+      ),
+      xdr.ScVal.scvBytes(Buffer.from(stealth.ephemeralPubKey)),
+      xdr.ScVal.scvBytes(Buffer.from(metadata)),
+    ),
+  )
+  .setTimeout(30)
+  .build();
+
+const simulation = await sorobanServer.simulateTransaction(tx);
+if (!rpc.Api.isSimulationSuccess(simulation)) {
+  throw new Error("Simulation failed — check path or contract call parameters");
+}
+
+const signedTx = tx;
+signedTx.sign(senderKeypair);
+
+const result = await sorobanServer.sendTransaction(signedTx);
+console.log("Transaction hash:", result.hash);
+console.log("Stealth address:", stealth.stealthAddress);
+console.log("Stealth view tag:", stealth.viewTag);
+```
+
+> **Note:** This example assumes the target stealth address already exists or can be created with an additional `CreateAccount` operation. If the address is new, include account creation in the same transaction before the path payment.
+
+## Related guides
+
+- [Stellar Custom Assets](/guides/stellar-custom-assets)
+- [Stellar Federation Addresses](/guides/stellar-federation)

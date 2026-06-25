@@ -478,3 +478,5 @@ USDC amounts use **7 decimal places**: `100 USDC = 1_000_000_0` in the i128 pass
 Assets with `AUTH_REQUIRED` are incompatible with stealth payment flows. Assets with `AUTH_CLAWBACK_ENABLED` work at the protocol level but allow the issuer to reclaim stealth balances — the agent warns before sending.
 
 See the [Stellar Custom Assets guide](/guides/stellar-custom-assets) for the full reference: SAC overview, USDC issuer addresses, sender and recipient flows with trustline handling, path payments, fee estimates, and the SAC compatibility matrix from the June 2026 audit.
+
+For stablecoin senders that want an XLM stealth payout, see [Stellar Swap-then-Stealth](/guides/stellar-swap-stealth).

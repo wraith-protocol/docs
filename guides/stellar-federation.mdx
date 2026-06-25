@@ -399,7 +399,7 @@ The `/.well-known/stellar.toml` file can't be fetched — domain is misconfigure
 try {
   await resolveStellarFederation("alice*notadomain.invalid");
 } catch (err) {
-  if (err.code === "DNS_FAILURE") {
+  if ((err as any).code === "DNS_FAILURE") {
     // Show: "Could not reach federation server for notadomain.invalid"
   }
 }
@@ -412,8 +412,10 @@ try {
 The domain has a `stellar.toml` but hasn't configured federation.
 
 ```typescript
+try {
+  await resolveStellarFederation("alice*example.com");
 } catch (err) {
-  if (err.code === "NO_FEDERATION_SERVER") {
+  if ((err as any).code === "NO_FEDERATION_SERVER") {
     // Show: "example.com doesn't support federation addresses"
   }
 }
@@ -424,8 +426,10 @@ The domain has a `stellar.toml` but hasn't configured federation.
 The federation server responded but doesn't know this username.
 
 ```typescript
+try {
+  await resolveStellarFederation("alice*example.com");
 } catch (err) {
-  if (err.code === "NOT_FOUND") {
+  if ((err as any).code === "NOT_FOUND") {
     // Show: "alice*example.com was not found"
   }
 }
@@ -438,11 +442,13 @@ This is the most common failure in payment UIs. Display it inline, next to the i
 The federation server is reachable but returns a response missing `account_id`, or returns invalid JSON.
 
 ```typescript
+try {
+  await resolveStellarFederation("alice*example.com");
 } catch (err) {
-  if (err.code === "MALFORMED_RESPONSE") {
+  if ((err as any).code === "MALFORMED_RESPONSE") {
     // Show: "example.com's federation server returned an unexpected response"
     // Log err.cause for debugging
-    console.error(err.cause);
+    console.error((err as any).cause);
   }
 }
 ```
@@ -452,8 +458,10 @@ The federation server is reachable but returns a response missing `account_id`, 
 The federation server is too slow. Default timeout is 5 seconds; adjust with `options.timeoutMs`.
 
 ```typescript
+try {
+  await resolveStellarFederation("alice*example.com");
 } catch (err) {
-  if (err.code === "TIMEOUT") {
+  if ((err as any).code === "TIMEOUT") {
     // Show: "The federation server took too long to respond. Try again."
   }
 }
@@ -508,14 +516,16 @@ When your payment form accepts a Stellar destination, hint that federation addre
 
 ```tsx
 // React example
-<input
-  type="text"
-  placeholder="G... address or alice*example.com"
-  aria-label="Recipient Stellar address or federation address"
-/>
-<p className="hint">
-  You can use a federation address like <code>alice*example.com</code>
-</p>
+<>
+  <input
+    type="text"
+    placeholder="G... address or alice*example.com"
+    aria-label="Recipient Stellar address or federation address"
+  />
+  <p className="hint">
+    You can use a federation address like <code>alice*example.com</code>
+  </p>
+</>
 ```
 
 The hint text matches what SDF-ecosystem wallets use, so users who know federation will immediately recognise it.
