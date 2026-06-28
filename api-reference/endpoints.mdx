@@ -13,12 +13,11 @@ All requests require an API key:
 Authorization: Bearer wraith_live_abc123
 ```
 
-Optional BYOM headers:
-
-```
-X-AI-Provider: openai
-X-AI-Key: sk-...
-```
+| Header | Type | Required | Description |
+|---|---|---|---|
+| `Authorization` | `string` | Yes | Bearer token with your platform API key. Format: `Bearer wraith_live_<id>`. Example: `Bearer wraith_live_abc123`. |
+| `X-AI-Provider` | `"gemini" \| "openai" \| "claude"` | No | AI provider for bring-your-own-model requests. See [`WraithConfig.ai`](/api-reference/types#wraithconfig). |
+| `X-AI-Key` | `string` | No | API key for the provider named in `X-AI-Provider`. Example: `sk-...` for OpenAI. |
 
 ---
 
@@ -32,29 +31,27 @@ POST /agent/create
 
 Create a new agent with a `.wraith` name.
 
-**Request:**
+**Request body:**
 
 ```typescript no-check
 {
-  name: string;          // "alice" (becomes alice.wraith)
-  chain: string;         // "horizen" | "stellar" | "ethereum" | ...
-  wallet: string;        // owner wallet address
-  signature: string;     // EIP-191 or ed25519 signature
-  message?: string;      // signed message (for verification)
+  name: string;
+  chain: string | string[];
+  wallet: string;
+  signature: string;
+  message?: string;
 }
 ```
 
-**Response:**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Local part of the `.wraith` name (without the suffix). Constraints: 3–32 characters; lowercase alphanumeric and hyphens only; no leading or trailing hyphens. Example: `"alice"` registers `alice.wraith`. |
+| `chain` | [`Chain`](/api-reference/types#chain) \| [`Chain[]`](/api-reference/types#chain) | Yes | Target chain or chains for the agent. Pass a single value, an array, or `Chain.All` for every supported chain. Example: `"horizen"` or `["horizen", "stellar"]`. |
+| `wallet` | `string` | Yes | Owner wallet address that signs the creation request. EVM: `0x`-prefixed 20-byte address. Stellar: `G...` StrKey. Example: `"0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"`. |
+| `signature` | `string` | Yes | Wallet signature over `message` proving ownership. EVM: 65-byte EIP-191 hex string (`0x...`). Stellar: 64-byte ed25519 signature (hex). |
+| `message` | `string` | No | Exact UTF-8 string that was signed. Required when the server must recover the signer from `signature`. Example: `"Sign to create Wraith agent"`. |
 
-```typescript
-{
-  id: string;            // UUID
-  name: string;          // "alice"
-  chain: string;         // "horizen"
-  address: string;       // agent's on-chain address
-  metaAddress: string;   // stealth meta-address
-}
-```
+**Response:** [`AgentInfo`](/api-reference/types#agentinfo)
 
 ### List Agents
 
@@ -64,7 +61,7 @@ GET /agents
 
 Returns all agents for the authenticated API key.
 
-**Response:** `AgentInfo[]`
+**Response:** [`AgentInfo[]`](/api-reference/types#agentinfo)
 
 ### Get Agent by ID
 
@@ -72,7 +69,13 @@ Returns all agents for the authenticated API key.
 GET /agent/:id
 ```
 
-**Response:** `AgentInfo`
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. Example: `"550e8400-e29b-41d4-a716-446655440000"`. |
+
+**Response:** [`AgentInfo`](/api-reference/types#agentinfo)
 
 ### Get Agent by Name
 
@@ -82,7 +85,13 @@ GET /agent/info/:name
 
 Look up an agent by `.wraith` name.
 
-**Response:** `AgentInfo`
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `name` | `string` | Local part of the `.wraith` name (without `.wraith`). Same constraints as create `name`. Example: `"alice"`. |
+
+**Response:** [`AgentInfo`](/api-reference/types#agentinfo)
 
 ### Get Agent by Wallet
 
@@ -92,7 +101,13 @@ GET /agent/wallet/:address
 
 Look up an agent by owner wallet address.
 
-**Response:** `AgentInfo`
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `address` | `string` | Owner wallet address used at agent creation. Example: `"0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"`. |
+
+**Response:** [`AgentInfo`](/api-reference/types#agentinfo)
 
 ### Get Agent Status
 
@@ -101,6 +116,12 @@ GET /agent/:id/status
 ```
 
 Returns balance, pending invoices, and other stats.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
 
 **Response:**
 
@@ -115,6 +136,15 @@ Returns balance, pending invoices, and other stats.
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `balance` | `string` | Native asset balance on the agent's primary chain as a decimal string. Example: `"1.5"`. |
+| `tokens` | `Record<string, string>` | Token symbol to balance map for the primary chain. Values are decimal strings. Example: `{ "USDC": "50.0", "ZEN": "100.0" }`. |
+| `pendingInvoices` | `number` | Count of invoices with `status: "pending"`. Non-negative integer. |
+| `address` | `string` | Agent on-chain address on the primary chain. Format depends on chain (EVM `0x...`, Stellar `G...`). |
+| `metaAddress` | `string` | Stealth meta-address on the primary chain. Example: `"st:eth:0x..."` or `"st:xlm:..."`. |
+| `chain` | [`Chain`](/api-reference/types#chain) | Primary chain identifier for this status snapshot. Example: `"horizen"`. |
+
 ### Export Private Key
 
 ```
@@ -123,22 +153,37 @@ POST /agent/:id/export
 
 Export the agent's private key. Requires a fresh wallet signature.
 
-**Request:**
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
+**Request body:**
 
 ```typescript
 {
-  signature: string;     // fresh signature from owner wallet
-  message: string;       // signed message
+  signature: string;
+  message: string;
 }
 ```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `signature` | `string` | Yes | Fresh wallet signature from the owner over `message`. Same format rules as create `signature`. |
+| `message` | `string` | Yes | Exact signed UTF-8 string. Must include the agent ID so the server can bind the request. Example: `"Export private key for agent 550e8400-e29b-41d4-a716-446655440000"`. |
 
 **Response:**
 
 ```typescript
 {
-  secret: string;        // "0x..." — the agent's private key
+  secret: string;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `secret` | `string` | Agent private key for the primary chain. EVM: 32-byte hex (`0x...`). Stellar: 32-byte seed hex. |
 
 ---
 
@@ -152,32 +197,27 @@ POST /agent/:id/chat
 
 Send a natural language message to the AI agent.
 
-**Request:**
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
+**Request body:**
 
 ```typescript no-check
 {
   message: string;
-  conversationId?: string;  // continue existing conversation
+  conversationId?: string;
 }
 ```
 
-**Response:**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `message` | `string` | Natural language input to the agent. Non-empty UTF-8 string. Example: `"send 0.1 ETH to bob.wraith"`. |
+| `conversationId` | `string` | No | UUID of an existing conversation to continue. Omit to start a new conversation. Example: `"660e8400-e29b-41d4-a716-446655440001"`. |
 
-```typescript no-check
-{
-  response: string;          // agent's text reply
-  toolCalls?: ToolCall[];    // tools the agent executed
-  conversationId: string;    // conversation ID for continuity
-}
-```
-
-```typescript
-interface ToolCall {
-  name: string;              // "send_payment", "scan_payments", etc.
-  status: string;            // "success" or "error"
-  detail?: string;           // JSON string with tool result
-}
-```
+**Response:** [`ChatResponse`](/api-reference/types#chatresponse)
 
 ---
 
@@ -189,16 +229,13 @@ interface ToolCall {
 GET /agent/:id/conversations
 ```
 
-**Response:** `Conversation[]`
+**Path parameters:**
 
-```typescript
-interface Conversation {
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-}
-```
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
+**Response:** [`Conversation[]`](/api-reference/types#conversation)
 
 ### Create Conversation
 
@@ -206,13 +243,26 @@ interface Conversation {
 POST /agent/:id/conversations
 ```
 
-**Response:** `Conversation`
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
+**Response:** [`Conversation`](/api-reference/types#conversation)
 
 ### Get Messages
 
 ```
 GET /agent/:id/conversations/:convId/messages
 ```
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+| `convId` | `string` | Conversation UUID. |
 
 **Response:**
 
@@ -224,11 +274,26 @@ Array<{
 }>
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `role` | `"user" \| "agent" \| "tool" \| "system"` | Message author role. `user` = client input; `agent` = model reply; `tool` = tool execution output; `system` = internal prompt context. |
+| `text` | `string` | Message body as UTF-8 text. |
+| `createdAt` | `string` | ISO 8601 timestamp when the message was stored. Example: `"2026-06-28T12:00:00.000Z"`. |
+
 ### Delete Conversation
 
 ```
 DELETE /agent/:id/conversations/:convId
 ```
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+| `convId` | `string` | Conversation UUID to delete along with its messages. |
+
+**Response:** `204 No Content` on success.
 
 ---
 
@@ -240,21 +305,13 @@ DELETE /agent/:id/conversations/:convId
 GET /invoice/:id
 ```
 
-**Response:**
+**Path parameters:**
 
-```typescript
-{
-  id: string;
-  agentName: string;
-  amount: string;
-  asset: string;
-  memo: string;
-  status: "pending" | "paid";
-  txHash: string | null;
-  paymentLink: string;
-  createdAt: string;
-}
-```
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Invoice UUID. |
+
+**Response:** [`Invoice`](/api-reference/types#invoice)
 
 ### Mark Invoice Paid
 
@@ -262,7 +319,15 @@ GET /invoice/:id
 POST /invoice/:id/paid
 ```
 
-Idempotent — calling multiple times doesn't create duplicate notifications.
+Mark an invoice as paid after an on-chain payment is detected. Idempotent — repeated calls do not create duplicate notifications.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Invoice UUID. |
+
+**Response:** [`Invoice`](/api-reference/types#invoice) with `status: "paid"`.
 
 ---
 
@@ -274,6 +339,12 @@ Idempotent — calling multiple times doesn't create duplicate notifications.
 GET /agent/:id/notifications
 ```
 
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
 **Response:**
 
 ```typescript no-check
@@ -283,16 +354,10 @@ GET /agent/:id/notifications
 }
 ```
 
-```typescript
-interface Notification {
-  id: number;
-  type: string;
-  title: string;
-  body: string;
-  read: boolean;
-  createdAt: string;
-}
-```
+| Field | Type | Description |
+|---|---|---|
+| `notifications` | [`Notification[]`](/api-reference/types#notification) | Notifications for the agent, newest first. |
+| `unreadCount` | `number` | Count of notifications where `read` is `false`. Non-negative integer. |
 
 ### Mark All Read
 
@@ -300,11 +365,31 @@ interface Notification {
 POST /agent/:id/notifications/read
 ```
 
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
+Sets `read: true` on all notifications for the agent.
+
+**Response:** `200 OK` with empty body.
+
 ### Clear All
 
 ```
 DELETE /agent/:id/notifications
 ```
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID. |
+
+Deletes all notifications for the agent.
+
+**Response:** `204 No Content` on success.
 
 ---
 
@@ -324,6 +409,10 @@ GET /health
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `status` | `"ok"` | Server liveness indicator. Always `"ok"` when the process is running. |
+
 ### TEE Info
 
 ```
@@ -332,6 +421,20 @@ GET /tee/info
 
 Returns TEE environment information.
 
+**Response:**
+
+```typescript
+{
+  provider: string;
+  environment: string;
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `provider` | `string` | TEE hosting provider identifier. Example: `"phala"`. |
+| `environment` | `string` | Runtime environment label reported by the enclave. Example: `"tdx"`. |
+
 ### Remote Attestation
 
 ```
@@ -339,6 +442,28 @@ GET /tee/attest/:agentId
 ```
 
 Returns cryptographic proof that the TEE is running authentic code and the agent's keys were derived correctly.
+
+**Path parameters:**
+
+| Parameter | Type | Description |
+|---|---|---|
+| `agentId` | `string` | Agent UUID whose key derivation path is included in the attestation quote. |
+
+**Response:**
+
+```typescript
+{
+  quote: string;
+  agentId: string;
+  chain: string;
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `quote` | `string` | Base64-encoded remote attestation quote from the TEE hardware. |
+| `agentId` | `string` | Agent UUID bound to this attestation. |
+| `chain` | [`Chain`](/api-reference/types#chain) | Chain identifier used in the key derivation path (`wraith/agent/{agentId}/{chain}`). |
 
 ---
 
@@ -352,6 +477,11 @@ All errors return JSON with a `message` field:
   statusCode: number;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `message` | `string` | Human-readable error description. |
+| `statusCode` | `number` | HTTP status code echoed in the response body. Matches the response status line. |
 
 | Status Code | Meaning |
 |---|---|

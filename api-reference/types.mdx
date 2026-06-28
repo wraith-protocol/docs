@@ -29,6 +29,8 @@ import type {
 
 ### `Chain`
 
+Supported chain identifiers. Use the enum instead of raw strings.
+
 ```typescript
 enum Chain {
   Horizen = "horizen",
@@ -42,7 +44,20 @@ enum Chain {
 }
 ```
 
+| Value | Description |
+|---|---|
+| `Chain.Horizen` | Horizen EVM testnet/mainnet. Native asset: ETH/ZEN depending on deployment. |
+| `Chain.Ethereum` | Ethereum mainnet or configured EVM network with `chainId: 1`. |
+| `Chain.Polygon` | Polygon PoS network. |
+| `Chain.Base` | Base L2 network. |
+| `Chain.Stellar` | Stellar network (classic + Soroban). Addresses use `G...` StrKey format. |
+| `Chain.Solana` | Solana cluster (devnet/testnet/mainnet-beta). Addresses use base58 public keys. |
+| `Chain.CKB` | Nervos CKB network. Uses Cell-based UTXO model. |
+| `Chain.All` | Expand to every chain the platform currently supports at agent creation. |
+
 ### `WraithConfig`
+
+Configuration for the [`Wraith`](/sdk/agent-client) client constructor.
 
 ```typescript
 interface WraithConfig {
@@ -55,7 +70,17 @@ interface WraithConfig {
 }
 ```
 
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `apiKey` | `string` | Yes | Wraith platform API key. Format: `wraith_live_<id>`. Example: `"wraith_live_abc123"`. |
+| `baseUrl` | `string` | No | Override the REST API base URL. Default: `https://api.wraith.dev`. |
+| `ai` | `object` | No | Bring-your-own-model configuration. When omitted, the platform uses hosted Gemini. |
+| `ai.provider` | `"gemini" \| "openai" \| "claude"` | No | AI provider identifier. Must match the key in `ai.apiKey`. |
+| `ai.apiKey` | `string` | No | API key for the selected AI provider. Example: `"sk-..."` for OpenAI. |
+
 ### `AgentConfig`
+
+Input to `wraith.createAgent()`.
 
 ```typescript
 interface AgentConfig {
@@ -67,7 +92,17 @@ interface AgentConfig {
 }
 ```
 
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | `string` | Yes | Local part of the `.wraith` name. Constraints: 3–32 characters; lowercase alphanumeric and hyphens only; no leading or trailing hyphens. Example: `"alice"`. |
+| `chain` | [`Chain`](/api-reference/types#chain) \| [`Chain[]`](/api-reference/types#chain) | Yes | One chain, multiple chains, or `Chain.All`. Example: `Chain.Horizen` or `[Chain.Horizen, Chain.Stellar]`. |
+| `wallet` | `string` | Yes | Owner wallet address. EVM: `0x`-prefixed. Stellar: `G...` StrKey. |
+| `signature` | `string` | Yes | Wallet signature over `message`. EVM: EIP-191 hex. Stellar: ed25519 hex. |
+| `message` | `string` | No | Signed UTF-8 string used for ownership verification. Example: `"Sign to create Wraith agent"`. |
+
 ### `AgentInfo`
+
+Agent identity returned by create and lookup endpoints.
 
 ```typescript
 interface AgentInfo {
@@ -79,7 +114,17 @@ interface AgentInfo {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Agent UUID assigned at creation. Example: `"550e8400-e29b-41d4-a716-446655440000"`. |
+| `name` | `string` | Local part of the registered `.wraith` name (without suffix). Example: `"alice"`. |
+| `chains` | [`Chain[]`](/api-reference/types#chain) | Chains the agent is deployed on. Order matches creation request. |
+| `addresses` | `Record<Chain, string>` | Per-chain agent on-chain address. Keys are [`Chain`](/api-reference/types#chain) values. |
+| `metaAddresses` | `Record<Chain, string>` | Per-chain stealth meta-address for receiving payments. Example value: `"st:eth:0x..."`. |
+
 ### `ChatResponse`
+
+Return type of `agent.chat()` and `POST /agent/:id/chat`.
 
 ```typescript
 interface ChatResponse {
@@ -89,7 +134,15 @@ interface ChatResponse {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `response` | `string` | Agent's natural language reply to the user message. |
+| `toolCalls` | [`ToolCall[]`](/api-reference/types#toolcall) | Tools executed during this turn. Omitted when no tools ran. |
+| `conversationId` | `string` | Conversation UUID to pass on follow-up messages. Example: `"660e8400-e29b-41d4-a716-446655440001"`. |
+
 ### `ToolCall`
+
+Record of a single AI tool invocation.
 
 ```typescript
 interface ToolCall {
@@ -99,7 +152,15 @@ interface ToolCall {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Tool identifier. One of: `send_payment`, `pay_agent`, `scan_payments`, `get_balance`, `create_invoice`, `check_invoices`, `withdraw`, `withdraw_all`, `schedule_payment`, `list_schedules`, `cancel_schedule`, `resolve_name`, `register_name`, `get_agent_info`, `fund_wallet`, `privacy_check`. |
+| `status` | `"success" \| "error"` | Execution outcome for this tool call. |
+| `detail` | `string` | JSON-encoded tool result or error payload. Omitted when the tool returns no structured data. |
+
 ### `Balance`
+
+Return type of `agent.getBalance()`.
 
 ```typescript
 interface Balance {
@@ -108,7 +169,14 @@ interface Balance {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `native` | `string` | Native asset balance as a decimal string. Example: `"1.5"`. |
+| `tokens` | `Record<string, string>` | Token symbol to balance map. Values are decimal strings. Example: `{ "USDC": "50.0" }`. |
+
 ### `Payment`
+
+Detected incoming stealth payment from `agent.scanPayments()`.
 
 ```typescript
 interface Payment {
@@ -118,7 +186,15 @@ interface Payment {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `stealthAddress` | `string` | One-time address that received the payment. EVM: `0x...`. Stellar: `G...`. |
+| `balance` | `string` | Current balance on the stealth address as a decimal string. |
+| `ephemeralPubKey` | `string` | Ephemeral public key from the announcement. EVM: 33-byte compressed hex. Stellar: 32-byte hex. |
+
 ### `Invoice`
+
+Payment request created by the agent.
 
 ```typescript
 interface Invoice {
@@ -134,7 +210,21 @@ interface Invoice {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Invoice UUID. Example: `"770e8400-e29b-41d4-a716-446655440002"`. |
+| `agentName` | `string` | Local part of the payee's `.wraith` name. Example: `"alice"`. |
+| `amount` | `string` | Requested payment amount as a decimal string. Example: `"1.0"`. |
+| `asset` | `string` | Asset symbol on the invoice chain. Example: `"ETH"`, `"USDC"`, `"XLM"`. |
+| `memo` | `string` | Human-readable invoice description shown to the payer. |
+| `status` | `"pending" \| "paid"` | Payment state. `txHash` is non-null when `status` is `"paid"`. |
+| `txHash` | `string \| null` | On-chain transaction hash after payment. `null` while `status` is `"pending"`. |
+| `paymentLink` | `string` | Shareable HTTPS URL for the payer. Example: `"https://pay.wraith.dev/invoice/770e8400-..."`. |
+| `createdAt` | `string` | ISO 8601 creation timestamp. |
+
 ### `Schedule`
+
+Recurring stealth payment created by the agent.
 
 ```typescript
 interface Schedule {
@@ -148,7 +238,19 @@ interface Schedule {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Schedule UUID. |
+| `recipient` | `string` | Payee `.wraith` name (local part) or stealth meta-address. Example: `"bob"` or `"st:eth:0x..."`. |
+| `amount` | `string` | Payment amount per run as a decimal string. Example: `"0.1"`. |
+| `asset` | `string` | Asset symbol for each scheduled payment. Example: `"ETH"`. |
+| `interval` | `"daily" \| "weekly" \| "monthly"` | Recurrence cadence. |
+| `status` | `"active" \| "paused" \| "cancelled"` | Schedule lifecycle state. Only `"active"` schedules execute on `nextRun`. |
+| `nextRun` | `string` | ISO 8601 timestamp of the next scheduled execution. |
+
 ### `TxResult`
+
+On-chain transaction result from payment, withdraw, and name operations.
 
 ```typescript
 interface TxResult {
@@ -157,7 +259,14 @@ interface TxResult {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `txHash` | `string` | Transaction hash or signature on the target chain. EVM: `0x...` hex. Solana: base58 signature. |
+| `txLink` | `string` | Block explorer URL for `txHash`. |
+
 ### `PrivacyReport`
+
+Output of the `privacy_check` agent tool.
 
 ```typescript
 interface PrivacyReport {
@@ -171,7 +280,18 @@ interface PrivacyReport {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `score` | `number` | Privacy score from 0 to 100. Starts at 100; deductions apply per detected issue. |
+| `issues` | `array` | Detected privacy risks. Empty when no issues are found. |
+| `issues[].severity` | `"info" \| "low" \| "medium" \| "high" \| "critical"` | Impact level of the issue. |
+| `issues[].issue` | `string` | Short description of the detected pattern. |
+| `issues[].recommendation` | `string` | Suggested action to reduce the risk. |
+| `bestPractices` | `string[]` | General privacy guidelines relevant to the agent's activity. |
+
 ### `Notification`
+
+In-app notification for an agent.
 
 ```typescript
 interface Notification {
@@ -184,7 +304,18 @@ interface Notification {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `id` | `number` | Auto-increment notification ID. |
+| `type` | `string` | Event category identifier. Example: `"invoice_paid"`. |
+| `title` | `string` | Short notification headline. |
+| `body` | `string` | Notification detail text. |
+| `read` | `boolean` | Whether the notification has been marked read. |
+| `createdAt` | `string` | ISO 8601 timestamp when the notification was created. |
+
 ### `Conversation`
+
+Chat thread between a user and an agent.
 
 ```typescript
 interface Conversation {
@@ -194,6 +325,13 @@ interface Conversation {
   updatedAt: string;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `string` | Conversation UUID. |
+| `title` | `string` | Display title, typically derived from the first user message. |
+| `createdAt` | `string` | ISO 8601 creation timestamp. |
+| `updatedAt` | `string` | ISO 8601 timestamp of the most recent message. |
 
 ---
 
@@ -218,37 +356,67 @@ import type {
 type HexString = `0x${string}`;
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| — | `` `0x${string}` `` | Lowercase hex string with `0x` prefix. Used for addresses, keys, and calldata on EVM chains. Example: `"0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb"`. |
+
 ### `StealthKeys`
+
+Full spending and viewing key material for EVM stealth addresses.
 
 ```typescript
 interface StealthKeys {
-  spendingKey: HexString;      // 32-byte private key
-  viewingKey: HexString;       // 32-byte private key
-  spendingPubKey: HexString;   // 33-byte compressed public key
-  viewingPubKey: HexString;    // 33-byte compressed public key
+  spendingKey: HexString;
+  viewingKey: HexString;
+  spendingPubKey: HexString;
+  viewingPubKey: HexString;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `spendingKey` | [`HexString`](/api-reference/types#hexstring) | 32-byte secp256k1 private key. Example: `"0x..."` (64 hex chars after prefix). |
+| `viewingKey` | [`HexString`](/api-reference/types#hexstring) | 32-byte secp256k1 private key for scanning. Never equals `spendingKey`. |
+| `spendingPubKey` | [`HexString`](/api-reference/types#hexstring) | 33-byte compressed secp256k1 public key (`0x02` or `0x03` prefix). |
+| `viewingPubKey` | [`HexString`](/api-reference/types#hexstring) | 33-byte compressed secp256k1 public key for the viewing key. |
 
 ### `StealthMetaAddress`
 
+Public meta-address broadcast to senders.
+
 ```typescript
 interface StealthMetaAddress {
-  spendingPubKey: HexString;   // 33-byte compressed public key
-  viewingPubKey: HexString;    // 33-byte compressed public key
+  spendingPubKey: HexString;
+  viewingPubKey: HexString;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `spendingPubKey` | [`HexString`](/api-reference/types#hexstring) | Recipient spending public key embedded in the meta-address. |
+| `viewingPubKey` | [`HexString`](/api-reference/types#hexstring) | Recipient viewing public key for ECDH during stealth address generation. |
 
 ### `GeneratedStealthAddress`
 
+One-time stealth address derived for a single payment.
+
 ```typescript
 interface GeneratedStealthAddress {
-  stealthAddress: HexString;   // 20-byte EVM address
-  ephemeralPubKey: HexString;  // 33-byte compressed public key
-  viewTag: number;             // 0-255
+  stealthAddress: HexString;
+  ephemeralPubKey: HexString;
+  viewTag: number;
 }
 ```
 
-### `Announcement`
+| Field | Type | Description |
+|---|---|---|
+| `stealthAddress` | [`HexString`](/api-reference/types#hexstring) | 20-byte EVM address (`0x` + 40 hex chars). |
+| `ephemeralPubKey` | [`HexString`](/api-reference/types#hexstring) | 33-byte compressed ephemeral public key included in the announcement. |
+| `viewTag` | `number` | 1-byte filter tag derived from the shared secret. Range: 0–255. |
+
+### `Announcement` (EVM)
+
+On-chain stealth payment announcement (ERC-5564).
 
 ```typescript
 interface Announcement {
@@ -256,17 +424,32 @@ interface Announcement {
   stealthAddress: HexString;
   caller: HexString;
   ephemeralPubKey: HexString;
-  metadata: HexString;         // first byte is view tag
+  metadata: HexString;
 }
 ```
 
-### `MatchedAnnouncement`
+| Field | Type | Description |
+|---|---|---|
+| `schemeId` | `bigint` | Stealth address scheme identifier. Wraith EVM uses `1n`. |
+| `stealthAddress` | [`HexString`](/api-reference/types#hexstring) | Target one-time address for the payment. |
+| `caller` | [`HexString`](/api-reference/types#hexstring) | Sender's on-chain address that emitted the announcement. |
+| `ephemeralPubKey` | [`HexString`](/api-reference/types#hexstring) | Ephemeral public key used in ECDH with the recipient viewing key. |
+| `metadata` | [`HexString`](/api-reference/types#hexstring) | Opaque metadata bytes. First byte is the view tag (0–255). |
+
+### `MatchedAnnouncement` (EVM)
+
+Announcement that belongs to the recipient's viewing key.
 
 ```typescript
 interface MatchedAnnouncement extends Announcement {
   stealthPrivateKey: HexString;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| *(inherits [`Announcement` (EVM)](/api-reference/types#announcement-evm))* | | All announcement fields. |
+| `stealthPrivateKey` | [`HexString`](/api-reference/types#hexstring) | Private key that controls `stealthAddress`. Derived from viewing key + ephemeral key. |
 
 ---
 
@@ -289,42 +472,83 @@ import type {
 } from "@wraith-protocol/sdk/chains/stellar";
 ```
 
-### `StealthKeys`
+### `StealthKeys` (Stellar)
+
+Full spending and viewing key material for Stellar stealth addresses.
 
 ```typescript
 interface StealthKeys {
-  spendingKey: Uint8Array;       // 32-byte seed
-  spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
-  viewingKey: Uint8Array;        // 32-byte seed
-  viewingScalar: bigint;         // clamped scalar
-  spendingPubKey: Uint8Array;    // 32-byte ed25519 public key
-  viewingPubKey: Uint8Array;     // 32-byte ed25519 public key
+  spendingKey: Uint8Array;
+  spendingScalar: bigint;
+  viewingKey: Uint8Array;
+  viewingScalar: bigint;
+  spendingPubKey: Uint8Array;
+  viewingPubKey: Uint8Array;
 }
 ```
 
-### `GeneratedStealthAddress`
+| Field | Type | Description |
+|---|---|---|
+| `spendingKey` | `Uint8Array` | 32-byte ed25519 seed for the spending key. |
+| `spendingScalar` | `bigint` | Clamped scalar derived from `SHA-512(spendingKey)`. Used for signing. |
+| `viewingKey` | `Uint8Array` | 32-byte ed25519 seed for the viewing key. |
+| `viewingScalar` | `bigint` | Clamped scalar derived from `SHA-512(viewingKey)`. |
+| `spendingPubKey` | `Uint8Array` | 32-byte ed25519 public key for the spending key. |
+| `viewingPubKey` | `Uint8Array` | 32-byte ed25519 public key for the viewing key. |
+
+### `StealthMetaAddress` (Stellar)
+
+```typescript
+interface StealthMetaAddress {
+  spendingPubKey: Uint8Array;
+  viewingPubKey: Uint8Array;
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `spendingPubKey` | `Uint8Array` | 32-byte ed25519 spending public key. |
+| `viewingPubKey` | `Uint8Array` | 32-byte ed25519 viewing public key. |
+
+### `GeneratedStealthAddress` (Stellar)
 
 ```typescript
 interface GeneratedStealthAddress {
-  stealthAddress: string;        // Stellar G... address
-  ephemeralPubKey: Uint8Array;   // 32-byte ed25519 public key
-  viewTag: number;               // 0-255
+  stealthAddress: string;
+  ephemeralPubKey: Uint8Array;
+  viewTag: number;
 }
 ```
 
-### `Announcement`
+| Field | Type | Description |
+|---|---|---|
+| `stealthAddress` | `string` | Stellar StrKey address (`G...`, 56 characters). |
+| `ephemeralPubKey` | `Uint8Array` | 32-byte ed25519 ephemeral public key for the announcement. |
+| `viewTag` | `number` | 1-byte filter tag. Range: 0–255. |
+
+### `Announcement` (Stellar)
+
+Soroban-emitted stealth payment announcement.
 
 ```typescript
 interface Announcement {
   schemeId: number;
-  stealthAddress: string;        // G... address
-  caller: string;                // G... address
-  ephemeralPubKey: string;       // hex-encoded 32 bytes
-  metadata: string;              // hex-encoded, first byte = view tag
+  stealthAddress: string;
+  caller: string;
+  ephemeralPubKey: string;
+  metadata: string;
 }
 ```
 
-### `MatchedAnnouncement`
+| Field | Type | Description |
+|---|---|---|
+| `schemeId` | `number` | Stealth address scheme identifier. Wraith Stellar uses `1`. |
+| `stealthAddress` | `string` | Target `G...` address for the payment. |
+| `caller` | `string` | Sender's `G...` address that emitted the announcement. |
+| `ephemeralPubKey` | `string` | Hex-encoded 32-byte ephemeral public key. |
+| `metadata` | `string` | Hex-encoded metadata. First byte is the view tag (0–255). |
+
+### `MatchedAnnouncement` (Stellar)
 
 ```typescript
 interface MatchedAnnouncement extends Announcement {
@@ -332,6 +556,12 @@ interface MatchedAnnouncement extends Announcement {
   stealthPubKeyBytes: Uint8Array;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| *(inherits Stellar [`Announcement`](/api-reference/types#announcement-stellar))* | | All announcement fields. |
+| `stealthPrivateScalar` | `bigint` | Scalar that controls the stealth account. Used with `signWithScalar()`. |
+| `stealthPubKeyBytes` | `Uint8Array` | 32-byte ed25519 public key bytes for the stealth address. |
 
 ---
 
@@ -411,7 +641,7 @@ Internal types used by the TEE server. Documented here for developers building c
 interface ChainConnector {
   readonly chain: string;
   readonly nativeAsset: string;
-  readonly addressFormat: "evm" | "stellar" | "solana";
+  readonly addressFormat: "evm" | "stellar" | "solana" | "ckb";
 
   deriveKeys(seed: Uint8Array): Promise<DerivedKeys>;
   sendPayment(params: SendPaymentParams): Promise<TxResult>;
@@ -426,6 +656,22 @@ interface ChainConnector {
 }
 ```
 
+| Member | Type | Description |
+|---|---|---|
+| `chain` | [`Chain`](/api-reference/types#chain) | Chain identifier this connector handles. Example: `"horizen"`. |
+| `nativeAsset` | `string` | Symbol of the chain's native asset. Example: `"ETH"`, `"XLM"`, `"SOL"`. |
+| `addressFormat` | `"evm" \| "stellar" \| "solana" \| "ckb"` | Address encoding used by this connector. |
+| `deriveKeys` | `function` | Derive agent address, stealth keys, and meta-address. `seed`: 32-byte TEE seed (`Uint8Array`). |
+| `sendPayment` | `function` | Send a stealth payment. Params: [`SendPaymentParams`](/api-reference/types#sendpaymentparams). |
+| `scanPayments` | `function` | Scan chain data for announcements matching `stealthKeys`. Returns [`DetectedPayment[]`](/api-reference/types#detectedpayment). |
+| `getBalance` | `function` | Fetch native and token balances for `address`. Returns [`ChainBalance`](/api-reference/types#chainbalance). |
+| `withdraw` | `function` | Withdraw funds from one stealth address. Params: [`WithdrawParams`](/api-reference/types#withdrawparams). |
+| `withdrawAll` | `function` | Withdraw from every detected stealth address. Params: [`WithdrawAllParams`](/api-reference/types#withdrawallparams). Returns [`WithdrawAllResult`](/api-reference/types#withdrawallresult). |
+| `registerName` | `function` | Register `name` on-chain with the connector's name registry contract. `name`: 3–32 characters; lowercase alphanumeric and hyphens only. |
+| `resolveName` | `function` | Resolve `name` to a meta-address, or return `null` if unregistered. `name`: local part of a `.wraith` name. |
+| `fundWallet` | `function` | Request testnet funds for `address` from a faucet. `address`: agent on-chain address in the connector's format. |
+| `getExplorerUrl` | `function` | Build a block explorer URL. `type`: `"tx"` or `"address"`. `value`: transaction hash or address string. |
+
 ### `DerivedKeys`
 
 ```typescript
@@ -436,6 +682,76 @@ interface DerivedKeys {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `address` | `string` | Agent's on-chain address on this chain. Format matches `addressFormat`. |
+| `stealthKeys` | [`ChainStealthKeys`](/api-reference/types#chainstealthkeys) | Chain-specific stealth key material for this agent. |
+| `metaAddress` | `string` | Encoded stealth meta-address. Example: `"st:eth:0x..."` or `"st:xlm:..."`. |
+
+### `ChainStealthKeys`
+
+```typescript
+interface ChainStealthKeys {
+  [key: string]: unknown;
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `[key: string]` | `unknown` | Opaque key bag defined by each connector. EVM stores [`StealthKeys`](/api-reference/types#stealthkeys); Stellar stores [`StealthKeys` (Stellar)](/api-reference/types#stealthkeys-stellar). |
+
+### `SendPaymentParams`
+
+```typescript
+interface SendPaymentParams {
+  senderAddress: string;
+  senderStealthKeys: ChainStealthKeys;
+  recipientMetaAddress: string;
+  amount: string;
+  asset?: string;
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `senderAddress` | `string` | Yes | Agent address that sends the payment. |
+| `senderStealthKeys` | [`ChainStealthKeys`](/api-reference/types#chainstealthkeys) | Yes | Sender stealth keys for announcement signing. |
+| `recipientMetaAddress` | `string` | Yes | Encoded recipient meta-address or resolved `.wraith` name target. Example: `"st:eth:0x..."`. |
+| `amount` | `string` | Yes | Payment amount as a decimal string. Example: `"0.1"`. |
+| `asset` | `string` | No | Token symbol. Omit for native asset. Example: `"USDC"`. |
+
+### `WithdrawParams`
+
+```typescript
+interface WithdrawParams {
+  stealthKeys: ChainStealthKeys;
+  from: string;
+  to: string;
+  amount?: string;
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `stealthKeys` | [`ChainStealthKeys`](/api-reference/types#chainstealthkeys) | Yes | Viewing/spending keys used to derive the stealth private key for `from`. |
+| `from` | `string` | Yes | Stealth address to withdraw from. |
+| `to` | `string` | Yes | Destination address for withdrawn funds. |
+| `amount` | `string` | No | Amount to withdraw as a decimal string. Omit to withdraw the maximum available balance minus fees. |
+
+### `WithdrawAllParams`
+
+```typescript
+interface WithdrawAllParams {
+  stealthKeys: ChainStealthKeys;
+  to: string;
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `stealthKeys` | [`ChainStealthKeys`](/api-reference/types#chainstealthkeys) | Yes | Keys used to scan and sign withdrawals from all matched stealth addresses. |
+| `to` | `string` | Yes | Single destination address that receives all withdrawn funds. |
+
 ### `ChainBalance`
 
 ```typescript
@@ -444,6 +760,11 @@ interface ChainBalance {
   tokens: Record<string, string>;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `native` | `string` | Native asset balance as a decimal string. |
+| `tokens` | `Record<string, string>` | Token symbol to balance map. Values are decimal strings. |
 
 ### `DetectedPayment`
 
@@ -455,6 +776,12 @@ interface DetectedPayment {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `stealthAddress` | `string` | Stealth address with a non-zero balance. |
+| `balance` | `string` | Current balance as a decimal string. |
+| `ephemeralPubKey` | `string` | Ephemeral public key from the matching announcement. |
+
 ### `WithdrawAllResult`
 
 ```typescript
@@ -465,6 +792,16 @@ interface WithdrawAllResult {
 }
 ```
 
+| Field | Type | Description |
+|---|---|---|
+| `results` | `array` | Per-address withdrawal outcome. Each entry includes `address` plus either [`TxResult`](/api-reference/types#txresult) fields or `{ error: string }`. |
+| `results[].address` | `string` | Stealth address that was processed. |
+| `results[].txHash` | `string` | Present on successful withdrawals. Transaction hash on chain. |
+| `results[].txLink` | `string` | Present on successful withdrawals. Explorer URL for `txHash`. |
+| `results[].error` | `string` | Present on failed withdrawals. Error message for that address. |
+| `count` | `number` | Number of stealth addresses processed. |
+| `totalWithdrawn` | `string` | Sum of successfully withdrawn amounts as a decimal string. |
+
 ### `ResolvedName`
 
 ```typescript
@@ -474,3 +811,9 @@ interface ResolvedName {
   address?: string;
 }
 ```
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | `string` | Local part of the resolved `.wraith` name. Example: `"alice"`. |
+| `metaAddress` | `string` | On-chain stealth meta-address registered for the name. |
+| `address` | `string` | Optional owner or registry address, when exposed by the chain's name contract. |
