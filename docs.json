@@ -12,6 +12,22 @@
     "light": "#e6e1e5",
     "dark": "#767575"
   },
+  "search": {
+    "analytics": true,
+    "synonyms": [
+      ["stealth", "unlinkable"],
+      ["meta-address", "metaaddress", "meta address"],
+      ["Soroban", "Stellar smart contract"],
+      ["friendbot", "testnet faucet"],
+      ["XLM", "lumen"],
+      ["Freighter", "Stellar wallet"]
+    ],
+    "boosts": [
+      { "page": "getting-started", "weight": 3 },
+      { "group": "Guides", "weight": 2 },
+      { "group": "API Reference", "weight": 1 }
+    ]
+  },
   "font": {
     "headings": {
       "family": "Space Grotesk",

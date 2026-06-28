@@ -1,6 +1,7 @@
 ---
 title: "Stellar Transaction Simulation"
 description: "Use Soroban simulateTransaction for safe pre-flight checks before signing and submitting stealth payment transactions"
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, path payment, meta-address"
 ---
 
 `simulateTransaction` is a Soroban RPC method that runs a transaction against the current ledger state without submitting it. It returns resource estimates, output previews, and — critically — decoded contract errors before any fees are spent or signatures collected. For stealth payment flows, simulation should be run on every contract call before signing.
