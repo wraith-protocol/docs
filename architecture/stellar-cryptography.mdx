@@ -43,6 +43,8 @@ view_tag = SHA-256("wraith:stellar:view-tag:v2:" || R_ephemeral || V_recipient)[
 - **Performance impact**: This creates a cheap public prefilter before the X25519 shared secret computation (`scan.ts:12`).
 - **False-positive rate**: A 1-byte tag produces a false-positive rate of `1/256` (~0.39%). For non-matching announcements, the protocol skips the expensive elliptic curve operations 99.61% of the time.
 
+![View Tag Scan](/assets/diagrams/stellar/view-tag-scan-stellar.svg)
+
 ```mermaid
 sequenceDiagram
     participant Network
@@ -83,16 +85,14 @@ To accept stealth payments, users publish a single "meta-address" that encapsula
 
 ## Key Derivation Overview
 
-```mermaid
-flowchart TD
-    S(Sender) -->|Generates| r(Ephemeral Private Key 'r')
-    r --> R(Ephemeral Public Key 'R')
-    S --> |Recipient's| V(Viewing Public Key 'V')
-    S --> |Recipient's| K(Spending Public Key 'K')
-    r & V --> X25519(X25519 ECDH)
-    X25519 --> SS(Shared Secret)
-    R & V --> VT(View Tag)
-    SS --> |Hash mod L| HS(Hash Scalar)
-    HS & K --> |Point Addition| SP(Stealth Public Key)
-    SP --> |StrKey Encoding| SA(Stellar Address 'G...')
-```
+![Stellar Key Derivation](/assets/diagrams/stellar/key-derivation-stellar.svg)
+
+### Stealth Payment Flow
+
+![Stellar Stealth Flow](/assets/diagrams/stellar/stealth-flow-stellar.svg)
+
+### Gas-Sponsored Withdrawals
+
+Stealth accounts often lack XLM for transaction fees. A sponsor wraps the withdrawal transaction with a fee bump.
+
+![Fee Bump Withdrawal](/assets/diagrams/stellar/fee-bump-withdrawal-stellar.svg)

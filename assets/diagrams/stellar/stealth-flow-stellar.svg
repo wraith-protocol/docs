@@ -1,0 +1,52 @@
+<svg viewBox="0 0 780 160" xmlns="http://www.w3.org/2000/svg">
+  <rect width="780" height="160" fill="transparent" />
+
+  <defs>
+    <marker id="arr-s" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <!-- Sender -->
+  <rect x="4" y="30" width="100" height="56" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="54" y="54" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Sender</text>
+  <text x="54" y="72" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">resolve .wraith</text>
+
+  <line x1="104" y1="58" x2="148" y2="58" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-s)" />
+
+  <!-- ECDH -->
+  <rect x="152" y="30" width="110" height="56" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="207" y="54" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">X25519 ECDH</text>
+  <text x="207" y="72" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">shared secret</text>
+
+  <line x1="262" y1="58" x2="306" y2="58" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-s)" />
+
+  <!-- Stealth Address -->
+  <rect x="310" y="30" width="120" height="56" fill="#141414" stroke="#c6c6c7" stroke-width="1.5" />
+  <text x="370" y="54" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">Stealth</text>
+  <text x="370" y="72" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">G... address</text>
+
+  <line x1="430" y1="58" x2="474" y2="58" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-s)" />
+
+  <!-- Soroban Event -->
+  <rect x="478" y="30" width="120" height="56" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="538" y="54" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Soroban</text>
+  <text x="538" y="72" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="10">event + viewTag</text>
+
+  <line x1="598" y1="58" x2="642" y2="58" stroke="#767575" stroke-width="1.5" marker-end="url(#arr-s)" />
+
+  <!-- Scan -->
+  <rect x="646" y="30" width="100" height="56" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="696" y="54" text-anchor="middle" fill="#e6e1e5" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">Scan</text>
+  <text x="696" y="72" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">recipient detects</text>
+
+  <!-- Bottom labels -->
+  <text x="54" y="120" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">alice.wraith → st:xlm:</text>
+  <text x="207" y="120" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">edwardsToMontgomery</text>
+  <text x="370" y="120" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">StrKey encoded</text>
+  <text x="538" y="120" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">Soroban RPC announce</text>
+  <text x="696" y="120" text-anchor="middle" fill="#767575" font-family="JetBrains Mono, monospace" font-size="9">view tag filter</text>
+
+  <!-- Account creation note -->
+  <text x="370" y="148" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Stellar: createAccount + send (1 XLM min balance)</text>
+</svg>
