@@ -1,0 +1,121 @@
+---
+title: Stellar Block Explorer Integration
+description: How to link from your UI to a Stellar block explorer, with URL patterns, a TypeScript helper, and UX guidance.
+---
+
+import { Callout } from "@/components/callout";
+
+# Stellar Block Explorer Integration
+
+Integrators frequently want to link from their UI to a Stellar block explorer. The patterns are non-obvious — testnet vs public URL bases, account vs transaction vs contract deep links all differ.
+
+## URL Patterns on stellar.expert
+
+[stellar.expert](https://stellar.expert) is the most widely used Stellar block explorer. Its URL structure follows a consistent pattern:
+
+| Resource    | URL Pattern                                                               |
+|-------------|---------------------------------------------------------------------------|
+| Account     | `https://stellar.expert/explorer/{network}/account/{address}`             |
+| Transaction | `https://stellar.expert/explorer/{network}/tx/{hash}`                     |
+| Contract    | `https://stellar.expert/explorer/{network}/contract/{contractId}`         |
+| Asset       | `https://stellar.expert/explorer/{network}/asset/{code}-{issuer}`        |
+| Operation   | `https://stellar.expert/explorer/{network}/op/{operationId}`              |
+
+Where `{network}` is either `public` (Mainnet) or `testnet`.
+
+### Examples
+
+```text
+# Mainnet account
+https://stellar.expert/explorer/public/account/GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN
+
+# Testnet transaction
+https://stellar.expert/explorer/testnet/tx/3389e9f0f1a65f19736cacf544c2e825313e8447f569233bb8db39aa607c8889
+
+# Mainnet contract
+https://stellar.expert/explorer/public/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+
+# Mainnet asset (USDC)
+https://stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+```
+
+---
+
+## TypeScript Helper
+
+Copy this helper into your project to generate explorer URLs safely:
+
+```ts
+type ExplorerNetwork = "public" | "testnet";
+type ExplorerKind = "account" | "tx" | "contract" | "asset" | "op";
+
+const BASE = "https://stellar.expert/explorer";
+
+export function stellarExplorerUrl(
+  kind: ExplorerKind,
+  value: string,
+  network: ExplorerNetwork = "public"
+): string {
+  return `${BASE}/${network}/${kind}/${value}`;
+}
+```
+
+**Usage:**
+
+```ts
+stellarExplorerUrl("account", "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN");
+// → https://stellar.expert/explorer/public/account/GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN
+
+stellarExplorerUrl("tx", "3389e9f0f1a65f19736cacf544c2e825313e8447f569233bb8db39aa607c8889", "testnet");
+// → https://stellar.expert/explorer/testnet/tx/3389e9f0f1a65f19736cacf544c2e825313e8447f569233bb8db39aa607c8889
+
+stellarExplorerUrl("contract", "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA");
+// → https://stellar.expert/explorer/public/contract/CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA
+
+stellarExplorerUrl("asset", "USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN");
+// → https://stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+```
+
+---
+
+## UX Guidance
+
+When showing explorer links in your UI:
+
+- **Label links as** `"View on stellar.expert"` — this sets user expectations clearly.
+- **Always use** `rel="noopener noreferrer"` and `target="_blank"` on anchor tags so the explorer opens in a new tab without passing referrer info.
+
+```tsx
+<a
+  href={stellarExplorerUrl("account", address, network)}
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  View on stellar.expert
+</a>
+```
+
+---
+
+## Alternative Explorers
+
+You may also consider linking to these explorers:
+
+- **[stellarchain.io](https://stellarchain.io)** — alternative Stellar explorer with rich ledger analytics.
+- **[StellarBeat](https://stellarbeat.io)** — focused on network topology and validator node status.
+
+The `stellarExplorerUrl` helper above is written for stellar.expert; adjust the base URL if you target a different explorer.
+
+---
+
+## Stellar Stealth Addresses and Privacy
+
+<Callout type="info">
+  **Explorer transparency ≠ privacy break.**
+  Stellar does not have stealth addresses in the cryptographic sense. All
+  account addresses and transactions are publicly visible on-chain. Linking
+  to an explorer does not reveal any information that isn't already public —
+  it simply provides a convenient view of that public data.
+</Callout>
+
+If your application handles sensitive workflows, consider whether surfacing an explorer link is appropriate UX for your users, but know that the link itself does not create a privacy leak beyond what the ledger already exposes.
