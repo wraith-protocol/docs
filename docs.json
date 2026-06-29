@@ -140,12 +140,11 @@
           {
             "group": "Operations",
             "pages": [
-              "guides/stellar-mainnet-deployment",
-            "guides/stellar-multisig-withdrawal",
-            "guides/stellar-offline-signing",
-            "guides/stellar-tx-simulation",
-              "guides/stellar-explorer-recipes"
               "guides/stellar-multisig-withdrawal",
+              "guides/stellar-offline-signing",
+              "guides/stellar-tx-simulation",
+              "guides/stellar-explorer-recipes",
+              "guides/stellar-payment-links",
               "guides/privacy-best-practices",
               "guides/spectre-stellar-cookbook",
               "guides/stellar-federation",
