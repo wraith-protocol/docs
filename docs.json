@@ -76,11 +76,7 @@
         "groups": [
           {
             "group": "Overview",
-            "pages": [
-              "introduction",
-              "getting-started",
-              "roadmap"
-            ]
+            "pages": ["introduction", "getting-started", "roadmap"]
           },
           {
             "group": "Architecture",
@@ -93,13 +89,7 @@
           },
           {
             "group": "Contracts",
-            "pages": [
-              "contracts/evm",
-              "contracts/stellar",
-              "contracts/solana",
-              "contracts/ckb",
-              "reference/stellar-event-schemas"
-            ]
+            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas"]
           }
         ]
       },
@@ -108,19 +98,11 @@
         "groups": [
           {
             "group": "SDK",
-            "pages": [
-              "sdk/overview",
-              "sdk/agent-client"
-            ]
+            "pages": ["sdk/overview", "sdk/agent-client"]
           },
           {
             "group": "Chain Primitives",
-            "pages": [
-              "sdk/chains/evm",
-              "sdk/chains/stellar",
-              "sdk/chains/solana",
-              "sdk/chains/ckb"
-            ]
+            "pages": ["sdk/chains/evm", "sdk/chains/stellar", "sdk/chains/solana", "sdk/chains/ckb"]
           }
         ]
       },
@@ -134,12 +116,22 @@
               "guides/single-chain-agent",
               "guides/multichain-agent",
               "guides/bring-your-own-model",
-              "guides/privacy-best-practices"
+              "guides/privacy-best-practices",
+              "guides/stellar-wallet-integration"
             ]
           },
           {
             "group": "Operations",
             "pages": [
+              "guides/stellar-mainnet-deployment"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "guides/stellar-mainnet-deployment",
+              "guides/stellar-payment-links",
+            "guides/stellar-payment-links",
               "guides/stellar-multisig-withdrawal",
               "guides/stellar-offline-signing",
               "guides/stellar-tx-simulation",
@@ -159,10 +151,7 @@
         "groups": [
           {
             "group": "API Reference",
-            "pages": [
-              "api-reference/endpoints",
-              "api-reference/types"
-            ]
+            "pages": ["api-reference/endpoints", "api-reference/types"]
           }
         ]
       }
