@@ -1,0 +1,523 @@
+---
+title: "Stellar Payment Links"
+description: "Generate tamper-protected payment URLs, QR codes, and webhook receivers for Wraith stealth payments on Stellar"
+---
+
+Wraith payment links let you encode a stealth payment request as a URL. The recipient opens the link, their wallet pre-fills the destination, amount, and memo, and they send — without you ever sharing a reusable address. This guide covers the URL schema, optional signature for tamper protection, deep-link patterns, QR code generation, expiry handling, and webhook confirmation.
+
+---
+
+## URL Schema
+
+A Wraith payment link is a standard HTTPS URL with a structured query string:
+
+```
+https://your-domain/pay?to=alice.wraith&amount=10&asset=XLM&memo=INV-2024-001&exp=1735689600&sig=<base64>
+```
+
+### Parameters
+
+| Parameter | Required | Description |
+|---|---|---|
+| `to` | Yes | Recipient `.wraith` name or stealth meta-address (`st:xlm:...`) |
+| `amount` | Yes | Amount as a decimal string (e.g. `10`, `0.5`) |
+| `asset` | No | Asset code (default: `XLM`). Use `USDC:G...ISSUER` for non-native assets |
+| `memo` | No | Invoice ID, order reference, or freeform memo (max 28 bytes) |
+| `exp` | No | Unix timestamp (seconds) — link expires after this time |
+| `sig` | No | Base64url-encoded HMAC-SHA256 signature over the canonical payload |
+
+### Canonical payload for signing
+
+The signature covers a deterministic string of all parameters except `sig` itself, sorted alphabetically by key:
+
+```
+amount=10&asset=XLM&exp=1735689600&memo=INV-2024-001&to=alice.wraith
+```
+
+### Working example URL
+
+```
+https://pay.example.com/pay?to=alice.wraith&amount=10&asset=XLM&memo=INV-2024-001&exp=1735689600&sig=dGhpcyBpcyBhIHRlc3Q
+```
+
+---
+
+## Generating a Payment Link
+
+```typescript
+import crypto from "crypto";
+
+interface PaymentLinkParams {
+  to: string;          // .wraith name or st:xlm: meta-address
+  amount: string;      // decimal string
+  asset?: string;      // default "XLM"
+  memo?: string;       // invoice ID or freeform (max 28 bytes)
+  expiresAt?: Date;    // optional expiry
+  signingSecret?: string; // HMAC-SHA256 secret for tamper protection
+}
+
+interface PaymentLink {
+  url: string;
+  expiresAt?: Date;
+}
+
+function generatePaymentLink(
+  baseUrl: string,
+  params: PaymentLinkParams
+): PaymentLink {
+  const { to, amount, asset = "XLM", memo, expiresAt, signingSecret } = params;
+
+  // Build raw params object (no sig yet)
+  const raw: Record<string, string> = { to, amount, asset };
+  if (memo) raw.memo = memo;
+  if (expiresAt) raw.exp = String(Math.floor(expiresAt.getTime() / 1000));
+
+  // Canonical payload: keys sorted alphabetically, joined as query string
+  const canonical = Object.keys(raw)
+    .sort()
+    .map(k => `${k}=${encodeURIComponent(raw[k])}`)
+    .join("&");
+
+  // Append signature if a secret is provided
+  if (signingSecret) {
+    const sig = crypto
+      .createHmac("sha256", signingSecret)
+      .update(canonical)
+      .digest("base64url");
+    raw.sig = sig;
+  }
+
+  const qs = new URLSearchParams(raw).toString();
+  const url = `${baseUrl}/pay?${qs}`;
+
+  return { url, expiresAt };
+}
+
+// Example
+const link = generatePaymentLink("https://pay.example.com", {
+  to: "alice.wraith",
+  amount: "10",
+  asset: "XLM",
+  memo: "INV-2024-001",
+  expiresAt: new Date("2026-01-01T00:00:00Z"),
+  signingSecret: process.env.PAYMENT_LINK_SECRET!,
+});
+
+console.log(link.url);
+// https://pay.example.com/pay?to=alice.wraith&amount=10&asset=XLM&memo=INV-2024-001&exp=1767225600&sig=...
+```
+
+---
+
+## Optional Signature for Tamper Protection
+
+Without a signature, anyone can modify the URL (changing the amount or destination) before the payer opens it. Adding an HMAC-SHA256 signature lets your server reject tampered links.
+
+### Verifying a payment link on the server
+
+```typescript
+function verifyPaymentLink(
+  searchParams: URLSearchParams,
+  signingSecret: string
+): boolean {
+  const sig = searchParams.get("sig");
+  if (!sig) return false; // reject unsigned links if you require signatures
+
+  // Reconstruct canonical payload without the sig param
+  const raw: Record<string, string> = {};
+  for (const [key, value] of searchParams.entries()) {
+    if (key !== "sig") raw[key] = value;
+  }
+
+  const canonical = Object.keys(raw)
+    .sort()
+    .map(k => `${k}=${raw[k]}`) // do NOT re-encode — use raw decoded values
+    .join("&");
+
+  const expected = crypto
+    .createHmac("sha256", signingSecret)
+    .update(canonical)
+    .digest("base64url");
+
+  // Constant-time comparison to prevent timing attacks
+  return crypto.timingSafeEqual(
+    Buffer.from(sig),
+    Buffer.from(expected)
+  );
+}
+
+// Express route example
+import express from "express";
+const app = express();
+
+app.get("/pay", (req, res) => {
+  const params = new URLSearchParams(req.query as Record<string, string>);
+
+  if (!verifyPaymentLink(params, process.env.PAYMENT_LINK_SECRET!)) {
+    return res.status(400).json({ error: "Invalid or tampered payment link" });
+  }
+
+  // Check expiry
+  const exp = params.get("exp");
+  if (exp && Date.now() / 1000 > Number(exp)) {
+    return res.status(410).json({ error: "Payment link has expired" });
+  }
+
+  // Render payment UI with pre-filled fields
+  const to = params.get("to")!;
+  const amount = params.get("amount")!;
+  const asset = params.get("asset") ?? "XLM";
+  const memo = params.get("memo") ?? "";
+
+  res.json({ to, amount, asset, memo });
+});
+```
+
+<Warning>
+  Store `PAYMENT_LINK_SECRET` as an environment variable — never hardcode it. Rotate it if you
+  believe it has been compromised; all existing links signed with the old secret will become invalid.
+</Warning>
+
+---
+
+## Deep-Linking into Your App
+
+For mobile or desktop apps, register a custom URL scheme and handle the payment link natively.
+
+### Custom scheme (mobile)
+
+Register `wraith://` or your own scheme in your app manifest, then parse the same query string:
+
+```typescript
+// React Native / Expo example
+import { Linking } from "react-native";
+
+Linking.addEventListener("url", ({ url }) => {
+  const parsed = new URL(url.replace("wraith://", "https://placeholder/"));
+  const params = parsed.searchParams;
+
+  const to = params.get("to");
+  const amount = params.get("amount");
+  const asset = params.get("asset") ?? "XLM";
+  const memo = params.get("memo") ?? "";
+  const exp = params.get("exp");
+
+  // Check expiry before showing UI
+  if (exp && Date.now() / 1000 > Number(exp)) {
+    showError("This payment link has expired.");
+    return;
+  }
+
+  // Navigate to the payment confirmation screen
+  navigation.navigate("ConfirmPayment", { to, amount, asset, memo });
+});
+```
+
+### Universal links / App Links (HTTPS)
+
+For `https://your-domain/pay` links that open your app on mobile, configure `apple-app-site-association` (iOS) and `assetlinks.json` (Android) for your domain. The query string parsing is identical.
+
+---
+
+## QR Code Generation
+
+QR codes make payment links scannable in-person or in invoices.
+
+```typescript
+// npm install qrcode
+import QRCode from "qrcode";
+
+async function paymentLinkToQR(
+  link: PaymentLink,
+  outputPath: string
+): Promise<void> {
+  await QRCode.toFile(outputPath, link.url, {
+    errorCorrectionLevel: "M",
+    type: "png",
+    width: 400,
+    margin: 2,
+  });
+  console.log("QR code saved to", outputPath);
+}
+
+// Generate
+const link = generatePaymentLink("https://pay.example.com", {
+  to: "alice.wraith",
+  amount: "25",
+  memo: "INV-2024-042",
+  expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
+  signingSecret: process.env.PAYMENT_LINK_SECRET!,
+});
+
+await paymentLinkToQR(link, "invoice-qr.png");
+```
+
+For in-app display without saving to disk:
+
+```typescript
+// Returns a data URL for use in an <img> tag
+const dataUrl = await QRCode.toDataURL(link.url, {
+  errorCorrectionLevel: "M",
+  width: 300,
+});
+// <img src={dataUrl} alt="Scan to pay" />
+```
+
+<Note>
+  Keep QR code URLs short. A full Wraith meta-address (`st:xlm:{128 hex chars}`) is ~150 characters
+  and fits comfortably within QR code capacity at error correction level M. Using a `.wraith` name
+  keeps it under 60 characters.
+</Note>
+
+---
+
+## Expiry Handling
+
+The `exp` parameter is a Unix timestamp in seconds. Clients and servers should both check it.
+
+### Server-side (on link render)
+
+```typescript
+function isExpired(searchParams: URLSearchParams): boolean {
+  const exp = searchParams.get("exp");
+  if (!exp) return false; // no expiry set — link is permanent
+  return Date.now() / 1000 > Number(exp);
+}
+```
+
+### Client-side countdown
+
+```typescript
+function secondsUntilExpiry(searchParams: URLSearchParams): number | null {
+  const exp = searchParams.get("exp");
+  if (!exp) return null;
+  return Math.max(0, Number(exp) - Math.floor(Date.now() / 1000));
+}
+
+// Show a countdown timer in the UI
+const remaining = secondsUntilExpiry(params);
+if (remaining !== null) {
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+  console.log(`Link expires in ${minutes}m ${seconds}s`);
+}
+```
+
+### Recommended expiry windows
+
+| Use case | Expiry |
+|---|---|
+| In-person QR code (point of sale) | 5–15 minutes |
+| Emailed invoice | 24–72 hours |
+| Subscription billing | None (permanent) |
+| One-time checkout | 30 minutes |
+
+---
+
+## Reference Implementation Walkthrough
+
+The Wraith demo includes `StellarPaymentLink.tsx` — a React component that generates, displays, and monitors a payment link end-to-end. Below are the key excerpts.
+
+### Component: `StellarPaymentLink.tsx`
+
+```typescript
+import React, { useEffect, useState } from "react";
+import QRCode from "qrcode";
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+interface StellarPaymentLinkProps {
+  to: string;          // .wraith name
+  amount: string;
+  asset?: string;
+  memo?: string;
+  expiryMinutes?: number;
+  onPaymentConfirmed?: (txHash: string) => void;
+}
+
+export function StellarPaymentLink({
+  to,
+  amount,
+  asset = "XLM",
+  memo,
+  expiryMinutes = 30,
+  onPaymentConfirmed,
+}: StellarPaymentLinkProps) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [paymentUrl, setPaymentUrl] = useState<string>("");
+  const [expired, setExpired] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(expiryMinutes * 60);
+
+  useEffect(() => {
+    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+
+    const url = generatePaymentLink(
+      process.env.NEXT_PUBLIC_BASE_URL ?? window.location.origin,
+      { to, amount, asset, memo, expiresAt,
+        signingSecret: process.env.NEXT_PUBLIC_PAYMENT_LINK_SECRET }
+    ).url;
+
+    setPaymentUrl(url);
+    QRCode.toDataURL(url, { width: 280, errorCorrectionLevel: "M" })
+      .then(setQrDataUrl);
+  }, [to, amount, asset, memo, expiryMinutes]);
+
+  // Countdown timer
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSecondsLeft(s => {
+        if (s <= 1) { setExpired(true); clearInterval(interval); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Poll for payment confirmation via Wraith agent
+  useEffect(() => {
+    if (expired || confirmed) return;
+
+    const wraith = new Wraith({ apiKey: process.env.NEXT_PUBLIC_WRAITH_API_KEY! });
+    const interval = setInterval(async () => {
+      try {
+        const status = await wraith.checkPayment({ to, memo, chain: Chain.Stellar });
+        if (status.confirmed) {
+          setConfirmed(true);
+          onPaymentConfirmed?.(status.txHash);
+          clearInterval(interval);
+        }
+      } catch { /* retry next tick */ }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [to, memo, expired, confirmed, onPaymentConfirmed]);
+
+  if (expired) return <div>This payment link has expired. Please request a new one.</div>;
+  if (confirmed) return <div>Payment confirmed!</div>;
+
+  const mins = Math.floor(secondsLeft / 60);
+  const secs = secondsLeft % 60;
+
+  return (
+    <div>
+      {qrDataUrl && <img src={qrDataUrl} alt="Scan to pay" />}
+      <p>Pay {amount} {asset} to {to}</p>
+      {memo && <p>Reference: {memo}</p>}
+      <p>Expires in {mins}m {secs}s</p>
+      <a href={paymentUrl}>Open in wallet</a>
+    </div>
+  );
+}
+```
+
+### Usage in a Next.js invoice page
+
+```typescript
+// pages/invoice/[id].tsx
+import { StellarPaymentLink } from "@/components/StellarPaymentLink";
+
+export default function InvoicePage({ invoice }) {
+  return (
+    <StellarPaymentLink
+      to="alice.wraith"
+      amount={invoice.totalXLM}
+      memo={invoice.id}
+      expiryMinutes={60}
+      onPaymentConfirmed={(txHash) => {
+        console.log("Payment confirmed:", txHash);
+        // Mark invoice as paid in your database
+      }}
+    />
+  );
+}
+```
+
+---
+
+## Webhook Receiver for Confirmed Payments
+
+Instead of polling from the client, register a webhook with Wraith to receive a POST request when a payment is confirmed on-chain.
+
+### Registering a webhook (Wraith API)
+
+```typescript
+import { Wraith } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+await wraith.registerWebhook({
+  url: "https://your-domain/webhooks/stellar-payment",
+  events: ["payment.confirmed"],
+  chain: Chain.Stellar,
+  filter: { to: "alice.wraith" }, // optional: filter by recipient
+});
+```
+
+### Express webhook receiver
+
+```typescript
+import express from "express";
+import crypto from "crypto";
+
+const app = express();
+app.use(express.raw({ type: "application/json" })); // raw body for signature verification
+
+app.post("/webhooks/stellar-payment", (req, res) => {
+  // 1. Verify webhook signature
+  const signature = req.headers["x-wraith-signature"] as string;
+  const expected = crypto
+    .createHmac("sha256", process.env.WRAITH_WEBHOOK_SECRET!)
+    .update(req.body)
+    .digest("hex");
+
+  if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    return res.status(401).json({ error: "Invalid signature" });
+  }
+
+  // 2. Parse the event
+  const event = JSON.parse(req.body.toString());
+
+  if (event.type === "payment.confirmed") {
+    const { txHash, to, amount, asset, memo, ledger } = event.data;
+    console.log(`Payment confirmed: ${amount} ${asset} to ${to}`);
+    console.log(`Memo: ${memo}, tx: ${txHash}, ledger: ${ledger}`);
+
+    // 3. Update your database, trigger fulfillment, send receipt, etc.
+    // markInvoicePaid(memo, txHash);
+  }
+
+  res.status(200).json({ received: true });
+});
+```
+
+<Note>
+  Always verify the `x-wraith-signature` header before processing webhook events. Without
+  verification, any party can POST fake payment confirmations to your endpoint.
+</Note>
+
+### Webhook payload shape
+
+```typescript
+interface PaymentConfirmedEvent {
+  type: "payment.confirmed";
+  data: {
+    txHash: string;       // Stellar transaction hash
+    to: string;           // .wraith name or stealth address
+    from: string;         // sender stealth address (anonymized)
+    amount: string;       // decimal string
+    asset: string;        // "XLM" or "USDC:G...ISSUER"
+    memo: string;         // memo from the transaction
+    ledger: number;       // ledger number where confirmed
+    confirmedAt: string;  // ISO 8601 timestamp
+  };
+}
+```
+
+---
+
+## See Also
+
+- [Stellar Primitives](/sdk/chains/stellar) — full SDK reference for stealth address generation and scanning
+- [Stellar Transaction Simulation](/guides/stellar-tx-simulation) — pre-flight your contract calls before generating links
+- [Privacy Best Practices](/guides/privacy-best-practices) — avoid linking payment references to identities
+- [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment) — production RPC and webhook configuration

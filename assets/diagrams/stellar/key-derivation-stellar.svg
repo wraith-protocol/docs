@@ -1,0 +1,58 @@
+<svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="400" fill="transparent" />
+
+  <defs>
+    <marker id="a2s" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+  </defs>
+
+  <!-- Wallet Signature -->
+  <rect x="180" y="10" width="360" height="40" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="360" y="35" text-anchor="middle" fill="#22c55e" font-family="Space Grotesk, sans-serif" font-weight="600" font-size="13">ed25519 Wallet Signature (64 bytes)</text>
+
+  <line x1="360" y1="50" x2="360" y2="78" stroke="#767575" stroke-width="1.5" marker-end="url(#a2s)" />
+
+  <!-- Domain-Separated SHA-256 -->
+  <rect x="130" y="82" width="460" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="360" y="105" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">SHA-256 (domain-separated)</text>
+
+  <!-- Fan out to spending and viewing -->
+  <line x1="220" y1="118" x2="180" y2="156" stroke="#767575" stroke-width="1.5" marker-end="url(#a2s)" />
+  <line x1="500" y1="118" x2="540" y2="156" stroke="#767575" stroke-width="1.5" marker-end="url(#a2s)" />
+
+  <!-- Spending Key Derivation -->
+  <text x="180" y="152" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="0.05em">SPENDING</text>
+  <rect x="90" y="160" width="180" height="70" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="180" y="180" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">"wraith:spending:" || sig</text>
+  <text x="180" y="196" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">SHA-256 → 32B seed</text>
+  <text x="180" y="212" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">SHA-512 + clamp → scalar</text>
+  <text x="180" y="226" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">ed25519.getPublicKey</text>
+
+  <line x1="270" y1="195" x2="340" y2="195" stroke="#767575" stroke-width="1.5" marker-end="url(#a2s)" />
+
+  <!-- Viewing Key Derivation -->
+  <text x="540" y="152" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="9" letter-spacing="0.05em">VIEWING</text>
+  <rect x="450" y="160" width="180" height="70" fill="#141414" stroke="#c6c6c7" stroke-width="1" />
+  <text x="540" y="180" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">"wraith:viewing:" || sig</text>
+  <text x="540" y="196" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">SHA-256 → 32B seed</text>
+  <text x="540" y="212" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">SHA-512 + clamp → scalar</text>
+  <text x="540" y="226" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="10">ed25519.getPublicKey</text>
+
+  <!-- Combined output -->
+  <line x1="360" y1="230" x2="360" y2="258" stroke="#767575" stroke-width="1.5" marker-end="url(#a2s)" />
+
+  <!-- Meta-Address -->
+  <rect x="180" y="262" width="360" height="40" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="360" y="282" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="11">st:xlm:{spendingPubKey}{viewingPubKey}</text>
+  <text x="360" y="298" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">Stealth Meta-Address (64 bytes)</text>
+
+  <line x1="360" y1="302" x2="360" y2="330" stroke="#767575" stroke-width="1.5" marker-end="url(#a2s)" />
+
+  <!-- Stealth Address Derivation -->
+  <rect x="90" y="334" width="540" height="36" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="360" y="357" text-anchor="middle" fill="#c6c6c7" font-family="JetBrains Mono, monospace" font-size="11">stealth_scalar = (spending_scalar + hash_to_scalar(shared_secret)) mod L</text>
+
+  <!-- Note -->
+  <text x="360" y="392" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="9">L = ed25519 group order (2²⁵² + 27742317777372353535851937790883648493)</text>
+</svg>

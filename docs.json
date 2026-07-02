@@ -12,6 +12,22 @@
     "light": "#e6e1e5",
     "dark": "#767575"
   },
+  "search": {
+    "analytics": true,
+    "synonyms": [
+      ["stealth", "unlinkable"],
+      ["meta-address", "metaaddress", "meta address"],
+      ["Soroban", "Stellar smart contract"],
+      ["friendbot", "testnet faucet"],
+      ["XLM", "lumen"],
+      ["Freighter", "Stellar wallet"]
+    ],
+    "boosts": [
+      { "page": "getting-started", "weight": 3 },
+      { "group": "Guides", "weight": 2 },
+      { "group": "API Reference", "weight": 1 }
+    ]
+  },
   "font": {
     "headings": {
       "family": "Space Grotesk",
@@ -67,12 +83,13 @@
             "pages": [
               "architecture/overview",
               "architecture/chain-connectors",
-              "architecture/tee"
+              "architecture/tee",
+              "architecture/stellar-cryptography"
             ]
           },
           {
             "group": "Contracts",
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb"]
+            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas"]
           }
         ]
       },
@@ -99,7 +116,28 @@
               "guides/single-chain-agent",
               "guides/multichain-agent",
               "guides/bring-your-own-model",
-              "guides/privacy-best-practices"
+              "guides/privacy-best-practices",
+              "guides/stellar-fees",
+              "guides/stellar-troubleshooting",
+              "guides/spectre-stellar-cookbook"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "guides/stellar-mainnet-deployment",
+              "guides/stellar-payment-links",
+            "guides/stellar-payment-links",
+              "guides/stellar-multisig-withdrawal",
+              "guides/stellar-offline-signing",
+              "guides/stellar-tx-simulation",
+              "guides/stellar-explorer-recipes",
+              "guides/stellar-payment-links",
+              "guides/privacy-best-practices",
+              "guides/spectre-stellar-cookbook",
+              "guides/stellar-federation",
+              "guides/stellar-custom-assets",
+              "guides/wraith-names-stellar"
             ]
           }
         ]

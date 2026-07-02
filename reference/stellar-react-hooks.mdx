@@ -1,0 +1,717 @@
+---
+title: "Stellar React Hooks"
+description: "React hooks for stealth address operations on Stellar"
+---
+
+React hooks for stealth address operations on Stellar. Import from `@wraith-protocol/sdk-react`.
+
+## Installation
+
+```bash
+npm install @wraith-protocol/sdk-react
+npm install @stellar/stellar-sdk
+```
+
+## Import
+
+```typescript
+import {
+  useStellarStealthKeys,
+  useStellarAnnouncementScan,
+  useStellarSendStealthPayment,
+  useStellarName,
+  useStellarBalance,
+} from "@wraith-protocol/sdk-react";
+```
+
+## React Strict Mode Behavior
+
+In React Strict Mode, all hooks are called twice in development to detect side effects. The Stellar React hooks handle this correctly:
+
+- **useStellarStealthKeys**: Key derivation is memoized, so duplicate calls return cached keys
+- **useStellarAnnouncementScan**: Scans are debounced (500ms) to prevent duplicate RPC calls
+- **useStellarSendStealthPayment**: Transaction submission is idempotent — duplicate calls return the same result
+- **useStellarName**: Resolution is cached with a 5-minute TTL
+- **useStellarBalance**: Balance queries are cached with a 30-second TTL
+
+> [!WARNING]
+> In production, ensure your wallet connection is stable. Rapid reconnection can trigger unnecessary re-derivations.
+
+## React Native Caveats
+
+When using these hooks in React Native:
+
+- **Key storage**: Use `expo-secure-store` or `react-native-keychain` to persist stealth keys. Do not store in `AsyncStorage`.
+- **Signature handling**: React Native wallets may return signatures in different formats. Ensure you normalize to `Uint8Array(64)` before passing to hooks.
+- **Network requests**: React Native requires polyfills for `fetch` and `crypto`. Use `react-native-polyfill-crypto` or similar.
+- **Soroban RPC**: The SDK uses the native `fetch` API. Ensure your app has network permissions configured in `app.json` / `AndroidManifest.xml`.
+
+```typescript
+// React Native key storage example
+import * as SecureStore from 'expo-secure-store';
+
+const { keys } = useStellarStealthKeys({ signature });
+
+// Persist keys
+await SecureStore.setItemAsync('wraith_stealth_keys', JSON.stringify(keys));
+
+// Retrieve keys
+const stored = await SecureStore.getItemAsync('wraith_stealth_keys');
+const keys = JSON.parse(stored);
+```
+
+---
+
+## useStellarStealthKeys
+
+Derive stealth spending and viewing keys from a Stellar wallet signature.
+
+### Signature
+
+```typescript
+function useStellarStealthKeys(options: {
+  signature: Uint8Array | null;
+  enabled?: boolean;
+}): {
+  keys: StealthKeys | null;
+  isLoading: boolean;
+  error: Error | null;
+  deriveKeys: (signature: Uint8Array) => void;
+}
+```
+
+### Parameters
+
+- **signature** (`Uint8Array | null`): 64-byte ed25519 signature of the stealth signing message. Pass `null` to reset.
+- **enabled** (`boolean`, optional): Enable/disable key derivation. Default: `true`.
+
+### Return Type
+
+```typescript
+{
+  keys: StealthKeys | null;  // Derived stealth keys or null
+  isLoading: boolean;         // True while deriving
+  error: Error | null;       // Error if derivation failed
+  deriveKeys: (sig: Uint8Array) => void;  // Manual trigger
+}
+```
+
+### Side Effects
+
+- Derives keys synchronously on mount if `signature` is provided
+- Memoizes results — same signature returns cached keys
+- No network calls
+
+### Example
+
+```tsx
+import { useStellarStealthKeys } from "@wraith-protocol/sdk-react";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: Stellar\nNote: This signature is used for key derivation only and does not authorize any transaction.";
+
+function KeyDerivation() {
+  const [signature, setSignature] = useState<Uint8Array | null>(null);
+  const { keys, isLoading, error, deriveKeys } = useStellarStealthKeys({
+    signature,
+  });
+
+  const handleSign = async () => {
+    const keypair = Keypair.fromSecret("S..."); // Your secret
+    const sig = keypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+    setSignature(sig);
+  };
+
+  if (isLoading) return <div>Deriving keys...</div>;
+  if (error) return <div>Error: {error.message}</div>;
+
+  return (
+    <div>
+      <button onClick={handleSign}>Derive Stealth Keys</button>
+      {keys && (
+        <div>
+          <p>Spending Pub Key: {Buffer.from(keys.spendingPubKey).toString('hex')}</p>
+          <p>Viewing Pub Key: {Buffer.from(keys.viewingPubKey).toString('hex')}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Common Pitfalls
+
+- **Wrong signature format**: Must be 64-byte ed25519 signature, not hex string. Convert with `hexToBytes()` if needed.
+- **Signature message mismatch**: Must sign the exact `STEALTH_SIGNING_MESSAGE`. Different messages produce different keys.
+- **Re-deriving on every render**: Wrap signature in `useMemo` or store in state to avoid unnecessary re-derivations.
+
+---
+
+## useStellarAnnouncementScan
+
+Scan Stellar Soroban events for stealth address announcements belonging to your keys.
+
+### Signature
+
+```typescript
+function useStellarAnnouncementScan(options: {
+  viewingKey: Uint8Array | null;
+  spendingPubKey: Uint8Array | null;
+  spendingScalar: bigint | null;
+  sorobanUrl?: string;
+  enabled?: boolean;
+  pollInterval?: number;
+}): {
+  matches: MatchedAnnouncement[];
+  isScanning: boolean;
+  error: Error | null;
+  scanNow: () => Promise<void>;
+  lastScanTime: Date | null;
+}
+```
+
+### Parameters
+
+- **viewingKey** (`Uint8Array | null`): 32-byte viewing private key seed
+- **spendingPubKey** (`Uint8Array | null`): 32-byte spending public key
+- **spendingScalar** (`bigint | null`): Clamped spending scalar (not the seed)
+- **sorobanUrl** (`string`, optional): Soroban RPC URL. Default: testnet RPC
+- **enabled** (`boolean`, optional): Enable/disable scanning. Default: `true`
+- **pollInterval** (`number`, optional): Auto-scan interval in ms. Default: `60000` (1 minute). Set to `0` to disable polling.
+
+### Return Type
+
+```typescript
+{
+  matches: MatchedAnnouncement[];  // Announcements matching your keys
+  isScanning: boolean;             // True while scanning
+  error: Error | null;             // Error if scan failed
+  scanNow: () => Promise<void>;    // Manual scan trigger
+  lastScanTime: Date | null;       // Timestamp of last successful scan
+}
+```
+
+### Side Effects
+
+- Fetches announcements from Soroban RPC on mount (if enabled)
+- Auto-polls at `pollInterval` if > 0
+- Debounced (500ms) to prevent duplicate calls in Strict Mode
+- Network calls to Soroban RPC
+
+### Example
+
+```tsx
+import { useStellarAnnouncementScan } from "@wraith-protocol/sdk-react";
+
+function AnnouncementScanner({ keys }: { keys: StealthKeys }) {
+  const { matches, isScanning, error, scanNow, lastScanTime } = useStellarAnnouncementScan({
+    viewingKey: keys.viewingKey,
+    spendingPubKey: keys.spendingPubKey,
+    spendingScalar: keys.spendingScalar,
+    pollInterval: 30000, // Scan every 30 seconds
+  });
+
+  return (
+    <div>
+      <button onClick={scanNow} disabled={isScanning}>
+        {isScanning ? "Scanning..." : "Scan Now"}
+      </button>
+      {error && <div>Error: {error.message}</div>}
+      {lastScanTime && <div>Last scan: {lastScanTime.toLocaleString()}</div>}
+      <div>
+        <h3>Matched Announcements ({matches.length})</h3>
+        {matches.map((match, i) => (
+          <div key={i}>
+            <p>Stealth Address: {match.stealthAddress}</p>
+            <p>Caller: {match.caller}</p>
+            <p>Amount: Check on-chain for balance</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### Common Pitfalls
+
+- **Wrong scalar type**: Must pass `spendingScalar` (bigint), not `spendingKey` (Uint8Array). Stellar uses scalars for signing.
+- **Missing keys**: All three keys must be provided. Null values disable scanning.
+- **RPC rate limits**: Aggressive polling (< 10s) may hit rate limits. Use reasonable intervals.
+- **Testnet vs mainnet**: Ensure `sorobanUrl` matches your network. Testnet announcements won't appear on mainnet.
+
+---
+
+## useStellarSendStealthPayment
+
+Generate a stealth address and send a payment (XLM or custom asset) to it.
+
+### Signature
+
+```typescript
+function useStellarSendStealthPayment(options: {
+  horizonUrl?: string;
+  sorobanUrl?: string;
+  announcerContract?: string;
+}): {
+  sendPayment: (params: SendPaymentParams) => Promise<{ txHash: string; stealthAddress: string }>;
+  isSending: boolean;
+  error: Error | null;
+}
+```
+
+### Parameters (hook options)
+
+- **horizonUrl** (`string`, optional): Horizon API URL. Default: testnet
+- **sorobanUrl** (`string`, optional): Soroban RPC URL. Default: testnet
+- **announcerContract** (`string`, optional): Announcer contract address. Default: testnet contract
+
+### Parameters (sendPayment)
+
+```typescript
+interface SendPaymentParams {
+  recipientMetaAddress: string;  // "st:xlm:..." meta-address
+  amount: string;                // Amount as string (e.g., "10.5")
+  asset?: {                      // Optional: custom asset
+    code: string;                // e.g., "USDC"
+    issuer: string;              // Stellar issuer address
+  };
+  sourceSecret: string;          // Sender's Stellar secret key
+}
+```
+
+### Return Type
+
+```typescript
+{
+  sendPayment: (params: SendPaymentParams) => Promise<{
+    txHash: string;           // Transaction hash
+    stealthAddress: string;   // Generated stealth address
+  }>;
+  isSending: boolean;          // True while sending
+  error: Error | null;        // Error if send failed
+}
+```
+
+### Side Effects
+
+- Submits transaction to Horizon
+- Calls Soroban announcer contract
+- Network calls to Horizon and Soroban RPC
+
+### Example
+
+```tsx
+import { useStellarSendStealthPayment } from "@wraith-protocol/sdk-react";
+
+function PaymentSender() {
+  const { sendPayment, isSending, error } = useStellarSendStealthPayment();
+
+  const handleSend = async () => {
+    try {
+      const result = await sendPayment({
+        recipientMetaAddress: "st:xlm:abc123...def456...",
+        amount: "10.5",
+        sourceSecret: "S...", // Your secret key
+      });
+      console.log("Sent to stealth address:", result.stealthAddress);
+      console.log("Transaction hash:", result.txHash);
+    } catch (err) {
+      console.error("Send failed:", err);
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={handleSend} disabled={isSending}>
+        {isSending ? "Sending..." : "Send 10.5 XLM"}
+      </button>
+      {error && <div>Error: {error.message}</div>}
+    </div>
+  );
+}
+```
+
+### Custom Asset Example
+
+```tsx
+const handleSendUSDC = async () => {
+  const result = await sendPayment({
+    recipientMetaAddress: "st:xlm:abc123...def456...",
+    amount: "100",
+    asset: {
+      code: "USDC",
+      issuer: "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5", // testnet
+    },
+    sourceSecret: "S...",
+  });
+};
+```
+
+### Common Pitfalls
+
+- **Insufficient balance**: Ensure source account has enough XLM for both the payment and transaction fees (minimum 1.5 XLM recommended).
+- **Account creation**: Sending to a new stealth address requires `createAccount` operation, which needs 1 XLM minimum balance.
+- **Asset trustlines**: For custom assets, ensure the source account has a trustline. The hook does not create trustlines automatically.
+- **Wrong meta-address format**: Must be `st:xlm:{64 hex}{64 hex}`. Use `decodeStealthMetaAddress` to validate.
+
+---
+
+## useStellarName
+
+Resolve a `.wraith` name to its Stellar stealth meta-address.
+
+### Signature
+
+```typescript
+function useStellarName(options: {
+  name: string | null;
+  enabled?: boolean;
+}): {
+  metaAddress: string | null;
+  isLoading: boolean;
+  error: Error | null;
+  resolve: (name: string) => Promise<void>;
+}
+```
+
+### Parameters
+
+- **name** (`string | null`): `.wraith` name to resolve (e.g., "alice"). Pass `null` to reset.
+- **enabled** (`boolean`, optional): Enable/disable resolution. Default: `true`.
+
+### Return Type
+
+```typescript
+{
+  metaAddress: string | null;  // Resolved "st:xlm:..." meta-address or null
+  isLoading: boolean;          // True while resolving
+  error: Error | null;        // Error if resolution failed
+  resolve: (name: string) => Promise<void>;  // Manual resolve trigger
+}
+```
+
+### Side Effects
+
+- Queries Wraith names contract on Soroban
+- Cached with 5-minute TTL
+- Network call to Soroban RPC
+
+### Example
+
+```tsx
+import { useStellarName } from "@wraith-protocol/sdk-react";
+
+function NameResolver() {
+  const [name, setName] = useState<string>("");
+  const { metaAddress, isLoading, error, resolve } = useStellarName({
+    name: name || null,
+  });
+
+  const handleResolve = async () => {
+    await resolve(name);
+  };
+
+  return (
+    <div>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Enter .wraith name"
+      />
+      <button onClick={handleResolve} disabled={isLoading || !name}>
+        {isLoading ? "Resolving..." : "Resolve"}
+      </button>
+      {error && <div>Error: {error.message}</div>}
+      {metaAddress && (
+        <div>
+          <p>Meta-address: {metaAddress}</p>
+          <p>Use this with useStellarSendStealthPayment</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Common Pitfalls
+
+- **Name not found**: Returns `null` for unregistered names. Check `metaAddress === null` before using.
+- **Wrong chain**: This hook resolves Stellar names only. Use chain-specific hooks for other chains.
+- **Cache staleness**: 5-minute cache may be stale for recently updated names. Call `resolve()` to force refresh.
+- **Invalid name format**: Must be alphanumeric lowercase, 3-18 chars. Special characters return error.
+
+---
+
+## useStellarBalance
+
+Query the balance of a Stellar address (stealth or regular).
+
+### Signature
+
+```typescript
+function useStellarBalance(options: {
+  address: string | null;
+  horizonUrl?: string;
+  enabled?: boolean;
+  pollInterval?: number;
+}): {
+  balance: {
+    native: string;      // XLM balance
+    tokens: Record<string, string>;  // Token balances { "USDC": "100.5" }
+  } | null;
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;
+}
+```
+
+### Parameters
+
+- **address** (`string | null`): Stellar address to query (`G...`). Pass `null` to reset.
+- **horizonUrl** (`string`, optional): Horizon API URL. Default: testnet
+- **enabled** (`boolean`, optional): Enable/disable queries. Default: `true`
+- **pollInterval** (`number`, optional): Auto-refresh interval in ms. Default: `30000` (30 seconds). Set to `0` to disable polling.
+
+### Return Type
+
+```typescript
+{
+  balance: {
+    native: string;              // XLM balance as string
+    tokens: Record<string, string>;  // Token balances
+  } | null;
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => Promise<void>;  // Manual refresh trigger
+}
+```
+
+### Side Effects
+
+- Queries Horizon API on mount (if enabled)
+- Auto-polls at `pollInterval` if > 0
+- Cached with 30-second TTL
+- Network call to Horizon API
+
+### Example
+
+```tsx
+import { useStellarBalance } from "@wraith-protocol/sdk-react";
+
+function BalanceDisplay({ address }: { address: string }) {
+  const { balance, isLoading, error, refresh } = useStellarBalance({
+    address,
+    pollInterval: 15000, // Refresh every 15 seconds
+  });
+
+  return (
+    <div>
+      <button onClick={refresh} disabled={isLoading}>
+        {isLoading ? "Loading..." : "Refresh"}
+      </button>
+      {error && <div>Error: {error.message}</div>}
+      {balance && (
+        <div>
+          <p>XLM: {balance.native}</p>
+          {Object.entries(balance.tokens).map(([code, amount]) => (
+            <p key={code}>{code}: {amount}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### Common Pitfalls
+
+- **Unfunded accounts**: Returns `null` for accounts that don't exist. Check `balance === null` before accessing.
+- **Trustline filtering**: Only shows tokens with active trustlines. Tokens without trustlines are not included.
+- **Decimal precision**: Balances are returned as strings to preserve precision. Do not parse as numbers without handling decimals.
+- **Rate limiting**: Aggressive polling (< 5s) may hit Horizon rate limits. Use reasonable intervals.
+
+---
+
+## Full App Example
+
+Complete example using all five hooks in a single React application:
+
+```tsx
+import React, { useState } from "react";
+import {
+  useStellarStealthKeys,
+  useStellarAnnouncementScan,
+  useStellarSendStealthPayment,
+  useStellarName,
+  useStellarBalance,
+} from "@wraith-protocol/sdk-react";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const STEALTH_SIGNING_MESSAGE = "Sign this message to generate your Wraith stealth keys.\n\nChain: Stellar\nNote: This signature is used for key derivation only and does not authorize any transaction.";
+
+function StealthPaymentApp() {
+  // Key derivation
+  const [signature, setSignature] = useState<Uint8Array | null>(null);
+  const { keys, isLoading: keysLoading, error: keysError } = useStellarStealthKeys({
+    signature,
+  });
+
+  // Name resolution
+  const [recipientName, setRecipientName] = useState<string>("");
+  const { metaAddress, isLoading: nameLoading, resolve } = useStellarName({
+    name: recipientName || null,
+  });
+
+  // Payment sending
+  const { sendPayment, isSending: paymentSending, error: paymentError } = useStellarSendStealthPayment();
+
+  // Announcement scanning
+  const { matches, isScanning, scanNow, lastScanTime } = useStellarAnnouncementScan({
+    viewingKey: keys?.viewingKey ?? null,
+    spendingPubKey: keys?.spendingPubKey ?? null,
+    spendingScalar: keys?.spendingScalar ?? null,
+    pollInterval: 60000,
+  });
+
+  // Balance checking
+  const [checkAddress, setCheckAddress] = useState<string>("");
+  const { balance, isLoading: balanceLoading, refresh } = useStellarBalance({
+    address: checkAddress || null,
+  });
+
+  const handleDeriveKeys = () => {
+    const keypair_string = prompt("Enter your Stellar secret key (S...):");
+    if (!keypair_string) return;
+    
+    const keypair = Keypair.fromSecret(keypair_string);
+    const sig = keypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+    setSignature(sig);
+  };
+
+  const handleSendPayment = async () => {
+    if (!metaAddress) {
+      alert("Please resolve a .wraith name first");
+      return;
+    }
+    
+    const secret = prompt("Enter your Stellar secret key to send:");
+    if (!secret) return;
+    
+    const amount = prompt("Enter amount in XLM:");
+    if (!amount) return;
+
+    try {
+      const result = await sendPayment({
+        recipientMetaAddress: metaAddress,
+        amount,
+        sourceSecret: secret,
+      });
+      alert(`Sent ${amount} XLM to ${result.stealthAddress}\nTX: ${result.txHash}`);
+    } catch (err) {
+      alert(`Send failed: ${err}`);
+    }
+  };
+
+  return (
+    <div style={{ maxWidth: 800, margin: "0 auto", padding: 20 }}>
+      <h1>Stellar Stealth Payment App</h1>
+
+      {/* Key Derivation */}
+      <section style={{ marginBottom: 30 }}>
+        <h2>1. Derive Stealth Keys</h2>
+        <button onClick={handleDeriveKeys} disabled={keysLoading}>
+          {keysLoading ? "Deriving..." : "Derive Keys from Wallet"}
+        </button>
+        {keysError && <div style={{ color: "red" }}>Error: {keysError.message}</div>}
+        {keys && (
+          <div>
+            <p><strong>Keys derived successfully!</strong></p>
+            <p>Spending Pub: {Buffer.from(keys.spendingPubKey).toString('hex').slice(0, 16)}...</p>
+            <p>Viewing Pub: {Buffer.from(keys.viewingPubKey).toString('hex').slice(0, 16)}...</p>
+          </div>
+        )}
+      </section>
+
+      {/* Name Resolution */}
+      <section style={{ marginBottom: 30 }}>
+        <h2>2. Resolve Recipient</h2>
+        <input
+          value={recipientName}
+          onChange={(e) => setRecipientName(e.target.value)}
+          placeholder="Enter .wraith name (e.g., alice)"
+          style={{ marginRight: 10 }}
+        />
+        <button onClick={() => resolve(recipientName)} disabled={nameLoading || !recipientName}>
+          {nameLoading ? "Resolving..." : "Resolve"}
+        </button>
+        {metaAddress && (
+          <div>
+            <p><strong>Meta-address:</strong> {metaAddress.slice(0, 32)}...</p>
+          </div>
+        )}
+      </section>
+
+      {/* Send Payment */}
+      <section style={{ marginBottom: 30 }}>
+        <h2>3. Send Stealth Payment</h2>
+        <button onClick={handleSendPayment} disabled={paymentSending || !metaAddress}>
+          {paymentSending ? "Sending..." : "Send Payment"}
+        </button>
+        {paymentError && <div style={{ color: "red" }}>Error: {paymentError.message}</div>}
+      </section>
+
+      {/* Scan for Payments */}
+      <section style={{ marginBottom: 30 }}>
+        <h2>4. Scan for Incoming Payments</h2>
+        <button onClick={scanNow} disabled={isScanning || !keys}>
+          {isScanning ? "Scanning..." : "Scan Now"}
+        </button>
+        {lastScanTime && <p>Last scan: {lastScanTime.toLocaleString()}</p>}
+        <div>
+          <strong>Matched announcements: {matches.length}</strong>
+          {matches.map((match, i) => (
+            <div key={i} style={{ padding: 10, background: "#f5f5f5", marginTop: 5 }}>
+              <p>Stealth Address: {match.stealthAddress}</p>
+              <p>Caller: {match.caller}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Check Balance */}
+      <section style={{ marginBottom: 30 }}>
+        <h2>5. Check Balance</h2>
+        <input
+          value={checkAddress}
+          onChange={(e) => setCheckAddress(e.target.value)}
+          placeholder="Enter Stellar address (G...)"
+          style={{ marginRight: 10 }}
+        />
+        <button onClick={refresh} disabled={balanceLoading || !checkAddress}>
+          {balanceLoading ? "Loading..." : "Check Balance"}
+        </button>
+        {balance && (
+          <div>
+            <p><strong>XLM:</strong> {balance.native}</p>
+            {Object.entries(balance.tokens).map(([code, amount]) => (
+              <p key={code}><strong>{code}:</strong> {amount}</p>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+export default StealthPaymentApp;
+```
+
+---
+
+## See Also
+
+- [Stellar Primitives](/sdk/chains/stellar) — Low-level stealth address functions
+- [Getting Started](/getting-started) — Quick start guide
+- [How Stealth Payments Work](/guides/stealth-payments) — Cryptography overview
+- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — Common errors and fixes

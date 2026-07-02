@@ -1,0 +1,438 @@
+---
+title: "Stellar Transaction Simulation"
+description: "Use Soroban simulateTransaction for safe pre-flight checks before signing and submitting stealth payment transactions"
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, path payment, meta-address"
+---
+
+`simulateTransaction` is a Soroban RPC method that runs a transaction against the current ledger state without submitting it. It returns resource estimates, output previews, and — critically — decoded contract errors before any fees are spent or signatures collected. For stealth payment flows, simulation should be run on every contract call before signing.
+
+<Note>
+  Simulation applies to **Soroban contract invocations** — contract calls such as `announce`,
+  `register`, and `send`. Plain Stellar operations (native `Payment`, `CreateAccount`) do not need
+  simulation, though the Soroban SDK's `prepareTransaction` helper runs it automatically for
+  contract calls.
+</Note>
+
+---
+
+## What Simulation Does
+
+| Output | What it tells you |
+|---|---|
+| **Footprint** (read/write ledger keys) | Which contract storage entries the transaction touches |
+| **Resource estimates** | CPU instructions, memory bytes, ledger I/O — needed to set the `sorobanData` field |
+| **Return value** | The contract's return value, XDR-encoded — decode it to preview the result |
+| **Events** | Contract events that would be emitted — useful for verifying announcement data |
+| **Error** | If the contract would revert, the full error including contract-defined error codes |
+| **Fee estimate** | Minimum fee to include for the transaction to succeed |
+
+Without simulation, a contract call that would fail on-chain costs fees and consumes a sequence number. With simulation, you catch errors for free before signing.
+
+---
+
+## When to Use Simulation
+
+| Scenario | Simulate? |
+|---|---|
+| Invoking any Soroban contract (`announce`, `register`, `send`) | **Always** |
+| Plain `Payment` or `CreateAccount` operation | Not needed |
+| Before collecting multisig signatures | **Yes** — fail fast before distributing XDR to signers |
+| Before offline signing | **Yes** — simulate online, sign offline with confidence |
+| After any contract upgrade or parameter change | **Yes** — footprints and fees may have changed |
+
+Simulation is especially important in stealth flows because the `stealth-announcer` and `stealth-sender` contracts involve persistent storage writes. A misconfigured call (wrong asset, insufficient balance, unregistered key) returns a contract error that simulation exposes immediately.
+
+---
+
+## SDK Helpers
+
+The Soroban SDK's `SorobanRpc.Server` exposes `prepareTransaction`, which runs simulation internally and returns a transaction ready to sign. Use it as the standard path for all contract calls.
+
+### `prepareTransaction` — the standard path
+
+```typescript
+import {
+  Contract,
+  TransactionBuilder,
+  BASE_FEE,
+  nativeToScVal,
+  Address,
+} from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+async function buildAndPrepareContractCall(params: {
+  callerAccountId: string;
+  contractId: string;
+  method: string;
+  args: ReturnType<typeof nativeToScVal>[];
+}) {
+  const { callerAccountId, contractId, method, args } = params;
+
+  const account = await server.getAccount(callerAccountId);
+  const contract = new Contract(contractId);
+
+  // Build the raw transaction (no resource data yet)
+  const rawTx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(contract.call(method, ...args))
+    .setTimeout(300)
+    .build();
+
+  // prepareTransaction runs simulateTransaction internally,
+  // attaches the footprint and resource estimates, and returns
+  // a transaction ready to sign.
+  const preparedTx = await server.prepareTransaction(rawTx);
+
+  return preparedTx;
+}
+```
+
+`prepareTransaction` throws a `SorobanRpc.SimulateTransactionError` if the simulation fails, with the raw simulation result attached. Catch it to decode the contract error:
+
+```typescript
+import { SorobanRpc, xdr } from "@stellar/stellar-sdk";
+
+try {
+  const preparedTx = await buildAndPrepareContractCall({
+    callerAccountId: "G...CALLER",
+    contractId: "C...ANNOUNCER",
+    method: "announce",
+    args: [
+      // stealth_address, ephemeral_pub_key, metadata
+    ],
+  });
+
+  // Sign and submit the prepared transaction
+  preparedTx.sign(callerKeypair);
+  const result = await server.sendTransaction(preparedTx);
+  console.log("Submitted:", result.hash);
+
+} catch (e) {
+  if (e instanceof SorobanRpc.SimulateTransactionError) {
+    console.error("Simulation failed:", e.message);
+    console.error("Raw simulation result:", JSON.stringify(e.result, null, 2));
+    // Decode the contract error — see "Handling Sim Failures" below
+  } else {
+    throw e;
+  }
+}
+```
+
+---
+
+## Raw RPC Patterns
+
+When you need full control over the simulation result — for logging, fee inspection, or event preview — call `simulateTransaction` directly before preparing.
+
+### Direct simulation
+
+```typescript
+import { SorobanRpc, Transaction } from "@stellar/stellar-sdk";
+
+async function simulate(rawTxXdr: string): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+  const tx = new Transaction(rawTxXdr, FUTURENET_PASSPHRASE);
+  const result = await server.simulateTransaction(tx);
+  return result;
+}
+
+const simResult = await simulate(rawTx.toXDR());
+
+if (SorobanRpc.Api.isSimulationError(simResult)) {
+  console.error("Simulation error:", simResult.error);
+} else if (SorobanRpc.Api.isSimulationRestore(simResult)) {
+  console.warn("State restore required before this transaction can succeed");
+} else {
+  console.log("Simulation success");
+  console.log("Min resource fee:", simResult.minResourceFee, "stroops");
+}
+```
+
+### Applying simulation results manually
+
+If you need to apply simulation results to a transaction yourself (advanced use cases):
+
+```typescript
+import { SorobanRpc, assembleTransaction } from "@stellar/stellar-sdk";
+
+// assembleTransaction applies the footprint + resource estimates from the sim result
+// This is what prepareTransaction does internally
+const assembledTx = assembleTransaction(rawTx, simResult);
+```
+
+---
+
+## Decoding Simulation Results
+
+### Return values
+
+The contract's return value is an XDR `ScVal`. Decode it with `scValToNative`:
+
+```typescript
+import { scValToNative, SorobanRpc } from "@stellar/stellar-sdk";
+
+if (!SorobanRpc.Api.isSimulationError(simResult) && simResult.result) {
+  const returnValue = scValToNative(simResult.result.retval);
+  console.log("Contract return value:", returnValue);
+}
+```
+
+### Events
+
+Simulated events appear in `simResult.events`. Each is a base64-encoded XDR `DiagnosticEvent`:
+
+```typescript
+import { xdr, scValToNative } from "@stellar/stellar-sdk";
+
+if (!SorobanRpc.Api.isSimulationError(simResult)) {
+  for (const rawEvent of simResult.events ?? []) {
+    const event = xdr.DiagnosticEvent.fromXDR(rawEvent.event, "base64");
+
+    if (event.event().type().name !== "contract") continue;
+
+    const contractEvent = event.event().body().v0();
+    const topics = contractEvent.topics().map(t => scValToNative(t));
+    const data = scValToNative(contractEvent.data());
+
+    console.log("Event topics:", topics);
+    console.log("Event data:  ", data);
+  }
+}
+```
+
+For the `stealth-announcer` contract, you'll see a topic array like:
+```
+["announce", schemeId, stealthAddress, caller]
+```
+and data containing the ephemeral public key and view tag metadata — exactly what the scanner expects.
+
+### Fee breakdown
+
+```typescript
+if (!SorobanRpc.Api.isSimulationError(simResult)) {
+  console.log("Min resource fee:", simResult.minResourceFee, "stroops");
+
+  const resources = simResult.transactionData?.build().resources();
+  if (resources) {
+    console.log("CPU instructions:", resources.instructions());
+    console.log("Read bytes:      ", resources.readBytes());
+    console.log("Write bytes:     ", resources.writeBytes());
+  }
+}
+```
+
+Use `minResourceFee` to set a realistic fee on the transaction. The `BASE_FEE` (100 stroops) only covers the base transaction fee; Soroban resource fees are additional.
+
+---
+
+## Handling Simulation Failures
+
+Contract errors returned by simulation are far more actionable than opaque on-chain failure codes. Decode them to give users useful feedback.
+
+### Decoding a contract error
+
+```typescript
+import { xdr, SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
+
+function decodeSimulationError(simResult: SorobanRpc.Api.SimulateTransactionResponse): string {
+  if (!SorobanRpc.Api.isSimulationError(simResult)) return "No error";
+
+  const errorStr = simResult.error;
+
+  // Contract errors often contain an XDR-encoded ScError
+  try {
+    const scError = xdr.ScVal.fromXDR(errorStr, "base64");
+    const decoded = scValToNative(scError);
+    return `Contract error: ${JSON.stringify(decoded)}`;
+  } catch {
+    // Not XDR — return the raw error string
+    return errorStr;
+  }
+}
+```
+
+### Common simulation errors and fixes
+
+| Error | Cause | Fix |
+|---|---|---|
+| `HostError: Error(Contract, #1)` | Contract-defined error code 1 — check the contract's error enum | Read the contract's error documentation for code meanings |
+| `HostError: Error(WasmVm, InvalidAction)` | Contract called with wrong argument types | Check `ScVal` types match the contract function signature |
+| `HostError: Error(Storage, MissingValue)` | A required ledger entry doesn't exist | Ensure the account or contract data is initialized first |
+| `isSimulationRestore` | An archived ledger entry must be restored before proceeding | Submit a `RestoreFootprint` transaction first |
+| Insufficient balance | Native balance too low for the operation | Fund the account via Friendbot (testnet) or direct transfer |
+
+### User-facing error messages for stealth flows
+
+```typescript
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+function userFacingSimError(simResult: SorobanRpc.Api.SimulateTransactionResponse): string {
+  if (!SorobanRpc.Api.isSimulationError(simResult)) return "";
+
+  const raw = simResult.error.toLowerCase();
+
+  if (raw.includes("missingvalue")) {
+    return "The stealth address or registry entry was not found. Ensure the recipient is registered.";
+  }
+  if (raw.includes("insufficient") || raw.includes("underfunded")) {
+    return "Insufficient balance. Top up the account before sending.";
+  }
+  if (SorobanRpc.Api.isSimulationRestore(simResult)) {
+    return "A state restore is required. Please retry — the restore will be handled automatically.";
+  }
+
+  return `Transaction pre-flight failed: ${simResult.error}`;
+}
+```
+
+---
+
+## End-to-End: Simulating a Stealth Announcement
+
+This shows the full simulation flow for a `stealth-announcer` contract call — the most common Soroban interaction in a stealth payment flow.
+
+```typescript
+import {
+  Contract,
+  TransactionBuilder,
+  BASE_FEE,
+  Keypair,
+  nativeToScVal,
+  xdr,
+  scValToNative,
+  Address,
+} from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+import {
+  generateStealthAddress,
+  deriveStealthKeys,
+  getDeployment,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+async function simulateAndSendAnnouncement(params: {
+  callerKeypair: Keypair;
+  recipientSpendingPubKey: Uint8Array;
+  recipientViewingPubKey: Uint8Array;
+}): Promise<void> {
+  const { callerKeypair, recipientSpendingPubKey, recipientViewingPubKey } = params;
+
+  // 1. Generate a stealth address for the recipient
+  const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(
+    recipientSpendingPubKey,
+    recipientViewingPubKey
+  );
+
+  // 2. Build the raw contract call
+  const deployment = getDeployment("futurenet");
+  const contract = new Contract(deployment.contracts.announcer);
+  const account = await server.getAccount(callerKeypair.publicKey());
+
+  const metadata = Buffer.alloc(1);
+  metadata[0] = viewTag;
+
+  const rawTx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(
+      contract.call(
+        "announce",
+        nativeToScVal(1, { type: "u32" }),                               // scheme_id
+        new Address(stealthAddress).toScVal(),                            // stealth_address
+        nativeToScVal(ephemeralPubKey, { type: "bytes" }),               // ephemeral_pub_key
+        nativeToScVal(metadata, { type: "bytes" }),                      // metadata (view tag)
+      )
+    )
+    .setTimeout(300)
+    .build();
+
+  // 3. Simulate first — inspect fees and events before signing
+  console.log("Running pre-flight simulation...");
+  const simResult = await server.simulateTransaction(rawTx);
+
+  if (SorobanRpc.Api.isSimulationError(simResult)) {
+    const msg = userFacingSimError(simResult);
+    throw new Error(`Pre-flight failed: ${msg}`);
+  }
+
+  // 4. Log the fee estimate and preview events
+  console.log("Min resource fee:", simResult.minResourceFee, "stroops");
+  console.log("Events that will be emitted:");
+
+  for (const rawEvent of simResult.events ?? []) {
+    const event = xdr.DiagnosticEvent.fromXDR(rawEvent.event, "base64");
+    if (event.event().type().name !== "contract") continue;
+    const topics = event.event().body().v0().topics().map(t => scValToNative(t));
+    console.log(" -", topics);
+  }
+
+  // 5. Assemble (apply footprint + resources), sign, and submit
+  const preparedTx = await server.prepareTransaction(rawTx);
+  preparedTx.sign(callerKeypair);
+
+  const submitResult = await server.sendTransaction(preparedTx);
+  if (submitResult.status === "ERROR") {
+    throw new Error(`Submission failed: ${JSON.stringify(submitResult.errorResult)}`);
+  }
+
+  console.log("Submitted announcement:", submitResult.hash);
+
+  // 6. Poll for confirmation
+  let status = await server.getTransaction(submitResult.hash);
+  while (status.status === "NOT_FOUND") {
+    await new Promise(r => setTimeout(r, 3000));
+    status = await server.getTransaction(submitResult.hash);
+  }
+
+  if (status.status === "SUCCESS") {
+    console.log("Announcement confirmed in ledger", status.ledger);
+    console.log("Stealth address:", stealthAddress);
+  } else {
+    console.error("Transaction failed. Result XDR:", status.resultXdr);
+  }
+}
+
+// Run on futurenet
+const callerKeypair = Keypair.random(); // funded via Friendbot
+const recipientMaster = Keypair.random();
+const recipientSig = recipientMaster.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const { spendingPubKey, viewingPubKey } = deriveStealthKeys(recipientSig);
+
+await simulateAndSendAnnouncement({
+  callerKeypair,
+  recipientSpendingPubKey: spendingPubKey,
+  recipientViewingPubKey: viewingPubKey,
+});
+```
+
+### Expected output
+
+```
+Running pre-flight simulation...
+Min resource fee: 47312 stroops
+Events that will be emitted:
+ - [ 'announce', 1, 'GXYZ...', 'GABC...' ]
+Submitted announcement: a1b2c3...
+Announcement confirmed in ledger 8294710
+Stealth address: GXYZ...
+```
+
+---
+
+## See Also
+
+- [Stellar Primitives](/sdk/chains/stellar) — full SDK reference including `generateStealthAddress` and `scanAnnouncements`
+- [Stellar Offline Transaction Signing](/guides/stellar-offline-signing) — simulate online, sign on an air-gapped machine
+- [Stellar Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) — simulate before distributing XDR to N signers
+- [Stellar Event Schemas](/reference/stellar-event-schemas) — announcer event topic format reference

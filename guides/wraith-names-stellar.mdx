@@ -1,0 +1,219 @@
+---
+title: "Wraith Names on Stellar"
+description: "Core protocol identity lifecycle: registration, updates, subdomains, and privacy"
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, path payment, meta-address"
+---
+
+`.wraith` names act as the core identity layer for the Wraith Protocol on Stellar. They map human-readable names to 64-byte stealth meta-addresses, making it easy to send private payments without dealing with raw keys.
+
+This guide covers the complete lifecycle of a `.wraith` name, from registration to subdomain delegation.
+
+## Naming Rules
+
+To ensure consistency and compatibility across the protocol, names must adhere to the following rules:
+- **Length:** 3 to 32 characters.
+- **Allowed characters:** Lowercase alphanumeric (`a-z`, `0-9`) only.
+- **Top-level domain:** All names are implicitly suffixed with `.wraith` (e.g., `alice` becomes `alice.wraith`).
+
+> [!IMPORTANT]
+> **Privacy Implication:** While payments sent to a `.wraith` name use stealth addresses and are completely private, the **names themselves and their meta-address mappings are public**. Anyone can see who owns `alice.wraith`, but they cannot see how much XLM or USDC `alice.wraith` has received.
+
+## Prerequisites: Funding on Stellar
+
+Before interacting with the `wraith-names` Soroban contract, you need a funded Stellar account.
+
+- **Testnet:** The easiest way to fund a new account for testing is using Friendbot. When using the SDK, testnet agent accounts are funded automatically via Friendbot.
+- **Mainnet:** You must send at least 1.5 XLM to the agent address to activate the account (Stellar minimum balance) plus some reserves for gas/fees.
+
+## Contract Architecture
+
+The Stellar naming registry is powered by the `wraith-names` Soroban contract. On testnet, the contract is deployed at:
+`CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV`
+
+See the [Stellar Contracts reference](/contracts/stellar#wraith-names) for the complete interface and deployment details.
+
+---
+
+## Registration
+
+The registration operation binds an available name to your stealth meta-address. 
+
+### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// Agents automatically handle the registration via Soroban
+const tx = await agent.chat("register the name alice on stellar");
+console.log(tx.response);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- register \
+  --caller <your-address> \
+  --name "alice" \
+  --meta_address <hex-encoded-meta-address>
+```
+
+> [!WARNING]
+> **Mempool Front-Running:** Stellar's mempool and consensus model (SCP) handles transaction ordering differently than EVM chains, but Soroban transactions are still subject to congestion and inclusion delays. If you are registering a high-value name, be aware that others observing the network may attempt to register the same name if your transaction is delayed.
+
+## Gasless / Delegated Registration
+
+You don't need XLM in your own wallet to register a name. The contract supports a gasless "on-behalf" flow using Soroban's built-in auth framework.
+
+By signing a Soroban auth payload, you can delegate the fee payment to a relayer or the Wraith API, which will submit the transaction and pay the network fees on your behalf.
+
+```typescript
+// The Wraith SDK handles delegated registration out-of-the-box
+const agent = await wraith.createAgent({
+  name: "alice", // Automatically uses delegated registration if the agent lacks XLM
+  chain: Chain.Stellar,
+  wallet: ownerKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message: "Sign to create Wraith agent"
+});
+```
+
+---
+
+## Resolve a Name
+
+Resolving a name returns the 64-byte stealth meta-address associated with it.
+
+### SDK Example
+
+```typescript
+const metaAddress = await wraith.resolveName("alice.wraith", Chain.Stellar);
+console.log("Resolved meta-address:", metaAddress);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- resolve \
+  --name "alice"
+```
+
+![Name Resolution Flow](/assets/diagrams/stellar/name-resolution-stellar.svg)
+
+---
+
+## Reverse Lookup
+
+You can perform a reverse lookup to find the name associated with a specific meta-address.
+
+### SDK Example
+
+```typescript
+const name = await wraith.lookupMetaAddress(metaAddress, Chain.Stellar);
+console.log("Associated name:", name); // Returns "alice"
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- name_of \
+  --meta_address <hex-encoded-meta-address>
+```
+
+---
+
+## Update Meta-Address
+
+If you rotate your keys or want to route payments to a different agent, you can update the meta-address mapping for a name you own.
+
+### SDK Example
+
+```typescript
+const update = await agent.chat("update my name mapping to the new meta-address on stellar");
+console.log(update.response);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- update \
+  --caller <your-address> \
+  --name "alice" \
+  --new_meta_address <new-hex-encoded-meta-address>
+```
+
+---
+
+## Release a Name
+
+If you no longer need a name, you can release it, making it available for others to register.
+
+### SDK Example
+
+```typescript
+const release = await agent.chat("release the name alice on stellar");
+console.log(release.response);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- release \
+  --caller <your-address> \
+  --name "alice"
+```
+
+---
+
+## Subdomain Delegation
+
+> [!NOTE]
+> **Upcoming Feature:** Subdomain delegation relies on the v2 hierarchical naming contract, which is shipping in the upcoming Contracts Wave. This section will be fully functional once the release goes live on mainnet.
+
+Hierarchical subdomain delegation allows a parent name owner (e.g., `alice.wraith`) to issue subdomains (e.g., `payments.alice.wraith`) without requiring the subdomain owner to interact with the top-level registry.
+
+This is particularly useful for organizations or applications that want to provide native Wraith identities to their users under their own namespace.
+
+### Delegation Flow
+
+1. The owner of `alice.wraith` sets a **Delegation Resolver** address on their name record.
+2. When a user attempts to resolve `payments.alice.wraith`, the SDK automatically detects the subdomain structure.
+3. The SDK queries the parent name's Delegation Resolver for the `payments` record.
+4. The Delegation Resolver returns the stealth meta-address for `payments.alice.wraith`.
+
+### SDK Example (Upcoming)
+
+```typescript
+// 1. Set the delegation resolver for your main name
+await agent.chat("set subdomain resolver to CC... on stellar");
+
+// 2. Add a user to your custom resolver
+await customResolver.addSubdomain("payments", userMetaAddress);
+
+// 3. Resolving "payments.alice.wraith" will now route through your resolver
+const resolved = await wraith.resolveName("payments.alice.wraith", Chain.Stellar);
+```
+
+For custom integrations, developers can implement the standard `SubdomainResolver` interface in their own Soroban contracts, allowing for custom logic such as subscription-based names, NFT-gated names, or off-chain resolution using signed attestations.

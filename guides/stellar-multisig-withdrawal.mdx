@@ -1,0 +1,531 @@
+---
+title: "Stellar Multisig Stealth Withdrawals"
+description: "Coordinate multiple signers to authorize stealth withdrawals from a multisig Stellar account"
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, path payment, meta-address"
+---
+
+Stealth withdrawals from a multisig source account require every participating signer to contribute a valid signature before the transaction can be submitted. This guide walks through Stellar's native multisig model, how it interacts with stealth address mechanics, and how to coordinate N-of-M signing using the Wraith SDK.
+
+<Note>
+  All contract addresses and account IDs in code examples are illustrative. Replace them with your
+  actual futurenet or mainnet values before running.
+</Note>
+
+---
+
+## Stellar Native Multisig Primer
+
+Every Stellar account has a set of **signers** and three **thresholds** — low, medium, and high. Each signer carries a **weight**, and an operation is authorized only when the combined weight of attached signatures meets or exceeds the threshold required for that operation type.
+
+### Thresholds and operation categories
+
+| Threshold | Default value | Operations that use it |
+|---|---|---|
+| Low | 1 | `AllowTrust`, `BumpSequence`, `ClaimClaimableBalance` (as claimant) |
+| Medium | 2 | `Payment`, `ManageSellOffer`, `ManageBuyOffer`, `PathPayment`, most others |
+| High | 3 | `AccountMerge`, `SetOptions` (threshold/signer changes) |
+
+A stealth withdrawal is a **Payment** operation — it uses the **medium threshold**.
+
+### Signer weights
+
+```typescript
+import { Keypair, Operation, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const server = new SorobanRpc.Server("https://rpc-futurenet.stellar.org");
+
+const account = await server.getAccount("G...SOURCE_ACCOUNT");
+console.log(account.thresholds);
+// { low_threshold: 1, med_threshold: 3, high_threshold: 5 }
+console.log(account.signers);
+// [
+//   { key: "G...SIGNER_A", weight: 1 },
+//   { key: "G...SIGNER_B", weight: 1 },
+//   { key: "G...SIGNER_C", weight: 1 },
+//   { key: "G...SIGNER_D", weight: 1 },
+//   { key: "G...SIGNER_E", weight: 1 },
+// ]
+```
+
+### Key rules
+
+- The **sequence number** is owned by the source account — only one transaction per sequence number is accepted. Signers must coordinate on the same built transaction, not independently build their own.
+- If a transaction is submitted with insufficient weight, Stellar returns `tx_bad_auth`.
+- Adding or removing signers, or changing thresholds, requires meeting the **high threshold**.
+
+---
+
+## Building a Multisig-Source-Account Stealth Withdrawal
+
+A stealth withdrawal sends funds from a stealth address to a destination. When the **source account** paying fees is a multisig account, the transaction must carry enough signatures from that account's signers in addition to the stealth signing key.
+
+### Roles
+
+| Role | Responsibility |
+|---|---|
+| **Coordinator** | Builds the transaction, collects signatures, submits |
+| **Signers (N)** | Each signs the XDR and returns their signature |
+| **Stealth key holder** | Signs with the derived scalar to authorize the payment from the stealth address |
+
+### Transaction structure
+
+```typescript
+import { Keypair, Operation, TransactionBuilder, Asset, BASE_FEE } from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+import { signWithScalar } from "@wraith-protocol/sdk/chains/stellar";
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+async function buildWithdrawalTransaction(params: {
+  sourceAccountId: string;
+  stealthAccountId: string;
+  destinationId: string;
+  amount: string;
+  asset: Asset;
+}) {
+  const { sourceAccountId, stealthAccountId, destinationId, amount, asset } = params;
+  const sourceAccount = await server.getAccount(sourceAccountId);
+
+  return new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.payment({
+        source: stealthAccountId,
+        destination: destinationId,
+        asset,
+        amount,
+      })
+    )
+    .setTimeout(300)
+    .build();
+}
+```
+
+<Warning>
+  Build the transaction **once** and share the XDR. Never let each signer build independently — they
+  will produce different sequence numbers and the signatures will not be compatible.
+</Warning>
+
+---
+
+## Coordinating N Signatures
+
+### Step 1 — Coordinator builds and distributes the XDR
+
+```typescript
+const tx = await buildWithdrawalTransaction({
+  sourceAccountId: "G...SOURCE",
+  stealthAccountId: "G...STEALTH",
+  destinationId: "G...DESTINATION",
+  amount: "10.0000000",
+  asset: Asset.native(),
+});
+
+const txXdr = tx.toXDR();
+console.log("XDR to share:", txXdr);
+```
+
+### Step 2 — Each signer signs the XDR and returns their signature
+
+```typescript
+import { Transaction } from "@stellar/stellar-sdk";
+
+function signerSign(xdr: string, signerSecret: string): string {
+  const keypair = Keypair.fromSecret(signerSecret);
+  const tx = new Transaction(xdr, FUTURENET_PASSPHRASE);
+  return keypair.sign(tx.hash()).toString("base64");
+}
+
+const sigA = signerSign(txXdr, "S...SECRET_A");
+const sigB = signerSign(txXdr, "S...SECRET_B");
+const sigC = signerSign(txXdr, "S...SECRET_C");
+```
+
+<Note>
+  Signers only need to return their **signature** (base64), not the full signed XDR. This avoids
+  conflicts when each signer tries to attach their signature to the transaction object independently.
+</Note>
+
+### Step 3 — Coordinator attaches all signatures
+
+```typescript
+import { Transaction, xdr } from "@stellar/stellar-sdk";
+
+function attachSignatures(
+  txXdr: string,
+  entries: Array<{ publicKey: string; signatureBase64: string }>
+): Transaction {
+  const tx = new Transaction(txXdr, FUTURENET_PASSPHRASE);
+  for (const { publicKey, signatureBase64 } of entries) {
+    const keypair = Keypair.fromPublicKey(publicKey);
+    tx.signatures.push(
+      xdr.DecoratedSignature.decDecoratedSignature({
+        hint: keypair.signatureHint(),
+        signature: Buffer.from(signatureBase64, "base64"),
+      })
+    );
+  }
+  return tx;
+}
+
+const signedTx = attachSignatures(txXdr, [
+  { publicKey: "G...SIGNER_A", signatureBase64: sigA },
+  { publicKey: "G...SIGNER_B", signatureBase64: sigB },
+  { publicKey: "G...SIGNER_C", signatureBase64: sigC },
+]);
+```
+
+### Step 4 — Stealth key holder signs the payment operation source
+
+```typescript
+import { signWithScalar } from "@wraith-protocol/sdk/chains/stellar";
+
+function attachStealthSignature(
+  tx: Transaction,
+  stealthPrivateScalar: bigint,
+  stealthPubKeyBytes: Uint8Array
+): Transaction {
+  const hash = tx.hash();
+  const { signature, hint } = signWithScalar(stealthPrivateScalar, stealthPubKeyBytes, hash);
+  tx.signatures.push(
+    xdr.DecoratedSignature.decDecoratedSignature({ hint, signature })
+  );
+  return tx;
+}
+
+const fullySignedTx = attachStealthSignature(
+  signedTx,
+  matchedAnnouncement.stealthPrivateScalar,
+  matchedAnnouncement.stealthPubKeyBytes
+);
+```
+
+### Step 5 — Submit
+
+```typescript
+const result = await server.sendTransaction(fullySignedTx);
+
+let status = await server.getTransaction(result.hash);
+while (status.status === "NOT_FOUND") {
+  await new Promise(r => setTimeout(r, 2000));
+  status = await server.getTransaction(result.hash);
+}
+
+if (status.status === "SUCCESS") {
+  console.log("Withdrawal confirmed in ledger", status.ledger);
+} else {
+  console.error("Transaction failed:", status.resultXdr);
+}
+```
+
+---
+
+## Using the SDK Multisig Helpers
+
+<Note>
+  Dedicated multisig coordination helpers are coming to `@wraith-protocol/sdk/chains/stellar` in an
+  upcoming release. The patterns below use current primitives. The helper API will wrap these steps
+  with a cleaner interface.
+</Note>
+
+```typescript
+import {
+  deriveStealthKeys,
+  scanAnnouncements,
+  fetchAnnouncements,
+  getDeployment,
+  signWithScalar,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const masterKeypair = Keypair.fromSecret("S...YOUR_SECRET");
+const signature = masterKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(signature);
+
+const deployment = getDeployment("futurenet");
+const announcements = await fetchAnnouncements(deployment, server);
+
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingKey
+);
+
+console.log("Funds detected at:", matched.map(m => m.stealthAddress));
+```
+
+---
+
+## Recovery Scenarios
+
+### Lost signer — threshold still reachable
+
+If you lose one signer but remaining signers still meet the medium threshold, remove the lost signer immediately.
+
+```typescript
+const removeLostSignerTx = new TransactionBuilder(sourceAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.setOptions({
+      signer: {
+        ed25519PublicKey: "G...LOST_SIGNER",
+        weight: 0,
+      },
+    })
+  )
+  .setTimeout(300)
+  .build();
+```
+
+<Warning>
+  Weight 0 permanently removes the signer. If remaining signers cannot meet the **high threshold**,
+  account governance is permanently locked. Plan your weight distribution to always allow recovery.
+</Warning>
+
+### Lost signer — threshold no longer reachable
+
+If remaining signers cannot meet the medium threshold, funds in stealth addresses cannot be withdrawn. Mitigations to put in place **before** this happens:
+
+1. **Break-glass signer** — a hardware key with weight equal to the medium threshold alone, kept offline.
+2. **Claimable balances** — send funds from the stealth address to a claimable balance with a time-locked predicate before the signer set is at risk.
+3. **Regular threshold review** — after any signer departure, immediately verify the remaining set still covers the medium threshold.
+
+### Changing the threshold
+
+```typescript
+const changeThresholdTx = new TransactionBuilder(sourceAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(Operation.setOptions({ medThreshold: 2 }))
+  .setTimeout(300)
+  .build();
+```
+
+---
+
+## Worked 3-of-5 Example End-to-End
+
+This example runs on **futurenet**. The source account has 5 signers each with weight 1 and medium threshold 3. Three signers coordinate to authorize the withdrawal.
+
+### Prerequisites
+
+```bash
+for ADDR in G...A G...B G...C G...D G...E; do
+  curl "https://friendbot-futurenet.stellar.org/?addr=$ADDR"
+done
+```
+
+### 1. Configure the multisig source account
+
+```typescript
+import { Keypair, Operation, TransactionBuilder, BASE_FEE, Asset } from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+const server = new SorobanRpc.Server("https://rpc-futurenet.stellar.org");
+
+const [sigA, sigB, sigC, sigD, sigE] = Array.from({ length: 5 }, () => Keypair.random());
+const sourceAccount = await server.getAccount(sigA.publicKey());
+
+const setupTx = new TransactionBuilder(sourceAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(Operation.setOptions({ lowThreshold: 1, medThreshold: 3, highThreshold: 5 }))
+  .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: sigB.publicKey(), weight: 1 } }))
+  .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: sigC.publicKey(), weight: 1 } }))
+  .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: sigD.publicKey(), weight: 1 } }))
+  .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: sigE.publicKey(), weight: 1 } }))
+  .setTimeout(60)
+  .build();
+
+setupTx.sign(sigA);
+const setupResult = await server.sendTransaction(setupTx);
+console.log("Multisig account configured:", setupResult.hash);
+```
+
+### 2. Send a stealth payment to a recipient
+
+```typescript
+import {
+  deriveStealthKeys,
+  generateStealthAddress,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const recipientKeypair = Keypair.random();
+const recipientSig = recipientKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const recipientKeys = deriveStealthKeys(recipientSig);
+
+const { stealthAddress } = generateStealthAddress(
+  recipientKeys.spendingPubKey,
+  recipientKeys.viewingPubKey
+);
+console.log("Stealth address:", stealthAddress);
+
+const senderKeypair = Keypair.random();
+const senderAccount = await server.getAccount(senderKeypair.publicKey());
+
+const fundTx = new TransactionBuilder(senderAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(Operation.createAccount({ destination: stealthAddress, startingBalance: "5" }))
+  .setTimeout(60)
+  .build();
+
+fundTx.sign(senderKeypair);
+await server.sendTransaction(fundTx);
+console.log("Stealth address funded:", stealthAddress);
+```
+
+### 3. Recipient scans and detects the payment
+
+```typescript
+import { scanAnnouncements, fetchAnnouncements, getDeployment } from "@wraith-protocol/sdk/chains/stellar";
+
+const deployment = getDeployment("futurenet");
+const announcements = await fetchAnnouncements(deployment, server);
+const matched = scanAnnouncements(
+  announcements,
+  recipientKeys.viewingKey,
+  recipientKeys.spendingPubKey,
+  recipientKeys.spendingKey
+);
+
+const payment = matched.find(m => m.stealthAddress === stealthAddress);
+if (!payment) throw new Error("Payment not found — check announcements or scan window");
+console.log("Detected payment at:", payment.stealthAddress);
+```
+
+### 4. Coordinator builds the withdrawal transaction
+
+```typescript
+const multisigAccount = await server.getAccount(sigA.publicKey());
+
+const withdrawalTx = new TransactionBuilder(multisigAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.payment({
+      source: payment.stealthAddress,
+      destination: recipientKeypair.publicKey(),
+      asset: Asset.native(),
+      amount: "4.5000000",
+    })
+  )
+  .setTimeout(300)
+  .build();
+
+const withdrawalXdr = withdrawalTx.toXDR();
+console.log("XDR ready — distributing to signers");
+```
+
+### 5. Three signers sign and return signatures
+
+```typescript
+import { Transaction } from "@stellar/stellar-sdk";
+
+function collectSig(xdr: string, keypair: Keypair): string {
+  const tx = new Transaction(xdr, FUTURENET_PASSPHRASE);
+  return keypair.sign(tx.hash()).toString("base64");
+}
+
+const sigFromA = collectSig(withdrawalXdr, sigA);
+const sigFromB = collectSig(withdrawalXdr, sigB);
+const sigFromC = collectSig(withdrawalXdr, sigC);
+// sigD and sigE not needed: 3 × weight 1 = 3 >= med_threshold 3
+```
+
+### 6. Coordinator assembles all signatures and submits
+
+```typescript
+import { Transaction, xdr } from "@stellar/stellar-sdk";
+import { signWithScalar } from "@wraith-protocol/sdk/chains/stellar";
+
+const finalTx = new Transaction(withdrawalXdr, FUTURENET_PASSPHRASE);
+
+for (const { keypair, sig } of [
+  { keypair: sigA, sig: sigFromA },
+  { keypair: sigB, sig: sigFromB },
+  { keypair: sigC, sig: sigFromC },
+]) {
+  finalTx.signatures.push(
+    xdr.DecoratedSignature.decDecoratedSignature({
+      hint: keypair.signatureHint(),
+      signature: Buffer.from(sig, "base64"),
+    })
+  );
+}
+
+const { signature: stealthSig, hint: stealthHint } = signWithScalar(
+  payment.stealthPrivateScalar,
+  payment.stealthPubKeyBytes,
+  finalTx.hash()
+);
+finalTx.signatures.push(
+  xdr.DecoratedSignature.decDecoratedSignature({ hint: stealthHint, signature: stealthSig })
+);
+
+const submitResult = await server.sendTransaction(finalTx);
+if (submitResult.status === "ERROR") {
+  throw new Error(`Submission failed: ${JSON.stringify(submitResult.errorResult)}`);
+}
+
+let confirmed = await server.getTransaction(submitResult.hash);
+while (confirmed.status === "NOT_FOUND") {
+  await new Promise(r => setTimeout(r, 3000));
+  confirmed = await server.getTransaction(submitResult.hash);
+}
+
+if (confirmed.status === "SUCCESS") {
+  console.log("Withdrawal confirmed in ledger", confirmed.ledger);
+} else {
+  // tx_bad_auth      — insufficient signer weight; check threshold and attached signatures
+  // op_src_not_exist — stealth address not found; verify address derivation
+  // op_underfunded   — stealth address has insufficient balance
+  console.error("Failed. Result XDR:", confirmed.resultXdr);
+}
+```
+
+### Expected output
+
+```
+Multisig account configured: a1b2c3...
+Stealth address funded: GXYZ...
+Detected payment at: GXYZ...
+XDR ready — distributing to signers
+Withdrawal confirmed in ledger 8294710
+```
+
+---
+
+## Summary
+
+| Step | Who | What |
+|---|---|---|
+| Configure multisig account | Account owner | Set thresholds and add signers |
+| Send stealth payment | Sender | Fund stealth address and announce |
+| Scan for payment | Recipient | Run `scanAnnouncements`, get scalar |
+| Build transaction XDR | Coordinator | One transaction, shared with all signers |
+| Sign XDR | Each signer (N of M) | Return base64 signature |
+| Assemble and sign stealth | Coordinator | Attach multisig sigs and stealth scalar sig |
+| Submit | Coordinator | One submission to Soroban RPC |
+
+## See Also
+
+- [Stellar Primitives](/sdk/chains/stellar) — full SDK reference including `signWithScalar` and `deriveStealthPrivateScalar`
+- [Privacy Best Practices](/guides/privacy-best-practices) — operational security for stealth withdrawals
+- [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment) — production RPC setup and monitoring
+- [Stellar Event Schemas](/reference/stellar-event-schemas) — announcement format reference

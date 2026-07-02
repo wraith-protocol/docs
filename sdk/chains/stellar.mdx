@@ -1,6 +1,7 @@
 ---
 title: "Stellar Primitives"
 description: "Stealth address crypto for Stellar using ed25519"
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, path payment, meta-address"
 ---
 
 Low-level stealth address functions for Stellar using ed25519. Import from `@wraith-protocol/sdk/chains/stellar`.
@@ -420,3 +421,77 @@ const announcements = await fetchAnnouncements("stellar");
 ```
 
 This replaces the need to manually query `sorobanServer.getEvents()` and parse XDR-encoded event data.
+
+> [!NOTE]
+> For advanced use cases and indexer building, refer to the [Stellar Event Schemas (v2)](/reference/stellar-event-schemas) documentation to learn how to natively filter topics via the RPC.
+- [Stellar Offline Transaction Signing](/guides/stellar-offline-signing) — build online, sign air-gapped, submit without the private key touching the internet
+- [Stellar Transaction Simulation](/guides/stellar-tx-simulation) — pre-flight every Soroban contract call with simulateTransaction before signing
+
+---
+
+## Troubleshooting & Fees
+
+If you encounter errors while building with Stellar primitives (like `tx_bad_seq`, `op_no_trust`, or stealth-specific errors), see the [Stellar Troubleshooting Guide](/guides/stellar-troubleshooting) for common causes and code fixes.
+
+For detailed fee calculations, baseline resource metrics, and budgeting advice for Soroban smart contracts, see:
+- [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — learn about inclusion fees, Soroban resource fees, and fee bumps
+- [Stellar Offline Transaction Signing](/guides/stellar-offline-signing) — build online, sign air-gapped, submit without the private key touching the internet
+## See Also
+
+- [Stellar React Hooks](/sdk/stellar-react-hooks) — React hooks for stealth address operations
+- [Wraith Names on Stellar](/guides/wraith-names-stellar) — core protocol identity lifecycle and subdomains
+- [Stellar Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) — coordinate N-of-M signers to authorize withdrawals from a multisig source account
+## Federation Address Resolution
+
+The SDK includes a `resolveStellarFederation()` helper for resolving `alice*example.com` federation addresses to Stellar public keys before sending payments.
+
+```typescript
+import { resolveStellarFederation } from "@wraith-protocol/sdk/chains/stellar";
+
+const record = await resolveStellarFederation("alice*example.com");
+console.log(record.accountId);   // "GABC..." or "st:xlm:..." stealth meta-address
+console.log(record.memoType);    // "text" | "id" | "hash" | undefined
+console.log(record.memoValue);   // memo value if required (e.g. exchange deposits)
+```
+
+If the resolved `accountId` is a stealth meta-address (`st:xlm:...`), decode it and pass it straight to `generateStealthAddress()`:
+
+```typescript
+import {
+  resolveStellarFederation,
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const record = await resolveStellarFederation("alice*example.com");
+
+if (record.accountId.startsWith("st:xlm:")) {
+  const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(record.accountId);
+  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+  // Send to stealth.stealthAddress and call the announcer contract
+} else {
+  // Send directly to record.accountId, include record.memoValue if present
+}
+```
+
+See the [Stellar Federation Addresses guide](/guides/stellar-federation) for the full reference: SEP-0002 protocol details, caching, failure modes, UX patterns, and how to register your own domain.
+
+## Custom Assets (USDC)
+
+The SDK supports sending any Stellar Asset Contract (SAC) token via stealth addresses, not just XLM. USDC (Circle) is fully compatible — no restrictive flags, trustlines auto-created via `trust()` on Protocol 22+.
+
+```typescript
+import { generateStealthAddress, decodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/stellar";
+import { Asset, Networks } from "@stellar/stellar-sdk";
+
+// Derive the USDC SAC contract address
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"; // testnet
+const usdcContractId = new Asset("USDC", USDC_ISSUER).contractId(Networks.TESTNET);
+// Pass usdcContractId as the `token` parameter to stealth-sender.send()
+```
+
+USDC amounts use **7 decimal places**: `100 USDC = 1_000_000_0` in the i128 passed to the SAC.
+
+Assets with `AUTH_REQUIRED` are incompatible with stealth payment flows. Assets with `AUTH_CLAWBACK_ENABLED` work at the protocol level but allow the issuer to reclaim stealth balances — the agent warns before sending.
+
+See the [Stellar Custom Assets guide](/guides/stellar-custom-assets) for the full reference: SAC overview, USDC issuer addresses, sender and recipient flows with trustline handling, path payments, fee estimates, and the SAC compatibility matrix from the June 2026 audit.

@@ -1,6 +1,7 @@
 ---
 title: "Stellar Contracts"
 description: "Soroban contract specs and deployment"
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, path payment, meta-address"
 ---
 
 Soroban smart contracts (Rust) for stealth address operations on the Stellar network.
@@ -163,6 +164,9 @@ const tx = new TransactionBuilder(account, { fee: "100" })
 
 Name to meta-address mapping. Names are hashed via SHA-256 for storage keys.
 
+> [!NOTE]
+> For the complete operations guide, including subdomain delegation and privacy implications, see the [Wraith Names on Stellar](/guides/wraith-names-stellar) guide.
+
 ### Interface
 
 ```rust
@@ -257,6 +261,9 @@ const events = await sorobanServer.getEvents({
   }],
 });
 ```
+
+> [!NOTE]
+> For details on the v2 indexed event topics and filtering by view tags, see the [Stellar Event Schemas (v2)](/reference/stellar-event-schemas) documentation.
 
 ---
 

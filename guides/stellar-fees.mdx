@@ -1,0 +1,169 @@
+---
+title: "Stellar Fee Estimation & Budgeting"
+description: "A comprehensive guide to Stellar classic operation fees, Soroban resource fees, fee-bump transaction sponsorship, and budgeting heuristics for Wraith applications."
+---
+
+Predictable budgeting on Stellar requires understanding both its classic payment fees and its multi-dimensional Soroban resource pricing. This guide explains how fees are calculated, outlines typical baseline costs for Wraith smart contract operations, and details how to estimate and budget for production-ready applications.
+
+---
+
+## The Stellar Fee Model
+
+Stellar uses a hybrid fee structure consisting of two distinct layers: **Inclusion Fees** (classic operation fees) and **Resource Fees** (Soroban-specific execution and storage fees).
+
+### 1. Classic Operation Fees
+
+For non-Soroban operations (such as native XLM payments or creating accounts) and as a baseline inclusion fee for all transactions, Stellar charges a base fee per operation:
+* **Base Fee**: Defined by the network (currently `100 stroops` or `0.00001 XLM` per operation; $1 \text{ XLM} = 10,000,000 \text{ stroops}$).
+* **Formula**: $\text{Inclusion Fee} = \text{Base Fee} \times \text{Operation Count}$
+* **Payment**: Deducted from the transaction source account's balance.
+
+### 2. Soroban Resource Fees
+
+Soroban smart contracts introduce multi-dimensional resource metering to prevent execution bottlenecks. Instead of a single gas price, Soroban tracks resource usage across several distinct dimensions:
+
+* **CPU Instructions**: Modeled CPU instructions executed by the WebAssembly (Wasm) runtime.
+* **Memory Bytes**: Peak RAM utilized during transaction execution.
+* **Ledger Read Entries**: The number of distinct ledger entries read from the database.
+* **Ledger Write Entries**: The number of distinct ledger entries created or modified.
+* **Ledger Read Bytes**: The total serialized size in bytes of all ledger entries read.
+* **Ledger Write Bytes**: The total serialized size in bytes of all ledger entries written.
+* **Event Bytes**: The serialized size of contract events emitted during execution.
+
+Soroban uses these metrics to compute a fee in stroops based on current network parameters.
+
+<Info>
+  Transactions containing Soroban contract invocations must submit an inclusion fee *plus* the calculated Soroban resource fee.
+</Info>
+
+---
+
+## Network Surge Pricing & Congestion
+
+During high-traffic periods, if the network capacity is exceeded, Stellar enters **surge pricing**:
+* **Classic Surge**: Transactions are prioritized based on their `fee` (inclusion fee bidding). Transactions with higher inclusion fees are processed first.
+* **Soroban Surge**: Soroban enforces separate per-ledger resource limits (e.g., maximum instructions or write bytes per ledger). If a transaction's resource demands exceed limits, or if resource contention occurs, transactions undergo a resource fee auction.
+* **Mitigation**: Production applications should dynamically adjust the base fee bid multiplier during periods of high congestion.
+
+---
+
+## Fee-Bump Transactions & Sponsorship
+
+UX is critical for privacy applications. To spare users from having to hold native XLM to pay for stealth transaction fees, developers can use **Fee-Bump Transactions**:
+
+* **Mechanics**: A fee-bump transaction wraps an inner transaction. The outer fee-bump envelope is signed by a sponsor (the fee-bump payer), while the inner transaction is signed by the user.
+* **Who Pays**: The sponsor paying the fee-bump pays the entire transaction fee (including both the inclusion fee and any Soroban resource fees).
+* **Stealth Use Case**: This allows users with a newly derived stealth address (which contains no XLM) to spend their incoming stealth tokens immediately, sponsored by a relayer. The relayer can recoup the fee in tokens off-chain or via a deduction in the transfer payload.
+
+---
+
+## Per-Wraith-Operation Resource Baselines
+
+Below are the audited, post-optimization resource baselines for the Wraith smart contract suite on Stellar. These numbers are captured from the standard benchmark tests (`stellar/bench` running in `soroban-sdk = 22.0.0` environment).
+
+| Contract | Function / Entry Point | Parameters | CPU Instructions | Memory (RAM) | Read Entries | Write Entries | Read Bytes | Write Bytes | Event Bytes |
+|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| **stealth-announcer** | `announce` | `metadata_len=32` | 15,458 | 1,666 B | 1 | 0 | 104 B | 0 B | 248 B |
+| **stealth-registry** | `register_keys` | First-time | 33,345 | 4,461 B | 1 | 2 | 104 B | 332 B | 188 B |
+| **stealth-sender** | `send` | Asset: XLM | 182,403 | 28,137 B | 5 | 3 | 1,068 B | 520 B | 484 B |
+| **stealth-sender** | `batch_send` | Batch size: 5 | 807,519 | 120,229 B | 5 | 7 | 1,068 B | 1,416 B | 2,420 B |
+| **stealth-sender** | `batch_send` | Batch size: 10 | 1,633,634 | 245,649 B | 5 | 12 | 1,068 B | 2,536 B | 4,840 B |
+| **wraith-names** | `register` | `name_len=3` | 59,792 | 6,240 B | 1 | 2 | 104 B | 516 B | 204 B |
+| **wraith-names** | `resolve` | Hit | 46,096 | 5,456 B | 1 | 0 | 452 B | 0 B | 0 B |
+| **wraith-names** | `name_of` | Hit | 47,042 | 5,383 B | 1 | 0 | 452 B | 0 B | 0 B |
+
+### Storage Rent Costs
+
+Soroban contracts pay rent for persistent ledger entries based on their serialized size.
+* **Sizes**: A registered stealth meta-address costs ~176 bytes. A name mapping costs ~224 bytes, and its reverse lookup maps to ~136 bytes.
+* **Protocol 23 Low-Fee Model**: At `fee_write_1kb = 3,500 stroops` and `persistentRentRateDenominator = 1,402`, the annual storage rate is **~0.001538 XLM per byte**.
+* **Impact**: Registering a name (mapping + reverse) totals 360 bytes of storage, costing approximately **0.00055 XLM per year** in storage rent.
+
+---
+
+## Worked Cost Scenarios
+
+These examples demonstrate how specific workflows translate to real-world costs on the Stellar network (assuming typical testnet parameters).
+
+### Scenario A: Sending a Stealth Payment
+
+A user sends a payment to a recipient's stealth address. This requires a classic `createAccount` operation (or `payment` for pre-existing accounts) and a Soroban invocation of `stealth-sender::send` to emit the stealth announcement event.
+
+* **Inclusion Fees**: 2 operations (create account + contract invoke) = `200 stroops`.
+* **Soroban Resource Fees**: ~35,000 stroops (based on 182,403 instructions, 5 reads, and 3 writes).
+* **Total Cost**: **~35,200 stroops (~0.00352 XLM)**.
+
+### Scenario B: Withdrawing Stealth Funds
+
+A recipient checks for incoming payments, matches their view tags, and withdraws the balance to their hot wallet. Because the stealth address is a standard keypair, the withdrawal is a simple, classic payment transaction.
+
+* **Operations**: 1 payment operation.
+* **Soroban Invocations**: None (pure classic transaction).
+* **Total Cost**: **100 stroops (0.00001 XLM)**.
+
+### Scenario C: Batch Sending (10 Recipients)
+
+An application distributes payroll to 10 stealth addresses. Calling `stealth-sender::batch_send` processes the payments atomically and groups event announcements.
+
+* **Inclusion Fees**: 11 operations (10 payments/creates + 1 contract invoke) = `1,100 stroops`.
+* **Soroban Resource Fees**: ~110,000 stroops (based on 1,633,634 instructions and 12 write entries).
+* **Total Cost**: **~111,100 stroops (~0.01111 XLM)**.
+* **Savings**: Batching reduces CPU instructions and read entries significantly, saving over **60%** in fees compared to 10 separate transactions.
+
+---
+
+## SDK Fee Estimation Helper
+
+The `@stellar/stellar-sdk` library provides the `prepareTransaction` helper to simulate contract invocations and automatically calculate the necessary Soroban resource budgets and transaction fees.
+
+```typescript
+import { Account, TransactionBuilder, rpc, Operation } from "@stellar/stellar-sdk";
+
+// Initialize Soroban RPC Server
+const rpcServer = new rpc.Server("https://soroban-testnet.stellar.org");
+
+async function estimateFees(sourcePublicKey: string, contractId: string) {
+  // 1. Fetch account sequence number
+  const account = await rpcServer.getAccount(sourcePublicKey);
+  
+  // 2. Build the preliminary transaction
+  const tx = new TransactionBuilder(account, {
+    fee: "100", // Start with network minimum base fee
+    networkPassphrase: "Test SDF Network ; September 2015",
+  })
+    .addOperation(
+      Operation.invokeContractFunction({
+        contract: contractId,
+        function: "announce",
+        args: [], // Add arguments as XDR ScVal structures
+      })
+    )
+    .build();
+
+  // 3. Simulate and prepare transaction
+  console.log("Simulating transaction on-chain...");
+  const preparedTx = await rpcServer.prepareTransaction(tx);
+
+  // 4. Extract calculated fee components
+  const totalFee = preparedTx.fee; // Combined inclusion + resource fee (in stroops)
+  const resourceFee = preparedTx.sorobanData.resources().fee().toString();
+  const inclusionFee = (BigInt(totalFee) - BigInt(resourceFee)).toString();
+
+  console.log(`Inclusion Fee: ${inclusionFee} stroops (${Number(inclusionFee) / 1e7} XLM)`);
+  console.log(`Resource Fee:  ${resourceFee} stroops (${Number(resourceFee) / 1e7} XLM)`);
+  console.log(`Total Fee:     ${totalFee} stroops (${Number(totalFee) / 1e7} XLM)`);
+  
+  return preparedTx;
+}
+```
+
+---
+
+## Budgeting Heuristics for Production
+
+To ensure smooth operations in production apps, implement these heuristics:
+
+1. **Keep a 5 XLM Fee Buffer**: Newly derived stealth accounts should keep a tiny amount of XLM (typically 5 XLM) reserved for fee bids and the minimum ledger reserve (1 XLM base account reserve + 0.5 XLM per sub-entry or trustline).
+2. **Prioritize Batching**: Always batch transfers when sending payments to multiple recipients. Calling `batch_send` reduces transaction fee costs and cuts ledger read overhead.
+3. **Set a Surge Pricing Margin**: In production, configure your fee estimator to add a margin (e.g., 20% to 50%) to the suggested base fee during network congestion to prevent transactions from getting stuck in the transaction queue.
+4. **Account for Rent Renewal**: For stateful registries, monitor the Time-to-Live (TTL) of storage entries. Implement automated routines to call the `extend_ttl` endpoint on contracts to prevent crucial records (like registrant meta-addresses) from being archived.
