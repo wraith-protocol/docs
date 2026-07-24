@@ -119,7 +119,8 @@
               "guides/privacy-best-practices",
               "guides/stellar-fees",
               "guides/stellar-troubleshooting",
-              "guides/spectre-stellar-cookbook"
+              "guides/spectre-stellar-cookbook",
+              "guides/integrations/react-native"
             ]
           },
           {
