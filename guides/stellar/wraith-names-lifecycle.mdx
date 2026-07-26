@@ -1,0 +1,446 @@
+---
+title: "Wraith Names Lifecycle on Stellar"
+description: "Complete lifecycle reference for .wraith names on Stellar: name grammar, registration fees and expiry, transfer, reverse lookup, and re-registration after expiration."
+keywords: "Stellar, soroban, wraith names, name lifecycle, registration, transfer, expiry, renewal, reverse lookup, meta-address"
+---
+
+This guide covers every stage of a `.wraith` name's life on Stellar — from picking a valid name and paying the registration fee, through transfers, renewals, reverse lookups, and eventual expiry. For a quick-start focused on basic resolution, see [Wraith Names on Stellar](/guides/wraith-names-stellar).
+
+---
+
+## Name Grammar
+
+### Allowed Characters and Length
+
+The `wraith-names` contract enforces these rules at registration time. Transactions that violate them are rejected before they hit the ledger.
+
+| Rule | Constraint |
+|---|---|
+| Minimum length | 3 characters |
+| Maximum length | 32 characters |
+| Allowed characters | Lowercase `a-z` and digits `0-9` only |
+| Hyphens | Not allowed |
+| Top-level domain | Always `.wraith` — implicit, never written in `--name` args |
+
+Examples of valid bare names: `alice`, `bob99`, `payments2024`, `x42`.
+
+Examples of invalid bare names: `ab` (too short), `Alice` (uppercase), `my-wallet` (hyphen), `verylongnamethatsexceededthirtytwocharactersx` (too long).
+
+> [!IMPORTANT]
+> The `.wraith` suffix is appended by the protocol. When calling contract entrypoints directly or using the SDK, always pass the bare name without the suffix. The SDK's `resolveName` and `lookupMetaAddress` helpers accept `alice.wraith` as a convenience and strip the suffix automatically.
+
+### Reserved Names
+
+A set of names is permanently reserved and cannot be registered by any account. Reserved names fall into three categories:
+
+**Protocol-reserved** — names the Wraith core team may activate for protocol functions:
+`wraith`, `registry`, `fee`, `treasury`, `relay`, `admin`, `operator`, `governance`, `dao`, `vote`
+
+**Commonly-squatted shorts** — single-character names and all two-character combinations:
+All one- and two-character strings (e.g., `a`, `zz`) are permanently reserved.
+
+**Offensive and abuse-prevention list** — maintained off-chain and injected at contract deployment. The full list is published in the [Stellar Contracts reference](/contracts/stellar#wraith-names).
+
+<Info>
+  Attempting to register a reserved name returns `NameReserved` from the contract. This error is final — it cannot be overridden by fee payment or governance vote at the contract level.
+</Info>
+
+---
+
+## Registration
+
+### How Registration Works
+
+Calling `register` creates a new name record in the contract's persistent storage with three fields:
+
+- **`owner`** — the Stellar account that submitted the transaction (or the `caller` argument in a delegated registration).
+- **`meta_address`** — the 64-byte stealth meta-address that payments will be routed to.
+- **`expiry_ledger`** — the ledger sequence number at which the name expires (see [Expiry and Renewal](#expiry-and-renewal) below).
+
+### Registration Fees
+
+Fees are denominated in XLM and are collected by the contract's fee collector account at submission time.
+
+| Name length | Annual fee |
+|---|---|
+| 3 characters | 50 XLM |
+| 4 characters | 20 XLM |
+| 5 characters | 5 XLM |
+| 6–32 characters | 1 XLM |
+
+These tiers price short names higher to discourage squatting while keeping longer names accessible. Fees are non-refundable on release.
+
+> [!NOTE]
+> On testnet, fee collection is disabled — all registrations are free. The fee structure above applies to mainnet only.
+
+In addition to the registration fee, the transaction pays standard Soroban resource fees (CPU, ledger writes, event bytes). See the [Stellar Fee Estimation guide](/guides/stellar-fees) for how to budget these.
+
+### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+// createAgent registers the name and funds the agent account in one step.
+// On testnet, the agent account is topped up via Friendbot automatically.
+const agent = await wraith.createAgent({
+  name: "alice",           // bare name, no .wraith suffix
+  chain: Chain.Stellar,
+  wallet: ownerKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message: "Sign to create Wraith agent",
+});
+
+console.log("Agent ID:", agent.id);
+console.log("Name registered: alice.wraith");
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- register \
+  --caller <your-stellar-address> \
+  --name "alice" \
+  --meta_address <hex-encoded-meta-address>
+```
+
+> [!WARNING]
+> Registration is first-come, first-served. There is no commit-reveal scheme in v1. If you are registering a high-value name, keep your transaction confidential until it is confirmed, as other observers can see pending Soroban invocations before they are finalized.
+
+---
+
+## Expiry and Renewal
+
+### TTL and Expiry Ledger
+
+Every name record stores an `expiry_ledger` — the Stellar ledger sequence at which the name transitions from **Active** to **Grace Period**. At registration, `expiry_ledger` is set to:
+
+```
+expiry_ledger = current_ledger + (annual_ledgers × years_registered)
+```
+
+Stellar closes a ledger roughly every 5 seconds, giving approximately **6,307,200 ledgers per year**.
+
+Names registered for one year on mainnet therefore expire ~6.3 million ledgers after registration.
+
+### Name States
+
+```
+Active ──────────────────► Grace Period ──────────────► Expired
+  │  expiry_ledger reached │    (30-day window)         │
+  │                        │                            │
+  │  owner can still renew │  owner can still renew     │  anyone can re-register
+  │  and transfer          │  but cannot transfer       │
+```
+
+| State | Condition | Owner can renew | Owner can transfer | Public can register |
+|---|---|---|---|---|
+| Active | `current_ledger < expiry_ledger` | Yes | Yes | No |
+| Grace Period | Within 30 days after `expiry_ledger` | Yes | No | No |
+| Expired | After grace period ends | No | No | Yes |
+
+<Warning>
+  During the Grace Period the name still resolves normally — payments sent to `alice.wraith` continue to reach the registered meta-address. However, the name cannot be transferred to a new owner until renewed.
+</Warning>
+
+### Renewal
+
+Renewal extends `expiry_ledger` by one year's worth of ledgers. The renewal fee is the same as the annual registration fee for that name's length tier.
+
+#### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+const renewal = await agent.chat("renew the name alice on stellar for one year");
+console.log(renewal.response);
+```
+
+#### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- renew \
+  --caller <your-stellar-address> \
+  --name "alice"
+```
+
+The contract validates that `caller` matches the current `owner` and that the name is still in Active or Grace Period state.
+
+---
+
+## Transfer
+
+Transferring a name moves ownership from one Stellar account to another. This is an irreversible on-chain action — there is no escrow or two-step confirmation in v1.
+
+### Authorization Model
+
+The contract uses Soroban's built-in auth framework. The `transfer` entrypoint requires:
+
+1. A valid Soroban auth entry signed by the **current owner**.
+2. The transaction source account may differ from the current owner (useful for relayer-assisted transfers).
+
+If the auth entry is missing or signed by a different key, the contract returns `Unauthorized`.
+
+### Transfer Event
+
+On a successful transfer the contract emits a Soroban event with the following structure:
+
+```
+topic: ["wraith_names", "transfer"]
+data:  { name: "alice", from: <old-owner-address>, to: <new-owner-address>, ledger: <current-ledger> }
+```
+
+You can watch for this event using the Stellar RPC `getEvents` endpoint or via [Stellar Expert](https://stellar.expert) contract event search.
+
+> [!IMPORTANT]
+> Transfer is only available when the name is in **Active** state. A name in Grace Period cannot be transferred. Renew first, then transfer.
+
+### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// The agent automatically constructs and signs the Soroban auth entry
+const tx = await agent.chat(
+  "transfer the name alice on stellar to GBUY...NEWOWNER"
+);
+console.log(tx.response);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <current-owner-key> \
+  -- transfer \
+  --caller <current-owner-address> \
+  --name "alice" \
+  --new_owner <recipient-stellar-address>
+```
+
+> [!NOTE]
+> Transferring a name does **not** change the registered `meta_address`. If the new owner wants to route payments to their own meta-address after taking ownership, they must call `update` separately.
+
+---
+
+## Resolve a Name
+
+Forward resolution returns the 64-byte stealth meta-address currently registered under a name. This is a read-only operation with no fee.
+
+### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+const metaAddress = await wraith.resolveName("alice.wraith", Chain.Stellar);
+console.log("Meta-address:", metaAddress);
+// e.g. "0x02aabbcc...64 bytes hex"
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <any-key> \
+  -- resolve \
+  --name "alice"
+```
+
+<Info>
+  `resolve` returns `NameNotFound` if the name has never been registered, and `NameExpired` if the name has passed its grace period. Your application should handle both errors distinctly — `NameExpired` tells the user to contact the name owner to renew, whereas `NameNotFound` means the name is freely available.
+</Info>
+
+---
+
+## Reverse Lookup
+
+Reverse lookup maps a 64-byte stealth meta-address back to its registered `.wraith` name. Useful for displaying a human-readable identity in wallet UIs and explorers without requiring the user to know the name in advance.
+
+### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+const name = await wraith.lookupMetaAddress(metaAddress, Chain.Stellar);
+
+if (name) {
+  console.log("Registered as:", name); // "alice"
+} else {
+  console.log("No name registered for this meta-address");
+}
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <any-key> \
+  -- name_of \
+  --meta_address <hex-encoded-meta-address>
+```
+
+> [!NOTE]
+> A reverse lookup returns `null` / `None` (not an error) when no name is mapped to the given meta-address. The contract maintains a separate reverse index that is updated on `register`, `update`, and `release` — it is always consistent with the forward mapping.
+
+---
+
+## Update Meta-Address
+
+If you rotate your stealth keys or want to point a name at a different agent, call `update`. This replaces the stored `meta_address` in-place and updates the reverse index.
+
+### SDK Example
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+const result = await agent.chat(
+  "update my name alice on stellar to use the new meta-address 0xdeadbeef..."
+);
+console.log(result.response);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- update \
+  --caller <your-stellar-address> \
+  --name "alice" \
+  --new_meta_address <new-hex-encoded-meta-address>
+```
+
+> [!WARNING]
+> Updating the meta-address takes effect immediately on the next ledger. Any payment sent after that ledger — even one initiated moments before the update — will use the new meta-address. Coordinate key rotations carefully to avoid payments being sent to a meta-address whose keys you no longer control.
+
+---
+
+## Release a Name
+
+Releasing a name removes it from the registry and makes it immediately available for re-registration. The registration fee is **not** refunded.
+
+### SDK Example
+
+```typescript
+const result = await agent.chat("release the name alice on stellar");
+console.log(result.response);
+```
+
+### CLI Example
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <your-key> \
+  -- release \
+  --caller <your-stellar-address> \
+  --name "alice"
+```
+
+---
+
+## Expiration and Re-Registration
+
+### What Happens When a Name Expires
+
+Once the grace period ends, the name record is deleted from contract storage on the next ledger that references it. At that point:
+
+- `resolve("alice")` returns `NameExpired` / `NameNotFound`.
+- The reverse index entry is removed.
+- Any in-flight payment using the cached meta-address for `alice.wraith` will still be delivered to the old meta-address (the stealth address was derived at send time). The payer will not receive an error — they simply cannot use the name for future sends.
+
+<Warning>
+  Recipients should renew their name before it expires to avoid the above edge case. Users scanning their stealth addresses will still be able to claim payments sent before expiry, but they will lose the name as a routing identifier.
+</Warning>
+
+### Re-Registration Window
+
+After the grace period ends, the name is immediately open for re-registration by any account at the standard fee for that name's length. There is no waiting period.
+
+#### Checking Expiry Status
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+const info = await wraith.getNameInfo("alice.wraith", Chain.Stellar);
+
+if (info) {
+  console.log("Owner:", info.owner);
+  console.log("Expiry ledger:", info.expiryLedger);
+  console.log("State:", info.state); // "active" | "grace_period" | "expired"
+} else {
+  console.log("Name is unregistered or fully expired");
+}
+```
+
+#### CLI — Read Name Record
+
+```bash
+soroban contract invoke \
+  --id CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV \
+  --network testnet \
+  --source <any-key> \
+  -- name_info \
+  --name "alice"
+```
+
+---
+
+## Entrypoint Quick Reference
+
+All entrypoints documented in this guide, in one place.
+
+| Entrypoint | Mutating | Fee required | Auth required | Description |
+|---|---|---|---|---|
+| `register` | Yes | Yes (mainnet) | `caller` signature | Register a new name |
+| `renew` | Yes | Yes (mainnet) | `caller` signature | Extend expiry by one year |
+| `transfer` | Yes | No | `caller` (owner) signature | Transfer ownership |
+| `update` | Yes | No | `caller` (owner) signature | Change meta-address |
+| `release` | Yes | No | `caller` (owner) signature | Delete name record |
+| `resolve` | No | No | None | Forward resolve name → meta-address |
+| `name_of` | No | No | None | Reverse lookup meta-address → name |
+| `name_info` | No | No | None | Read full name record (owner, expiry, state) |
+
+For the full ABI and argument types, see the [Stellar Contracts reference](/contracts/stellar#wraith-names).
+
+---
+
+## Related Guides
+
+- [Wraith Names on Stellar](/guides/wraith-names-stellar) — quick-start for registration and basic resolution
+- [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — how to budget Soroban resource fees on top of the registration fee
+- [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment) — operator reference for running contracts in production
+- [Stellar Contracts reference](/contracts/stellar#wraith-names) — full ABI, reserved names list, and deployment addresses
