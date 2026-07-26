@@ -1,0 +1,165 @@
+---
+title: "Stellar Quickstart"
+description: "Derive stealth keys, scan announcements, and spend from a stealth address on Stellar — with an interactive demo"
+keywords: "Stellar, stealth address, ed25519, scanner, quickstart, soroban"
+---
+
+This guide walks you through the complete Stellar stealth-address flow in five steps:
+derive keys → generate a stealth address → send → announce → scan.
+The interactive playground at the bottom lets you run the scanner against a
+real batch of fixture announcements, entirely in your browser.
+
+## Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+## 1. Derive Stealth Keys
+
+Sign the canonical Wraith message with a Stellar keypair, then pass the signature
+to `deriveStealthKeys`. The two derived keys serve different purposes:
+the **viewing key** detects incoming payments; the **spending key** authorizes withdrawals.
+
+```typescript
+import {
+  deriveStealthKeys,
+  encodeStealthMetaAddress,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const keypair = Keypair.fromSecret("S...");
+const signature = keypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(signature);
+
+// Publish this so senders can find you
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+console.log(metaAddress); // "st:xlm:<64hex><64hex>"
+```
+
+## 2. Generate a Stealth Address (Sender Side)
+
+The sender decodes the recipient's meta-address and generates a fresh one-time
+stealth address. The ephemeral public key and view tag are announced on-chain.
+
+```typescript
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(
+  "st:xlm:<recipient-meta-address>"
+);
+
+const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(
+  spendingPubKey,
+  viewingPubKey
+);
+
+// Send XLM to stealthAddress via Operation.createAccount
+// Then call the Soroban announcer contract with:
+//   ephemeralPubKey (hex), viewTag (as first byte of metadata)
+```
+
+## 3. Scan for Incoming Payments
+
+`scanAnnouncements` takes the raw announcement list from `fetchAnnouncements`
+(or your own indexer) and returns only the entries that belong to your keys,
+together with the derived private scalar needed to spend.
+
+```typescript
+import {
+  scanAnnouncements,
+  fetchAnnouncements,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// Fetch all announcements from the Soroban RPC
+const announcements = await fetchAnnouncements("stellar");
+
+const matched = await scanAnnouncements(
+  announcements,
+  keys.viewingKey,       // 32-byte Uint8Array seed
+  keys.spendingPubKey,   // 32-byte Uint8Array
+  keys.spendingScalar,   // bigint
+);
+
+for (const m of matched) {
+  console.log("Found payment at:", m.stealthAddress);
+  console.log("Private scalar:  ", m.stealthPrivateScalar);
+}
+```
+
+<Tip>
+  View tags filter out ~255 of every 256 non-matching announcements with a
+  single byte comparison, making scans fast even over thousands of events.
+</Tip>
+
+## 4. Spend From a Stealth Address
+
+Because stealth private keys are derived scalars (not raw seeds), standard
+Stellar signing does not work. Use `signStellarTransaction` instead.
+
+```typescript
+import {
+  signStellarTransaction,
+  pubKeyToStellarAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Transaction, Keypair } from "@stellar/stellar-sdk";
+
+// m = a matched announcement from scanAnnouncements()
+const txHash = transaction.hash(); // 32-byte Buffer
+const sig    = signStellarTransaction(txHash, m.stealthPrivateScalar, m.stealthPubKeyBytes);
+
+// Attach signature and submit
+const hint = Buffer.from(m.stealthPubKeyBytes.slice(0, 4));
+transaction.addSignature(
+  pubKeyToStellarAddress(m.stealthPubKeyBytes),
+  hint.toString("base64"),
+  sig.toString("base64"),
+);
+```
+
+## 5. Key Differences from EVM
+
+| Aspect | EVM | Stellar |
+|---|---|---|
+| Curve | secp256k1 | ed25519 |
+| ECDH | `secp256k1.getSharedSecret` | X25519 (Montgomery form) |
+| Private key output | hex string | bigint scalar |
+| Address format | `0x…` (20 bytes) | `G…` (56 chars) |
+| Signing | secp256k1 ECDSA | `signWithScalar` / `signStellarTransaction` |
+
+---
+
+## Interactive Scanner Demo
+
+Paste your own stealth meta-address and keys, or click **Load demo keys** to
+scan the five pre-built fixture announcements. Everything runs client-side —
+no wallet, no network calls, no third-party scripts.
+
+<iframe
+  src="/scripts/playground/index.html"
+  sandbox="allow-scripts"
+  width="100%"
+  height="700"
+  style={{ border: "1px solid #2a2f3d", borderRadius: "8px" }}
+  title="Wraith Stellar Scanner Playground"
+/>
+
+<Note>
+  The demo keys are derived deterministically from a test seed and are not
+  connected to any real wallet. Two of the five fixture announcements match
+  the pre-filled keys; the other three are noise.
+</Note>
+
+---
+
+## Next Steps
+
+- [Stellar Primitives Reference](/sdk/chains/stellar) — full API docs for all exported functions
+- [Stealth Payments Explained](/guides/stealth-payments) — visual walkthrough of the cryptography
+- [Stellar Custom Assets](/guides/stellar-custom-assets) — send USDC and other SAC tokens via stealth addresses
+- [Stellar Multisig Withdrawals](/guides/stellar-multisig-withdrawal) — N-of-M coordinator flows
+- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — common errors and fixes

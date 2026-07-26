@@ -123,6 +123,12 @@
             ]
           },
           {
+            "group": "Stellar",
+            "pages": [
+              "guides/stellar/stellar-quickstart"
+            ]
+          },
+          {
             "group": "Operations",
             "pages": [
               "guides/stellar-mainnet-deployment",
