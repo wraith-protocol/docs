@@ -112,6 +112,8 @@
           {
             "group": "Guides",
             "pages": [
+              "guides/stellar-quickstart",
+              "guides/stellar-quickstart.es",
               "guides/stealth-payments",
               "guides/single-chain-agent",
               "guides/multichain-agent",
@@ -127,14 +129,10 @@
             "pages": [
               "guides/stellar-mainnet-deployment",
               "guides/stellar-payment-links",
-            "guides/stellar-payment-links",
               "guides/stellar-multisig-withdrawal",
               "guides/stellar-offline-signing",
               "guides/stellar-tx-simulation",
               "guides/stellar-explorer-recipes",
-              "guides/stellar-payment-links",
-              "guides/privacy-best-practices",
-              "guides/spectre-stellar-cookbook",
               "guides/stellar-federation",
               "guides/stellar-custom-assets",
               "guides/wraith-names-stellar"

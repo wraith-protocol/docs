@@ -1,0 +1,263 @@
+---
+title: "Stellar Quickstart"
+description: "Create a Stellar Wraith agent, fund it on testnet, send your first stealth payment, and scan for incoming payments — in under 10 minutes."
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, meta-address, stealth payment"
+---
+
+<Card title="🇪🇸 Leer en español" href="/guides/stellar-quickstart.es" icon="globe" />
+
+---
+
+By the end of this guide you will have:
+
+- A live Wraith agent on the Stellar **testnet**
+- Sent a stealth USDC payment to a `.wraith` name
+- Scanned for incoming payments and checked your balance
+
+**Prerequisites:** Node.js 18+, a Wraith API key ([sign up at usewraith.xyz](https://usewraith.xyz)), and a Stellar keypair (Freighter wallet or generated below).
+
+---
+
+## Step 1 — Install the SDK
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+## Step 2 — Initialize the client
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({
+  apiKey: process.env.WRAITH_API_KEY!,
+});
+```
+
+The client communicates exclusively with the managed TEE infrastructure. You never handle raw keys or chain-specific crypto directly.
+
+## Step 3 — Generate a Stellar keypair (testnet only)
+
+> **Skip this step** if you already have a Stellar keypair from Freighter or another wallet.
+
+```typescript
+import { Keypair } from "@stellar/stellar-sdk";
+
+const keypair = Keypair.random();
+console.log("Public key: ", keypair.publicKey());
+console.log("Secret key: ", keypair.secret()); // store this securely
+```
+
+Keep the secret in an environment variable (`STELLAR_SECRET`). Do **not** commit it to source control.
+
+## Step 4 — Create your agent
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const keypair = Keypair.fromSecret(process.env.STELLAR_SECRET!);
+
+// Sign a message to prove ownership of the keypair
+const message = "Sign to create Wraith agent";
+const signature = keypair.sign(Buffer.from(message));
+
+const agent = await wraith.createAgent({
+  name: "my-stellar-agent",          // becomes my-stellar-agent.wraith
+  chain: Chain.Stellar,
+  wallet: keypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+
+console.log("Agent ID:        ", agent.info.id);
+console.log("Stellar address: ", agent.info.addresses[Chain.Stellar]);
+console.log("Meta-address:    ", agent.info.metaAddresses[Chain.Stellar]);
+// st:xlm:abc123...def456...  ← share this so others can pay you privately
+```
+
+**curl equivalent:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/create \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-stellar-agent",
+    "chain": "stellar",
+    "wallet": "GABC...your-stellar-pubkey",
+    "signature": "hex-encoded-ed25519-signature",
+    "message": "Sign to create Wraith agent"
+  }'
+```
+
+**Response:**
+
+```json
+{
+  "id": "a1b2c3d4-...",
+  "name": "my-stellar-agent",
+  "chain": "stellar",
+  "address": "GABC...agent-address",
+  "metaAddress": "st:xlm:abc123...def456..."
+}
+```
+
+## Step 5 — Fund the agent (testnet via Friendbot)
+
+Stellar testnet accounts need at least 1 XLM to activate. Friendbot hands out 10,000 XLM for free:
+
+```typescript
+const res = await agent.chat("fund my wallet");
+console.log(res.response);
+// "Wallet funded via Friendbot. Balance: 10,000 XLM"
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "fund my wallet" }'
+```
+
+<Warning>
+  Friendbot only works on **testnet**. For mainnet, send at least 1.5 XLM to the agent address to activate the account and cover the base reserve.
+</Warning>
+
+## Step 6 — Check your balance
+
+```typescript
+const balance = await agent.getBalance();
+console.log("XLM:", balance.native);  // "10000.0"
+console.log("Tokens:", balance.tokens);  // { USDC: "0.0" }
+```
+
+Or via chat:
+
+```typescript
+const res = await agent.chat("what's my balance?");
+console.log(res.response);
+// "Balance: 10,000 XLM, 0 USDC"
+```
+
+## Step 7 — Send your first stealth payment
+
+Send USDC to any `.wraith` name. The agent resolves the name, generates a fresh one-time stealth address, and broadcasts the announcement on-chain automatically:
+
+```typescript
+const res = await agent.chat("send 10 USDC to alice.wraith on stellar");
+console.log(res.response);
+// "Payment sent — 10 USDC to alice.wraith via stealth address GABC...xyz on Stellar."
+
+// Inspect the tool call for the transaction hash
+console.log(res.toolCalls);
+// [{ name: "send_payment", status: "success", detail: "{...txHash...}" }]
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "send 10 USDC to alice.wraith on stellar" }'
+```
+
+**What happens behind the scenes:**
+
+1. The agent resolves `alice.wraith` to a stealth meta-address (two ed25519 public keys)
+2. A random ephemeral key is generated; ECDH (X25519) computes a shared secret
+3. A fresh one-time Stellar address is derived — unlinkable to Alice's identity
+4. USDC is sent to that address via the `stealth-sender` Soroban contract
+5. An announcement `(ephemeralPubKey, viewTag)` is published on-chain so Alice can detect it
+
+Alice's agent scans for the announcement and claims the USDC without anyone knowing she was the recipient.
+
+## Step 8 — Scan for incoming payments
+
+If someone has paid your agent's meta-address, scan to detect those payments:
+
+```typescript
+const res = await agent.chat("scan for payments on stellar");
+console.log(res.response);
+// "Scan complete. Found 2 incoming payments:
+//  - 10 USDC at stealth address GABC...abc (tx: a1b2c3...)
+//  - 5 USDC at stealth address GABC...def (tx: d4e5f6...)"
+```
+
+## Step 9 — Withdraw to your wallet
+
+Move funds from stealth addresses to your regular wallet. The agent warns about privacy tradeoffs before executing:
+
+```typescript
+const res = await agent.chat(
+  `withdraw all USDC to ${keypair.publicKey()} on stellar`
+);
+console.log(res.response);
+```
+
+<Info>
+  To protect your privacy, space withdrawals at least 1 hour apart and avoid withdrawing uniform round amounts. See [Privacy Best Practices](/guides/privacy-best-practices) for the full scoring algorithm.
+</Info>
+
+## Step 10 — Reconnect to an existing agent
+
+After the initial setup, reconnect without creating a new agent:
+
+```typescript
+// By agent ID (fastest — store this after createAgent)
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// By .wraith name
+const agent = await wraith.getAgentByName("my-stellar-agent");
+```
+
+---
+
+## Fee reference
+
+| Operation | Typical cost |
+|---|---|
+| Account activation (first time) | 1 XLM minimum balance |
+| Stealth payment (`stealth-sender::send`) | ~0.0035 XLM |
+| Batch payment, 10 recipients | ~0.011 XLM total |
+| Name resolution (`.wraith`) | ~0.0046 XLM |
+| Classic XLM withdrawal | 0.00001 XLM |
+
+See [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) for full resource breakdowns and surge pricing guidance.
+
+---
+
+## Error reference
+
+| Message | Cause | Fix |
+|---|---|---|
+| `op_no_destination` | Destination account doesn't exist | Fund with `createAccount`, not `payment` |
+| `op_underfunded` | Insufficient balance | Check balance before sending; keep fee buffer |
+| `op_low_reserve` | New trustline would breach minimum reserve | Add 0.5 XLM per new trustline |
+| `tx_bad_seq` | Stale sequence number | Refetch account before building transaction |
+| `Name not found` | `.wraith` name unregistered | Verify name with `GET /agent/info/{name}` |
+
+For the full error catalog see [Stellar Troubleshooting](/guides/stellar-troubleshooting).
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Privacy Best Practices" href="/guides/privacy-best-practices" icon="shield">
+    Scoring algorithm, withdrawal spacing, and what to avoid
+  </Card>
+  <Card title="Stellar Fees Guide" href="/guides/stellar-fees" icon="receipt">
+    Full resource breakdowns, SDK fee estimation helper
+  </Card>
+  <Card title="Spectre Stellar Cookbook" href="/guides/spectre-stellar-cookbook" icon="book-open">
+    Three production-ready recipes: SaaS payments, DAO payroll, privacy monitor
+  </Card>
+  <Card title="Stellar Troubleshooting" href="/guides/stellar-troubleshooting" icon="wrench">
+    Common Stellar, Soroban, and Stealth errors explained
+  </Card>
+</CardGroup>

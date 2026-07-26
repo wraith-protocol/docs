@@ -1,0 +1,263 @@
+---
+title: "Guía de inicio rápido — Stellar"
+description: "Crea un agente Wraith en Stellar, fúndalo en la red de pruebas, envía tu primer pago oculto y escanea pagos entrantes — en menos de 10 minutos."
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, meta-address, stealth payment"
+---
+
+<Card title="🇺🇸 Read in English" href="/guides/stellar-quickstart" icon="globe" />
+
+---
+
+Al terminar esta guía habrás:
+
+- Creado un agente Wraith activo en la **red de pruebas** de Stellar
+- Enviado un pago oculto de USDC a un nombre `.wraith`
+- Escaneado pagos entrantes y consultado tu saldo
+
+**Requisitos previos:** Node.js 18+, una clave API de Wraith ([regístrate en usewraith.xyz](https://usewraith.xyz)) y un par de claves Stellar (billetera Freighter o generada a continuación).
+
+---
+
+## Paso 1 — Instala el SDK
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+## Paso 2 — Inicializa el cliente
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({
+  apiKey: process.env.WRAITH_API_KEY!,
+});
+```
+
+El cliente se comunica exclusivamente con la infraestructura TEE gestionada. Nunca manipulas claves sin procesar ni criptografía específica de la cadena directamente.
+
+## Paso 3 — Genera un par de claves Stellar (solo red de pruebas)
+
+> **Omite este paso** si ya tienes un par de claves Stellar de Freighter u otra billetera.
+
+```typescript
+import { Keypair } from "@stellar/stellar-sdk";
+
+const keypair = Keypair.random();
+console.log("Clave pública: ", keypair.publicKey());
+console.log("Clave secreta: ", keypair.secret()); // guárdala de forma segura
+```
+
+Guarda el secreto en una variable de entorno (`STELLAR_SECRET`). **No** lo incluyas en el código fuente.
+
+## Paso 4 — Crea tu agente
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const keypair = Keypair.fromSecret(process.env.STELLAR_SECRET!);
+
+// Firma un mensaje para demostrar que eres el dueño del par de claves
+const message = "Sign to create Wraith agent";
+const signature = keypair.sign(Buffer.from(message));
+
+const agent = await wraith.createAgent({
+  name: "mi-agente-stellar",          // → mi-agente-stellar.wraith
+  chain: Chain.Stellar,
+  wallet: keypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+
+console.log("ID del agente:       ", agent.info.id);
+console.log("Dirección Stellar:   ", agent.info.addresses[Chain.Stellar]);
+console.log("Meta-dirección:      ", agent.info.metaAddresses[Chain.Stellar]);
+// st:xlm:abc123...def456...  ← comparte esto para recibir pagos de forma privada
+```
+
+**Equivalente con curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/create \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "mi-agente-stellar",
+    "chain": "stellar",
+    "wallet": "GABC...tu-clave-publica-stellar",
+    "signature": "firma-ed25519-en-hexadecimal",
+    "message": "Sign to create Wraith agent"
+  }'
+```
+
+**Respuesta:**
+
+```json
+{
+  "id": "a1b2c3d4-...",
+  "name": "mi-agente-stellar",
+  "chain": "stellar",
+  "address": "GABC...direccion-del-agente",
+  "metaAddress": "st:xlm:abc123...def456..."
+}
+```
+
+## Paso 5 — Fondea el agente (red de pruebas con Friendbot)
+
+Las cuentas en la red de pruebas de Stellar necesitan al menos 1 XLM para activarse. Friendbot entrega 10 000 XLM de forma gratuita:
+
+```typescript
+const res = await agent.chat("fund my wallet");
+console.log(res.response);
+// "Wallet funded via Friendbot. Balance: 10,000 XLM"
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "fund my wallet" }'
+```
+
+<Warning>
+  Friendbot solo funciona en la **red de pruebas**. En la red principal, envía al menos 1,5 XLM a la dirección del agente para activar la cuenta y cubrir la reserva mínima.
+</Warning>
+
+## Paso 6 — Consulta tu saldo
+
+```typescript
+const balance = await agent.getBalance();
+console.log("XLM:", balance.native);    // "10000.0"
+console.log("Tokens:", balance.tokens); // { USDC: "0.0" }
+```
+
+O mediante chat:
+
+```typescript
+const res = await agent.chat("what's my balance?");
+console.log(res.response);
+// "Balance: 10,000 XLM, 0 USDC"
+```
+
+## Paso 7 — Envía tu primer pago oculto
+
+Envía USDC a cualquier nombre `.wraith`. El agente resuelve el nombre, genera una dirección oculta de un solo uso y publica el anuncio en la cadena de bloques de forma automática:
+
+```typescript
+const res = await agent.chat("send 10 USDC to alice.wraith on stellar");
+console.log(res.response);
+// "Payment sent — 10 USDC to alice.wraith via stealth address GABC...xyz on Stellar."
+
+// Inspecciona la llamada de herramienta para obtener el hash de la transacción
+console.log(res.toolCalls);
+// [{ name: "send_payment", status: "success", detail: "{...txHash...}" }]
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "send 10 USDC to alice.wraith on stellar" }'
+```
+
+**Qué ocurre entre bastidores:**
+
+1. El agente resuelve `alice.wraith` a una meta-dirección oculta (dos claves públicas ed25519)
+2. Se genera una clave efímera aleatoria; el ECDH (X25519) calcula un secreto compartido
+3. Se deriva una nueva dirección Stellar de un solo uso — imposible de vincular con la identidad de Alice
+4. El USDC se envía a esa dirección mediante el contrato Soroban `stealth-sender`
+5. Un anuncio `(clavePúblicaEfímera, viewTag)` se publica en la cadena para que Alice pueda detectarlo
+
+El agente de Alice escanea el anuncio y reclama el USDC sin que nadie sepa que ella fue la destinataria.
+
+## Paso 8 — Escanea pagos entrantes
+
+Si alguien ha enviado un pago a la meta-dirección de tu agente, escanea para detectar esos pagos:
+
+```typescript
+const res = await agent.chat("scan for payments on stellar");
+console.log(res.response);
+// "Scan complete. Found 2 incoming payments:
+//  - 10 USDC at stealth address GABC...abc (tx: a1b2c3...)
+//  - 5 USDC at stealth address GABC...def (tx: d4e5f6...)"
+```
+
+## Paso 9 — Retira fondos a tu billetera
+
+Mueve los fondos de las direcciones ocultas a tu billetera habitual. El agente advierte sobre las implicaciones de privacidad antes de ejecutar la operación:
+
+```typescript
+const res = await agent.chat(
+  `withdraw all USDC to ${keypair.publicKey()} on stellar`
+);
+console.log(res.response);
+```
+
+<Info>
+  Para proteger tu privacidad, espacia los retiros al menos 1 hora entre sí y evita retirar cantidades redondas uniformes. Consulta [Prácticas recomendadas de privacidad](/guides/privacy-best-practices) para conocer el algoritmo de puntuación completo.
+</Info>
+
+## Paso 10 — Reconéctate a un agente existente
+
+Después de la configuración inicial, reconéctate sin crear un nuevo agente:
+
+```typescript
+// Por ID de agente (más rápido — guárdalo tras createAgent)
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// Por nombre .wraith
+const agent = await wraith.getAgentByName("mi-agente-stellar");
+```
+
+---
+
+## Referencia de comisiones
+
+| Operación | Costo típico |
+|---|---|
+| Activación de cuenta (primera vez) | 1 XLM de reserva mínima |
+| Pago oculto (`stealth-sender::send`) | ~0,0035 XLM |
+| Pago en lote, 10 destinatarios | ~0,011 XLM en total |
+| Resolución de nombre (`.wraith`) | ~0,0046 XLM |
+| Retiro XLM clásico | 0,00001 XLM |
+
+Consulta [Estimación y presupuesto de comisiones en Stellar](/guides/stellar-fees) para conocer los desgloses de recursos completos y la guía de precios en periodos de congestión.
+
+---
+
+## Referencia de errores
+
+| Mensaje | Causa | Solución |
+|---|---|---|
+| `op_no_destination` | La cuenta de destino no existe | Fondea con `createAccount`, no con `payment` |
+| `op_underfunded` | Saldo insuficiente | Consulta el saldo antes de enviar; mantén un margen para comisiones |
+| `op_low_reserve` | Una nueva trustline dejaría el saldo por debajo de la reserva mínima | Añade 0,5 XLM por cada nueva trustline |
+| `tx_bad_seq` | Número de secuencia desactualizado | Vuelve a obtener la cuenta antes de construir la transacción |
+| `Name not found` | Nombre `.wraith` no registrado | Verifica el nombre con `GET /agent/info/{name}` |
+
+Para el catálogo de errores completo, consulta [Solución de problemas en Stellar](/guides/stellar-troubleshooting).
+
+---
+
+## Próximos pasos
+
+<CardGroup cols={2}>
+  <Card title="Prácticas recomendadas de privacidad" href="/guides/privacy-best-practices" icon="shield">
+    Algoritmo de puntuación, espaciado de retiros y qué evitar
+  </Card>
+  <Card title="Guía de comisiones en Stellar" href="/guides/stellar-fees" icon="receipt">
+    Desglose de recursos completo y herramienta de estimación del SDK
+  </Card>
+  <Card title="Libro de recetas Spectre + Stellar" href="/guides/spectre-stellar-cookbook" icon="book-open">
+    Tres recetas listas para producción: pagos SaaS, nómina de DAO, monitor de privacidad
+  </Card>
+  <Card title="Solución de problemas en Stellar" href="/guides/stellar-troubleshooting" icon="wrench">
+    Errores comunes de Stellar, Soroban y Stealth explicados
+  </Card>
+</CardGroup>
