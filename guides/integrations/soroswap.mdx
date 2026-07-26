@@ -1,0 +1,609 @@
+---
+title: "Soroswap: Swap-then-Stealth"
+description: "Quote a route on Soroswap, execute the swap, then stealth-announce the output to a recipient — all in a single flow on Stellar."
+keywords: "Stellar, soroban, soroswap, DEX, AMM, swap, USDC, XLM, stealth, stealth address, meta-address, slippage, route, aggregator"
+---
+
+Soroswap is the primary AMM and swap aggregator on Stellar. This guide shows you how to combine Soroswap with Wraith stealth addresses so a sender can swap any asset into whatever the recipient prefers, then deliver it to an unlinkable one-time address — all in a single session.
+
+**The pattern in one sentence:** quote a route from token A → token B via Soroswap, build the unsigned transaction with the stealth address as the recipient (`to`), sign it, and submit it. The Wraith announcer is called as a second transaction immediately after.
+
+---
+
+## How it works
+
+```
+Sender holds XLM                          Recipient wants USDC
+         │                                        │
+         ▼                                        ▼
+  [1] Fetch meta-address             [publish on website / .wraith name]
+         │
+         ▼
+  [2] Derive stealth address
+         │
+         ▼
+  [3] Quote route   XLM → USDC  (Soroswap API)
+         │
+         ▼
+  [4] Build tx  →  to: stealthAddress   (Soroswap /quote/build)
+         │
+         ▼
+  [5] Sign + submit
+         │
+         ▼
+  [6] Announce  →  Wraith announcer contract
+         │
+         ▼
+  Recipient scans announcements, detects payment, spends USDC
+```
+
+The key integration point is step 4: Soroswap's `/quote/build` endpoint accepts a `to` field, so you pass the stealth address there instead of the sender's own address. The swap output lands directly in the stealth account.
+
+---
+
+## Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+A Soroswap API key is required. Register at [api.soroswap.finance/login](https://api.soroswap.finance/login) — it's free. Keys start with `sk_`.
+
+---
+
+## Testnet token addresses
+
+| Asset | Testnet contract |
+|---|---|
+| XLM (wrapped) | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+| USDC | `CBBHRKEP5M3NUDRISGLJKGHDHX3DA2CN2AZBQY6WLVUJ7VNLGSKBDUCM` |
+
+Soroswap amounts use **7 decimal places**: `1 XLM = 10_000_000` in the `amount` field.
+
+---
+
+## Step 1 — Set up the Soroswap client
+
+```typescript
+// soroswap-client.ts
+const SOROSWAP_API = "https://api.soroswap.finance";
+
+interface QuoteRequest {
+  assetIn: string;
+  assetOut: string;
+  amount: string;        // stringified integer, 7 decimals
+  tradeType: "EXACT_IN" | "EXACT_OUT";
+  protocols: string[];
+  slippageBps?: number;  // basis points, e.g. 50 = 0.5 %
+}
+
+interface QuoteResponse {
+  amountIn: string;
+  amountOut: string;
+  amountOutMin: string;  // amountOut minus slippage
+  path: string[];
+  protocols: string[];
+  [key: string]: unknown;
+}
+
+interface BuildRequest {
+  quote: QuoteResponse;
+  from: string;   // sender Stellar address (G...)
+  to: string;     // recipient — pass the stealth address here
+}
+
+interface BuildResponse {
+  xdr: string;            // unsigned Soroban transaction XDR
+  [key: string]: unknown;
+}
+
+async function soroswapRequest<T>(
+  endpoint: string,
+  body: unknown,
+  apiKey: string,
+  network: "testnet" | "mainnet" = "testnet"
+): Promise<T> {
+  const url = `${SOROSWAP_API}${endpoint}?network=${network}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Soroswap ${endpoint} failed (${res.status}): ${detail}`);
+  }
+
+  return res.json() as Promise<T>;
+}
+```
+
+> [!NOTE]
+> The `network` query parameter must match the account and contracts you are using. Testnet and mainnet token contract addresses are different.
+
+---
+
+## Step 2 — Derive the recipient's stealth address
+
+```typescript
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// recipientMetaAddress is a "st:xlm:..." string the recipient published.
+// Decode it into the two component public keys.
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(
+  "st:xlm:abc123def456..." // replace with the real meta-address
+);
+
+// Generate a fresh one-time address for this payment.
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// stealth.stealthAddress  → "G..." — send funds here
+// stealth.ephemeralPubKey → Uint8Array — needed for the announcement
+// stealth.viewTag         → 0-255     — needed for the announcement
+```
+
+---
+
+## Step 3 — Quote a route
+
+```typescript
+const SOROSWAP_API_KEY = process.env.SOROSWAP_API_KEY!;
+
+// Quote: sell 1 XLM, receive as much USDC as possible.
+// The slippage guard (slippageBps) is enforced on-chain by the Soroswap
+// aggregator — the transaction reverts if the price moves beyond it.
+const quote = await soroswapRequest<QuoteResponse>(
+  "/quote",
+  {
+    assetIn: "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC",  // XLM
+    assetOut: "CBBHRKEP5M3NUDRISGLJKGHDHX3DA2CN2AZBQY6WLVUJ7VNLGSKBDUCM", // USDC
+    amount: "10000000",   // 1 XLM (7 decimal places)
+    tradeType: "EXACT_IN",
+    protocols: ["soroswap", "phoenix", "aqua"],
+    slippageBps: 50,      // 0.5 % — rejects execution if USDC out falls below this
+  } satisfies QuoteRequest,
+  SOROSWAP_API_KEY
+);
+
+console.log("Expected USDC out:", Number(quote.amountOut) / 1e7);
+console.log("Minimum USDC out:", Number(quote.amountOutMin) / 1e7);
+console.log("Route:", quote.path.join(" → "));
+```
+
+### Slippage and quote freshness
+
+| Parameter | What it controls |
+|---|---|
+| `slippageBps` | Maximum tolerable price impact in basis points. `50` = 0.5 %. The built transaction will revert on-chain if the received amount falls below `amountOut * (1 - slippageBps/10000)`. |
+| Quote TTL | Quotes are live data snapshots and become stale within seconds on active markets. Re-fetch the quote immediately before building if more than ~10 seconds have elapsed. |
+| `tradeType: "EXACT_IN"` | You specify exactly how many tokens you are selling. `amountOut` is an estimate; `amountOutMin` is the on-chain floor. |
+| `tradeType: "EXACT_OUT"` | You specify exactly how many tokens the recipient should receive. Useful when the recipient's required amount is fixed. |
+
+> [!WARNING]
+> Do not cache quotes across user interactions. A stale quote that falls outside slippage will cause the transaction to revert on-chain, wasting the base fee.
+
+---
+
+## Step 4 — Build the transaction with the stealth address as recipient
+
+```typescript
+// Pass stealthAddress in the `to` field.
+// Soroswap routes the swap output directly to the stealth account.
+const senderAddress = "GABC...your-sender-address"; // replace with real address
+
+const build = await soroswapRequest<BuildResponse>(
+  "/quote/build",
+  {
+    quote,
+    from: senderAddress,
+    to: stealth.stealthAddress,  // ← stealth address, not the sender
+  } satisfies BuildRequest,
+  SOROSWAP_API_KEY
+);
+
+// build.xdr is an unsigned Soroban transaction XDR string.
+```
+
+> [!NOTE]
+> The `to` address for a swap-then-stealth flow is the one-time stealth address. The XLM trustline on that address is created automatically by the Soroswap aggregator (via `SAC.trust()`) if it does not already exist.
+
+---
+
+## Step 5 — Sign and submit the swap
+
+For server-side or scripted flows, sign with a raw `Keypair`. For wallet integrations, use Freighter or another signer — see the [Stellar Wallet Integration guide](/guides/stellar-wallet-integration).
+
+```typescript
+import {
+  Transaction,
+  Keypair,
+  Networks,
+  SorobanRpc,
+} from "@stellar/stellar-sdk";
+
+const senderKeypair = Keypair.fromSecret(process.env.SENDER_SECRET!);
+const sorobanServer = new SorobanRpc.Server(
+  "https://soroban-testnet.stellar.org"
+);
+
+// Deserialise and sign.
+const tx = new Transaction(build.xdr, Networks.TESTNET);
+tx.sign(senderKeypair);
+const signedXdr = tx.toEnvelope().toXDR("base64");
+
+// Submit the signed XDR via the Soroswap send endpoint
+// (or submit directly via Horizon / SorobanRpc.Server).
+const sendResult = await soroswapRequest<{ txHash: string }>(
+  "/send",
+  { xdr: signedXdr },
+  SOROSWAP_API_KEY
+);
+
+console.log("Swap tx hash:", sendResult.txHash);
+// https://stellar.expert/explorer/testnet/tx/<txHash>
+```
+
+---
+
+## Step 6 — Announce the stealth payment
+
+After the swap lands, call the Wraith announcer contract so the recipient can detect the payment when scanning.
+
+```typescript
+import {
+  getDeployment,
+  bytesToHex,
+} from "@wraith-protocol/sdk/chains/stellar";
+import {
+  Contract,
+  Networks,
+  nativeToScVal,
+  SorobanRpc,
+  TransactionBuilder,
+  BASE_FEE,
+  Address,
+  xdr,
+} from "@stellar/stellar-sdk";
+
+const deployment = getDeployment("stellar");
+const announcer = new Contract(deployment.contracts.announcer);
+const server = new SorobanRpc.Server(deployment.sorobanUrl);
+
+// Build the announce invocation.
+// The announcer stores: schemeId, stealthAddress, ephemeralPubKey, metadata.
+// metadata[0] is the view tag (single byte for fast recipient-side filtering).
+const ephemeralHex = bytesToHex(stealth.ephemeralPubKey);
+const metadata = new Uint8Array([stealth.viewTag]);
+const metadataHex = bytesToHex(metadata);
+
+const sourceAccount = await server.getAccount(senderAddress);
+const announceTx = new TransactionBuilder(sourceAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(
+    announcer.call(
+      "announce",
+      nativeToScVal(1, { type: "u32" }),                   // schemeId = 1 (Wraith ed25519)
+      new Address(stealth.stealthAddress).toScVal(),        // stealthAddress
+      xdr.ScVal.scvBytes(Buffer.from(ephemeralHex, "hex")), // ephemeralPubKey bytes
+      xdr.ScVal.scvBytes(Buffer.from(metadataHex, "hex")), // metadata (view tag)
+    )
+  )
+  .setTimeout(30)
+  .build();
+
+// Simulate to get the resource footprint, then sign and submit.
+const simResult = await server.simulateTransaction(announceTx);
+if (SorobanRpc.Api.isSimulationError(simResult)) {
+  throw new Error(`Announce simulation failed: ${simResult.error}`);
+}
+
+const preparedTx = SorobanRpc.assembleTransaction(
+  announceTx,
+  simResult
+).build();
+
+preparedTx.sign(senderKeypair);
+const announceResult = await server.sendTransaction(preparedTx);
+console.log("Announce tx hash:", announceResult.hash);
+```
+
+---
+
+## End-to-end example
+
+The following is a complete, self-contained swap-then-stealth function combining all the steps above.
+
+```typescript
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+  getDeployment,
+  bytesToHex,
+} from "@wraith-protocol/sdk/chains/stellar";
+import {
+  Contract,
+  Networks,
+  nativeToScVal,
+  SorobanRpc,
+  TransactionBuilder,
+  BASE_FEE,
+  Address,
+  xdr,
+  Transaction,
+  Keypair,
+} from "@stellar/stellar-sdk";
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+const SOROSWAP_BASE = "https://api.soroswap.finance";
+const NETWORK = "testnet" as const;
+const NETWORK_PASSPHRASE = Networks.TESTNET;
+
+const XLM_CONTRACT = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const USDC_CONTRACT = "CBBHRKEP5M3NUDRISGLJKGHDHX3DA2CN2AZBQY6WLVUJ7VNLGSKBDUCM";
+
+// ─── Soroswap helper ─────────────────────────────────────────────────────────
+
+async function soroswapPost<T>(
+  path: string,
+  body: unknown,
+  apiKey: string
+): Promise<T> {
+  const res = await fetch(`${SOROSWAP_BASE}${path}?network=${NETWORK}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Soroswap ${path} → ${res.status}: ${await res.text()}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// ─── Main flow ───────────────────────────────────────────────────────────────
+
+async function swapThenStealth(opts: {
+  recipientMetaAddress: string;  // "st:xlm:..."
+  xlmAmountRaw: string;          // e.g. "10000000" for 1 XLM
+  slippageBps: number;           // e.g. 50 = 0.5 %
+  senderKeypair: Keypair;
+  soroswapApiKey: string;
+}) {
+  const { recipientMetaAddress, xlmAmountRaw, slippageBps, senderKeypair, soroswapApiKey } = opts;
+  const senderAddress = senderKeypair.publicKey();
+
+  // 1. Derive one-time stealth address from the recipient's meta-address.
+  const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(recipientMetaAddress);
+  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+  console.log("Stealth address:", stealth.stealthAddress);
+
+  // 2. Quote: XLM → USDC, exact input.
+  //    Fetch immediately before building — never cache quotes.
+  const quote = await soroswapPost<{
+    amountOut: string;
+    amountOutMin: string;
+    path: string[];
+    [k: string]: unknown;
+  }>(
+    "/quote",
+    {
+      assetIn: XLM_CONTRACT,
+      assetOut: USDC_CONTRACT,
+      amount: xlmAmountRaw,
+      tradeType: "EXACT_IN",
+      protocols: ["soroswap", "phoenix", "aqua"],
+      slippageBps,
+    },
+    soroswapApiKey
+  );
+
+  console.log(
+    `Quoted: ${Number(xlmAmountRaw) / 1e7} XLM → ` +
+    `~${Number(quote.amountOut) / 1e7} USDC ` +
+    `(min ${Number(quote.amountOutMin) / 1e7} USDC at ${slippageBps} bps slippage)`
+  );
+
+  // 3. Build unsigned transaction.
+  //    Pass the stealth address in `to` so USDC lands there directly.
+  const build = await soroswapPost<{ xdr: string }>(
+    "/quote/build",
+    { quote, from: senderAddress, to: stealth.stealthAddress },
+    soroswapApiKey
+  );
+
+  // 4. Sign and submit the swap.
+  const swapTx = new Transaction(build.xdr, NETWORK_PASSPHRASE);
+  swapTx.sign(senderKeypair);
+  const signedSwapXdr = swapTx.toEnvelope().toXDR("base64");
+
+  const { txHash: swapHash } = await soroswapPost<{ txHash: string }>(
+    "/send",
+    { xdr: signedSwapXdr },
+    soroswapApiKey
+  );
+  console.log("Swap submitted:", swapHash);
+
+  // 5. Announce the stealth payment so the recipient can scan for it.
+  const deployment = getDeployment("stellar");
+  const server = new SorobanRpc.Server(deployment.sorobanUrl);
+  const announcer = new Contract(deployment.contracts.announcer);
+
+  const ephemeralBytes = Buffer.from(bytesToHex(stealth.ephemeralPubKey), "hex");
+  const metadataBytes = Buffer.from([stealth.viewTag]);
+
+  const sourceAccount = await server.getAccount(senderAddress);
+  const rawAnnounceTx = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: NETWORK_PASSPHRASE,
+  })
+    .addOperation(
+      announcer.call(
+        "announce",
+        nativeToScVal(1, { type: "u32" }),            // schemeId
+        new Address(stealth.stealthAddress).toScVal(), // stealthAddress
+        xdr.ScVal.scvBytes(ephemeralBytes),            // ephemeralPubKey
+        xdr.ScVal.scvBytes(metadataBytes),             // metadata (view tag)
+      )
+    )
+    .setTimeout(30)
+    .build();
+
+  const simResult = await server.simulateTransaction(rawAnnounceTx);
+  if (SorobanRpc.Api.isSimulationError(simResult)) {
+    throw new Error(`Announce simulation failed: ${simResult.error}`);
+  }
+
+  const announceTx = SorobanRpc.assembleTransaction(
+    rawAnnounceTx,
+    simResult
+  ).build();
+  announceTx.sign(senderKeypair);
+
+  const announceResult = await server.sendTransaction(announceTx);
+  console.log("Announce submitted:", announceResult.hash);
+
+  return {
+    swapHash,
+    announceHash: announceResult.hash,
+    stealthAddress: stealth.stealthAddress,
+  };
+}
+```
+
+---
+
+## Recipient: scan and detect the payment
+
+On the recipient side, scanning works the same as any Wraith payment — the only difference is the swapped asset ends up in the stealth account instead of XLM.
+
+```typescript
+import {
+  deriveStealthKeys,
+  scanAnnouncements,
+  fetchAnnouncements,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// 1. Derive keys from wallet signature (done once; store viewing key securely).
+const sig = stellarKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+// 2. Fetch all announcements from the Soroban announcer contract.
+const announcements = await fetchAnnouncements("stellar");
+
+// 3. Scan — returns only the announcements that belong to this recipient.
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+for (const m of matched) {
+  console.log("Received payment at stealth address:", m.stealthAddress);
+  // m.stealthPrivateScalar is the raw ed25519 scalar to spend from m.stealthAddress
+}
+```
+
+Spending (signing a transaction from the stealth address) is covered in [Stellar Primitives — signStellarTransaction](/sdk/chains/stellar#signstellartransaction).
+
+---
+
+## Choosing protocols
+
+The `protocols` array in the quote request controls which liquidity sources Soroswap routes through:
+
+| Protocol | What it covers |
+|---|---|
+| `soroswap` | Soroswap AMM pools on Soroban |
+| `phoenix` | Phoenix Protocol AMM pools on Soroban |
+| `aqua` | Aquarius liquidity pools on Soroban |
+| `sdex` | Stellar Classic DEX (Horizon order books) |
+
+Omitting `sdex` is recommended for Soroban-only flows because SDEX orders settle via Stellar Classic operations and don't compose atomically with Soroban contract calls. Include `sdex` only if you submit via Horizon and handle the hybrid transaction type.
+
+---
+
+## Error handling and retries
+
+```typescript
+async function quoteWithRetry(
+  soroswapApiKey: string,
+  params: {
+    assetIn: string;
+    assetOut: string;
+    amount: string;
+    slippageBps: number;
+  },
+  maxAttempts = 3
+): Promise<unknown> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await soroswapPost(
+        "/quote",
+        {
+          ...params,
+          tradeType: "EXACT_IN",
+          protocols: ["soroswap", "phoenix", "aqua"],
+        },
+        soroswapApiKey
+      );
+    } catch (err: unknown) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      // Retry on 5xx or network errors; bail immediately on 4xx.
+      if (msg.includes("40")) throw err;
+
+      const delay = 500 * attempt;
+      console.warn(`Quote attempt ${attempt} failed, retrying in ${delay}ms:`, msg);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+```
+
+Common errors and resolutions:
+
+| Error | Cause | Fix |
+|---|---|---|
+| `403 Forbidden` | Missing or invalid API key | Check `Authorization: Bearer sk_...` header |
+| `Insufficient liquidity` | Pool depth too low for the amount | Reduce `amount` or try a different token pair |
+| Transaction reverts | Price moved beyond `slippageBps` | Re-fetch the quote and rebuild; increase `slippageBps` |
+| `tx_bad_seq` | Account sequence mismatch | Re-fetch `server.getAccount()` before building |
+
+---
+
+## Production checklist
+
+- Keep `slippageBps` between 30–100 for liquid pairs (XLM/USDC). Wider tolerances expose the recipient to worse fills.
+- Always re-fetch the quote within a few seconds of building the transaction. Never cache quote responses.
+- Keep your `SOROSWAP_API_KEY` server-side. It must not appear in browser JavaScript.
+- On mainnet, use the correct USDC issuer: `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN`.
+- Announce *after* swap confirmation. If the announce call fails, re-submit it; the recipient cannot detect the payment without it.
+- The Soroswap aggregator handles USDC trustline creation on the stealth address automatically via `SAC.trust()` (Protocol 22+). You do not need a separate `changeTrust` operation.
+
+---
+
+## See also
+
+- [Stellar Custom Assets (USDC)](/guides/stellar-custom-assets) — SAC mechanics, trustline handling, and the SAC compatibility matrix
+- [Stellar Primitives](/sdk/chains/stellar) — `generateStealthAddress`, `scanAnnouncements`, `signStellarTransaction`, and all low-level functions
+- [Stellar Wallet Integration](/guides/stellar-wallet-integration) — connect Freighter or Albedo to sign the swap transaction client-side
+- [Stellar Transaction Simulation](/guides/stellar-tx-simulation) — pre-flight both the swap and announce calls before submitting
+- [Wraith Names on Stellar](/guides/wraith-names-stellar) — resolve `.wraith` names to meta-addresses
