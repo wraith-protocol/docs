@@ -1,0 +1,371 @@
+---
+title: "Threat Model"
+description: "STRIDE threat analysis for all Wraith Protocol smart contracts across EVM, Stellar, Solana, and CKB"
+---
+
+This document maps STRIDE threats to every Wraith Protocol smart contract and script. It is intended as a living reference for auditors, integrators, and contributors assessing the security posture of the on-chain components.
+
+**STRIDE categories used throughout:**
+
+| Letter | Category | Question |
+|---|---|---|
+| S | Spoofing | Can an attacker impersonate a legitimate principal? |
+| T | Tampering | Can on-chain state or messages be altered unexpectedly? |
+| R | Repudiation | Can an actor deny having performed an action? |
+| I | Information disclosure | Can private data be read by an unauthorized party? |
+| D | Denial of service | Can the contract be made unavailable or funds locked? |
+| E | Elevation of privilege | Can an unprivileged caller gain capabilities they should not have? |
+
+**Risk ratings:** Critical · High · Medium · Low · Info
+
+---
+
+## Scope
+
+| Chain | Contracts / Scripts |
+|---|---|
+| EVM | ERC5564Announcer, ERC6538Registry, WraithSender, WraithNames, WraithWithdrawer |
+| Stellar | stealth-announcer, stealth-registry, stealth-sender, wraith-names |
+| Solana | wraith-announcer, wraith-sender, wraith-names |
+| CKB | wraith-stealth-lock, wraith-names-type |
+
+Out of scope: off-chain TEE server, SDK client code, indexers, and relayers. Those components have their own trust boundaries and are analyzed separately.
+
+---
+
+## EVM Contracts
+
+### ERC5564Announcer
+
+Stateless singleton. Emits `Announcement` events. No access control, no storage.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| E-01 | S | Caller spoofing — any address can call `announce()` with an arbitrary `stealthAddress` and `ephemeralPubKey`, implying it sent a stealth payment it did not make | Medium | By design: the announcer is a public broadcast channel. Recipients verify funds on-chain independently; a false announcement with no matching transfer is harmless to funds. Scanners should confirm balances before acting. |
+| E-02 | T | Event data tampering — `ephemeralPubKey` or `metadata` could be malformed or zeroed | Low | No funds move through the announcer. Malformed events cause scan misses, not fund loss. WraithSender calls the announcer atomically, ensuring co-registration with the actual transfer. |
+| E-03 | R | Non-repudiation gap — `caller` is logged in the event but any address may call on behalf of another | Info | Announcer logs `msg.sender` as `caller`. Repudiation risk is informational; no privileged actions depend on caller identity. |
+| E-04 | I | Announcement data is public — `stealthAddress` and `ephemeralPubKey` are visible on-chain | Info | This is intentional. The ephemeral key is needed for scanning. The stealth address is a one-time address; linking it to a recipient requires the recipient's viewing key. |
+| E-05 | D | Event log flooding — an attacker can spam `announce()` to increase scanning cost | Low | Scanning cost scales linearly with announcement volume. The SDK's view-tag pre-filter (first byte of metadata) reduces false-positive work. No mitigations exist at the contract level; this is an accepted trade-off of permissionless announcement. |
+| E-06 | E | No privileged functions exist; no upgrade mechanism | Info | No elevation path present. |
+
+---
+
+### ERC6538Registry
+
+Maps addresses to stealth meta-addresses. Supports direct registration and EIP-712 delegated registration.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| E-07 | S | Delegated registration replay — a valid `registerKeysOnBehalf` signature could be replayed | High | The contract maintains per-registrant nonces. `incrementNonce()` is available for key rotation. Signatures must include the current nonce; replays on a stale nonce are rejected. |
+| E-08 | S | Signature malleability — EIP-712 signature over `(schemeId, metaAddress, nonce)` must be correctly domain-separated | Medium | Standard EIP-712 domain separation (`chainId`, `verifyingContract`) prevents cross-chain and cross-contract replays. Auditors should verify the domain separator is set at deploy time and is immutable. |
+| E-09 | T | Meta-address overwrite — anyone holding the EIP-712 signature can overwrite a registrant's entry before the intended transaction lands | Medium | Mitigated by the nonce system: after one successful `registerKeysOnBehalf`, the nonce increments, invalidating all other pending signatures for the old nonce. |
+| E-10 | T | Incorrect meta-address length — a caller could register an invalid-length byte string | Low | The EVM registry does not enforce a length check (unlike Stellar's 64-byte enforcement). Callers resolving a meta-address must validate length client-side. |
+| E-11 | I | Registry is fully public — anyone can enumerate all registered meta-addresses | Info | By design. Meta-addresses are public keys; their publication does not reveal payment history. |
+| E-12 | D | No admin or pause mechanism | Info | Unupgradeable. A buggy meta-address cannot be force-removed, but the registrant can overwrite it with `registerKeys()`. |
+| E-13 | E | No privileged roles exist | Info | No elevation path present. |
+
+---
+
+### WraithSender
+
+Atomically transfers ETH or ERC-20 tokens to a stealth address and calls the announcer. Uses `ReentrancyGuard`.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| E-14 | S | Arbitrary token address — `sendERC20` accepts a caller-supplied `token` address | High | The contract calls `IERC20(token).transferFrom(msg.sender, stealthAddress, amount)`. A malicious token contract could re-enter or behave unexpectedly. `ReentrancyGuard` prevents re-entrant calls back into WraithSender. Callers should only pass verified token addresses. |
+| E-15 | T | Value mismatch in `batchSendETH` — `msg.value` must equal the sum of `amounts[]` | High | The contract must validate `msg.value == sum(amounts)` and revert otherwise. Failure to validate allows dust attacks (underfunding recipients). Auditors should confirm this check is present and uses checked arithmetic. |
+| E-16 | T | Announcer address immutability — the announcer is set at construction and cannot be updated | Low | If the announcer contract is compromised or needs upgrading, WraithSender must be redeployed. This is a governance risk, not a direct attack vector. |
+| E-17 | T | `gasTip` ETH forwarding — `sendERC20` accepts an optional ETH `gasTip` forwarded to the stealth address | Medium | The tip is forwarded via low-level call. If the stealth address is a contract, it could execute code on receipt. The `ReentrancyGuard` prevents re-entry into WraithSender itself, but the tip destination is unconstrained. |
+| E-18 | D | Batch gas exhaustion — `batchSendETH` with a very large `stealthAddresses[]` array could exceed the block gas limit | Low | Callers are responsible for keeping batch sizes within block limits. No on-chain cap is enforced; the SDK enforces a default maximum batch size. |
+| E-19 | E | No admin or owner; no privileged functions | Info | No elevation path present. |
+
+---
+
+### WraithNames
+
+Privacy-preserving name registry. Ownership proven via secp256k1 signature over `keccak256(name || metaAddress)`.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| E-20 | S | Signature forgery — an attacker could forge a `register` signature to hijack a name | Critical | The contract decompresses the spending public key from the first 33 bytes of the submitted `metaAddress` and verifies the ECDSA signature. Forgery requires breaking secp256k1. Correctly implemented, this is sound. Auditors must verify the point decompression (`y = sqrt(x^3 + 7) mod p`) and Ethereum signed message prefix are applied consistently. |
+| E-21 | S | Front-running registration — an attacker observing the mempool can copy the name + signature and submit first | High | If the attacker submits the same `name` + `metaAddress` + `signature`, they register the same meta-address, which yields no benefit (the name resolves to the victim's key). If they substitute a different `metaAddress`, the signature is invalid. Front-running is not a material threat here. |
+| E-22 | S | `registerOnBehalf` signature replay — a valid delegation signature could be replayed after the name is released | Medium | After `release()`, the name becomes available again. A previously valid signature for that `(name, metaAddress)` pair could be replayed by anyone. Mitigated by including a monotonic nonce or block number in the signed message — auditors should verify this is implemented. |
+| E-23 | T | Malicious meta-address substitution — if point decompression has a bug, an attacker could craft a byte string that passes verification for a key they don't control | Critical | The on-chain `_decompressPoint` implementation must be carefully audited. Any arithmetic error in the modular square root could allow invalid public keys to pass. |
+| E-24 | T | Name squatting — a bot can register popular names before their intended owners | Medium | No reservation or priority mechanism exists. This is a social/operational risk, not a contract vulnerability. First-come-first-served by design. |
+| E-25 | I | Name-to-meta-address mapping is fully public | Info | By design. Names are a discovery mechanism; the meta-address is a public key. |
+| E-26 | D | Name permanently locked if spending key is lost | Medium | If a registrant loses their spending key, they cannot produce a valid signature for `update()` or `release()`. The name is permanently occupied. No recovery mechanism exists. |
+| E-27 | E | No admin override — names cannot be force-released by any privileged party | Info | This is a design choice. It prevents censorship but also prevents recovery of squatted or lost names. |
+
+---
+
+### WraithWithdrawer
+
+EIP-7702 delegation target. A sponsor pays gas for withdrawals from stealth addresses.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| E-28 | S | Unauthorized withdrawal — `withdrawETH` and `withdrawERC20` must only be callable by the stealth address's own key | Critical | Under EIP-7702, the stealth address delegates its code to WraithWithdrawer. The functions must enforce `msg.sender == address(this)` (i.e., the stealth address itself signed the transaction). Auditors must confirm this check is present on all withdrawal functions. |
+| E-29 | S | Sponsor fee manipulation — the `sponsorFee` parameter is caller-supplied | High | The contract deducts `sponsorFee` from the withdrawal amount and sends it to `msg.sender` (the sponsor). A malicious sponsor could set `sponsorFee == fullBalance`, draining the stealth address. This must be mitigated by the caller (SDK) enforcing a fee cap, or the contract capping the fee as a percentage of balance. |
+| E-30 | T | EIP-7702 delegation revocation — a stealth address could have its delegation changed between the sponsor constructing the transaction and its execution | Low | EIP-7702 delegations are set per transaction. If the delegation is changed (by a competing transaction from the stealth key), the withdrawal fails gracefully. No fund loss. |
+| E-31 | D | Empty balance revert — calling `withdrawETH` on a stealth address with zero ETH reverts | Info | Expected behavior. Sponsors should check the balance before constructing a withdrawal transaction. |
+| E-32 | E | No privileged roles; no state | Info | No elevation path present. |
+
+---
+
+## Stellar Contracts
+
+### stealth-announcer
+
+Stateless Soroban contract. Emits contract events under the `"announce"` topic. No storage.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| S-01 | S | Any caller can emit an announcement for any stealth address | Medium | Same trade-off as the EVM announcer (E-01). Recipients verify balances independently. |
+| S-02 | T | Malformed `ephemeral_pub_key` — the type is `BytesN<32>`, so length is enforced by Soroban's type system | Info | Type-level enforcement. Callers cannot pass a wrong-length key. |
+| S-03 | D | Event flooding — spam announcements inflate scan costs | Low | Same as E-05. View-tag bucket filtering in the v2 event schema (`reference/stellar-event-schemas`) reduces false positives. |
+| S-04 | E | No admin or privileged functions | Info | No elevation path present. |
+
+---
+
+### stealth-registry
+
+Maps Stellar addresses to 64-byte stealth meta-addresses. Requires auth from the registrant.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| S-05 | S | Auth bypass — `register_keys` requires Soroban auth from `registrant` | Info | Soroban's built-in auth framework handles this. Unlike EVM, there is no signature-based delegation, so replay attacks are not applicable here. |
+| S-06 | T | Meta-address length enforcement — the contract enforces exactly 64 bytes | Low | Any call with a non-64-byte meta-address is rejected. This is stricter than the EVM registry (see E-10). |
+| S-07 | T | Entry overwrite — any authenticated call can overwrite an existing meta-address | Low | Only the registrant's own auth can overwrite their entry. No third-party can overwrite without a compromised key. |
+| S-08 | I | Registry is fully public | Info | By design. Same as E-11. |
+| S-09 | D | No admin or pause; no recovery from lost key | Medium | If a registrant loses their Stellar key, they cannot update or remove their entry. The meta-address becomes stale but no funds are locked. |
+| S-10 | E | No privileged roles | Info | No elevation path present. |
+
+---
+
+### stealth-sender
+
+Atomic send + announce. Initialized with an admin and the announcer contract address.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| S-11 | S | Admin takeover — `init` sets an admin and announcer address; if called before the deployer, an attacker could set themselves as admin | High | `init` must be callable only once. Auditors must verify the contract checks that it has not been initialized before (e.g., a stored `initialized` flag). Deployment scripts must call `init` atomically after deploy. |
+| S-12 | S | Caller auth — `send` and `batch_send` require auth from `caller`; a forged auth would allow unauthorized token transfers | Info | Soroban auth is enforced at the runtime level. The caller must sign the invocation; this cannot be bypassed without compromising the caller's key. |
+| S-13 | T | Announcer address poisoning — if the stored announcer address is wrong (e.g., due to a mistake during `init`), sends will succeed but announcements will go to the wrong contract | High | Mitigation: verify the announcer address in `init` and emit an initialization event. After deployment, confirm the stored announcer by querying contract state. |
+| S-14 | T | `batch_send` length mismatch — `stealth_addresses`, `amounts`, `ephemeral_pub_keys`, and `metadatas` vectors must have equal length | High | The contract must validate that all four vectors have the same length and reject the call if they differ. A mismatch could result in partial sends or incorrect announcements. |
+| S-15 | T | SAC asset flag hazards — `send` calls `token.transfer()` via the Stellar Asset Contract; tokens with `AUTH_REQUIRED` or `AUTH_CLAWBACK_ENABLED` flags behave differently | High | See the [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility) for full analysis. `AUTH_REQUIRED` assets will fail for new stealth addresses. `AUTH_CLAWBACK_ENABLED` assets allow issuers to reclaim stealth balances. |
+| S-16 | T | Trustline reserve — Protocol 22 `trust()` creates new trustlines atomically, but the sender must hold at least 0.5 XLM per new trustline entry | Medium | The SDK surfaces a balance preflight check. The contract itself does not enforce this; the transaction fails at the Stellar ledger level if the sender is underfunded. |
+| S-17 | D | Announcer contract removal — if the announcer contract is deleted or its WASM is evicted, `send` will fail | Low | Soroban contract WASM can be evicted if the storage rent lapses. Operators must maintain rent for the announcer. |
+| S-18 | E | Admin role is used only during `init`; no ongoing privileged operations | Info | No post-init elevation path. |
+
+---
+
+### wraith-names (Stellar)
+
+Name-to-meta-address registry. Names are hashed via SHA-256 for storage keys. Auth is Soroban-native.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| S-19 | S | Auth bypass — `register`, `update`, and `release` all require auth from `caller` | Info | Soroban auth prevents third-party modification without a compromised key. |
+| S-20 | T | Name collision via SHA-256 — names are stored by `SHA-256(name)`; a collision would allow overwriting an existing name | Info | SHA-256 collision resistance is computationally infeasible. Theoretical only. |
+| S-21 | T | Meta-address length — enforces 64 bytes; rejects all other lengths | Info | Type-level enforcement consistent with stealth-registry. |
+| S-22 | I | Name and meta-address are publicly readable via `resolve()` | Info | By design. Same as E-25. |
+| S-23 | D | Lost key locks the name permanently | Medium | Same as E-26. No recovery mechanism. |
+| S-24 | D | WASM eviction — if the wraith-names contract WASM lapses in rent, the contract becomes unresponsive | Medium | Operators must maintain storage rent. The SDK can pre-check contract liveness before resolving names. |
+| S-25 | E | No privileged roles beyond the registrant's own auth | Info | No elevation path present. |
+
+---
+
+## Solana Programs
+
+### wraith-announcer
+
+Stateless Anchor program. Emits `AnnouncementEvent` via `emit!()`. No on-chain storage.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| L-01 | S | Any caller can emit an announcement for any stealth address | Medium | Same trade-off as E-01 and S-01. No funds flow through the announcer; recipients verify balances independently. |
+| L-02 | T | `metadata` is `Vec<u8>` with no length limit enforced by the program | Low | Oversized metadata inflates transaction cost for the caller and log space. Anchor's transaction size limit provides an implicit cap (~1232 bytes per transaction). The SDK enforces a practical metadata size. |
+| L-03 | D | Event flooding via spam announcements | Low | Same as E-05. No on-chain mitigation; view-tag pre-filtering reduces scan cost. |
+| L-04 | E | `caller` must be a `Signer` — no anonymous announcements | Info | The Anchor `Accounts` struct requires `caller` to sign. This prevents on-chain cost-free spam but does not prevent a funded attacker from spamming. |
+
+---
+
+### wraith-sender
+
+Transfers SOL or SPL tokens to stealth addresses and emits announcements atomically.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| L-05 | S | `stealth_account` is `UncheckedAccount` in `send_sol` — no ownership check | High | The `stealth_account` receives SOL via a system program transfer. As `UncheckedAccount`, the program does not verify it is a valid system account. A passed program-owned PDA could behave unexpectedly. The SDK validates stealth address derivation before submission; this is a client-side, not contract-level, mitigation. |
+| L-06 | T | `stealth_token_account` must be the ATA for the stealth address — no on-chain ATA derivation check | High | If the caller passes an incorrect `stealth_token_account`, tokens are sent to the wrong account. Anchor's `Account<TokenAccount>` type verifies the account is a valid SPL token account but does not verify it is the ATA of `stealth_address`. The SDK must derive and verify the ATA before building the instruction. |
+| L-07 | T | Amount validation — `amount: u64` must be non-zero and not exceed the sender's balance | Low | Solana's system program and SPL token program enforce balance constraints natively; the wraith-sender does not need to re-check. |
+| L-08 | D | Rent exemption — the stealth account must hold the minimum rent-exempt balance (~0.00089 SOL) before it can receive SPL tokens | Medium | For `send_spl`, the stealth ATA must already exist or be created before the transfer. The sender must fund account creation as a prerequisite. The SDK handles ATA creation in the transaction when needed. |
+| L-09 | E | `sender` must be a `Signer`; no privileged program authority | Info | No elevation path present. |
+
+---
+
+### wraith-names (Solana)
+
+PDA-based name registry. Name records stored at `seeds = [b"name", name.as_bytes()]`.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| L-10 | S | Only the `owner` stored in `NameRecord` can call `update` or `release` — enforced by the `NotOwner` error check | Info | The Anchor `Signer` constraint on `owner` ensures the transaction is signed by the record's stored owner. |
+| L-11 | T | PDA seed collision — two distinct names with the same UTF-8 byte sequence can't exist; Anchor's PDA uniqueness guarantees this | Info | PDA derivation is deterministic and collision-free for distinct inputs. |
+| L-12 | T | Meta-address is `[u8; 64]` — length enforced by Rust type system | Info | Type-level enforcement; callers cannot pass a wrong-length array in an Anchor instruction. |
+| L-13 | T | `register` does not verify that the provided meta-address corresponds to a valid key pair | Medium | An integrator could register garbage bytes as a meta-address. Recipients resolving the name would fail to derive a valid stealth address. The SDK validates key material before registration; no on-chain mitigation. |
+| L-14 | D | Closing the PDA via `release` returns rent to the owner; the name becomes immediately re-registerable | Low | This is intended behavior. A racing registrant could claim the name immediately after release. No timelock or cooldown exists. |
+| L-15 | D | Lost owner key — the PDA cannot be recovered; the name is permanently locked | Medium | Same as E-26 and S-23. No recovery path. |
+| L-16 | E | No program authority or upgrade key after deployment (if upgrade authority is burned) | Info | Operators should burn the upgrade authority after auditing. If the upgrade authority is retained, a compromised deployer key could upgrade the program. |
+
+---
+
+## CKB Scripts
+
+### wraith-stealth-lock
+
+Lock script for stealth Cells. Args: `ephemeral_pubkey (33 bytes) || blake160(stealth_pub) (20 bytes)`. Verifies secp256k1 signatures via CKB-VM syscalls.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| C-01 | S | Args length check — the script rejects args that are not exactly 53 bytes | Info | Length is checked as the first step. A Cell with wrong-length args is unspendable and its capacity is permanently locked (see C-08). |
+| C-02 | S | Signature replay — the script signs the transaction hash; a signature from one transaction cannot be replayed in another | Info | CKB's transaction hash includes input outpoints, making each transaction unique. Replay is computationally infeasible. |
+| C-03 | S | Wrong key spending — the script recovers the public key from the witness signature and compares `blake160(recovered_pub)` against `args[33:53]` | Info | Any signature from a key whose `blake160` does not match the args is rejected. This is the core security property of the lock. |
+| C-04 | T | Blake160 personalization — the script must use `"ckb-default-hash"` as the blake2b personalization constant | Critical | Using a different personalization (or none) produces a different 20-byte hash, making the lock script incompatible with standard CKB address derivation. Auditors must verify this constant is applied correctly. |
+| C-05 | T | RISC-V binary integrity — the deployed lock script binary must match the audited source | High | The `code_hash` in the Cell dep is a blake2b hash of the deployed binary. Any tampering with the deployed binary changes the hash, making the script unrecognizable. Operators should publish the expected `code_hash` and verify it matches the deployed Cell. |
+| C-06 | T | Ephemeral key exposure — `args[0:33]` (the ephemeral public key) is public and stored on-chain forever | Info | By design: the ephemeral key is required for scanning. It reveals only that a stealth payment was made to an unknown recipient; the recipient's identity remains hidden without the viewing key. |
+| C-07 | I | All lock script args are public on-chain | Info | By design. The CKB Cell model makes all script args visible to anyone. |
+| C-08 | D | Malformed args lock funds permanently — a Cell created with args that are not exactly 53 bytes can never be spent | Critical | The lock script returns an error for wrong-length args. Any such Cell's capacity (CKB) is permanently inaccessible. The SDK must validate `lockArgs` length before submitting a transaction. This is a client-side mitigation; no on-chain recovery is possible. |
+| C-09 | D | Cell dep unavailability — if the script binary Cell (the cell dep) is consumed or its data is altered, the lock becomes unresolvable | High | The script binary Cell must be a `depType: "code"` Cell that is never consumed. Operators should deploy the binary into a Cell they do not control (or a multi-key controlled Cell) to prevent accidental consumption. |
+| C-10 | E | No admin key; spending requires the stealth private key signature | Info | No elevation path present. |
+
+---
+
+### wraith-names-type
+
+Type script for `.wraith` name Cells. Each name is a live Cell; the type script validates create, update, and destroy operations.
+
+| # | STRIDE | Threat | Risk | Mitigation |
+|---|---|---|---|---|
+| C-11 | S | Name ownership — the type script relies on the Cell's lock script to prove ownership; `update` and `release` require the input lock to be satisfied | Info | CKB's transaction model ensures the input lock must be satisfied before any type script runs. Lock script security is orthogonal to the type script. |
+| C-12 | S | Name transfer — consuming and recreating a name Cell with a different lock script transfers ownership | Low | This is intentional. An owner can transfer a name by changing the lock. No approval from the name system is required — the old owner's lock must be satisfied to consume the Cell, which is sufficient authorization. |
+| C-13 | T | Data length enforcement — the type script rejects Cells with output data that is not exactly 66 bytes | Info | Enforced on both create and update. A name Cell with wrong-length data cannot be created or updated. |
+| C-14 | T | Type script uniqueness — CKB prevents two live Cells from sharing the same type script (same code hash + same args), enforcing globally unique names | Info | This is a CKB ledger-level constraint, not a type script check. The type script does not need to re-implement uniqueness; it is guaranteed by the protocol. |
+| C-15 | T | Code hash published — the `wraith-names-type` code hash (`0xc133817d...`) is the deployment identity; if the wrong code hash is used in a Cell's type script, the name is not part of the Wraith name system | Medium | Integrators resolving names must query Cells by the canonical code hash. The SDK hardcodes the correct code hash. If a new version is deployed, the code hash changes and old names are on the legacy version. |
+| C-16 | I | Name hash in `type.args` is a SHA-256 hash of the name string — the preimage is not stored on-chain | Low | Name hashes are not preimage-resistant in practice: an attacker who knows the namespace can brute-force short names. For a 3-32 character lowercase alphanumeric name space, enumeration is feasible. Do not rely on name hashing for privacy. |
+| C-17 | D | Lost owner key — the name Cell cannot be consumed; name is permanently locked with no recovery | Medium | Same as E-26, S-23, L-15. No recovery path exists. |
+| C-18 | D | Cell dep unavailability — same risk as C-09; if the type script binary Cell is consumed, type script validation fails for all name Cells | High | Same mitigation as C-09. Deploy into an immovable or multi-key Cell. |
+| C-19 | E | No admin or privileged role in the type script | Info | No elevation path present. |
+
+---
+
+## Residual Risks
+
+The following risks span multiple contracts or are architectural in nature and cannot be fully mitigated at the contract level.
+
+### R-01 — Ephemeral key reuse
+
+**Severity:** Critical  
+**Affects:** All chains
+
+If the same ephemeral key pair is used for two different stealth payments, both payments are linkable to the same sender session, and an observer can potentially link the two recipient stealth addresses. The SDK generates a fresh ephemeral key for every `generateStealthAddress()` call using a CSPRNG. Custom integrations that reuse ephemeral keys break the unlinkability guarantee.
+
+**Mitigation:** The SDK enforces fresh key generation per payment. Custom integrations must not cache or reuse ephemeral keys. The contracts themselves cannot enforce this.
+
+---
+
+### R-02 — View key exposure
+
+**Severity:** High  
+**Affects:** All chains
+
+The viewing private key is required to scan announcements. If it is exposed (e.g., leaked from the TEE, shared with a third-party scanner), an observer can identify all stealth addresses belonging to a meta-address, linking all incoming payments together. Notably, the viewing key alone cannot spend funds — the spending key is required for that.
+
+**Mitigation:** The Wraith TEE server holds viewing keys in hardware-attested enclave memory. Developers using raw chain primitives must manage viewing key exposure carefully. Do not log viewing keys.
+
+---
+
+### R-03 — Stealth address dust attacks
+
+**Severity:** Medium  
+**Affects:** EVM, Solana
+
+An attacker can send a tiny amount to a stealth address after it has received a legitimate payment. If the recipient later sweeps both amounts in a single transaction, the dust output links the two payments. This is a standard dust attack adapted to stealth addresses.
+
+**Mitigation:** The Wraith agent warns when consolidating stealth addresses that received dust-level deposits from unknown senders. See [Privacy Best Practices](/guides/privacy-best-practices).
+
+---
+
+### R-04 — Withdrawal timing and amount correlation
+
+**Severity:** Medium  
+**Affects:** All chains
+
+Stealth addresses protect payment receipt but not withdrawal. An observer watching the mempool or chain can correlate a withdrawal from a stealth address to a subsequent deposit at a known address by timing, amount, or both.
+
+**Mitigation:** Space withdrawals, vary amounts, and use intermediate addresses. The Wraith agent surfaces these recommendations. See [Privacy Best Practices](/guides/privacy-best-practices).
+
+---
+
+### R-05 — Stellar SAC asset flag risks (AUTH_REQUIRED, AUTH_CLAWBACK_ENABLED)
+
+**Severity:** High  
+**Affects:** Stellar (stealth-sender)
+
+Assets with `AUTH_REQUIRED` are incompatible with stealth payment flows because the issuer cannot pre-authorize a stealth address that does not yet exist. Assets with `AUTH_CLAWBACK_ENABLED` allow the issuer to reclaim funds from any address, including stealth addresses, without the recipient's consent.
+
+**Mitigation:** The Wraith agent detects these flags before sending and surfaces warnings. USDC and EURC (Circle) are not affected — neither flag is set on these assets. For full details, see the [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility).
+
+---
+
+### R-06 — CKB malformed lockArgs locks capacity permanently
+
+**Severity:** Critical  
+**Affects:** CKB (wraith-stealth-lock)
+
+If a Cell is created with a `lock.args` field that is not exactly 53 bytes, the wraith-stealth-lock script will reject every spend attempt, permanently locking any CKB capacity in that Cell. There is no on-chain recovery mechanism.
+
+**Mitigation:** The SDK validates `lockArgs` length before transaction submission. Any custom integration must independently validate the 53-byte requirement before broadcasting.
+
+---
+
+### R-07 — Name squatting and speculative registration
+
+**Severity:** Medium  
+**Affects:** EVM, Stellar, Solana, CKB
+
+All name registries operate on a first-come-first-served basis with no reservation or dispute mechanism. High-value names (brand names, public figures) can be registered by bots before their intended owners.
+
+**Mitigation:** No on-chain mitigation exists. This is an accepted trade-off. Potential future governance mechanisms (e.g., ENS-style name expiry or a dispute resolver) are out of scope for the current contracts.
+
+---
+
+### R-08 — Script / program upgrade authority
+
+**Severity:** High  
+**Affects:** Solana (wraith-names, wraith-announcer, wraith-sender), Stellar (all contracts)
+
+If the program upgrade authority (Solana) or contract admin key (Stellar) is not burned or transferred to a multisig after deployment, a compromised deployer key could silently replace contract logic.
+
+**Mitigation:** After each mainnet deployment, upgrade authorities should be burned or transferred to a time-locked multisig. Deployment addresses and code hashes should be published and independently verified.
+
+---
+
+## Audit History
+
+| Date | Scope | Auditor | Report |
+|---|---|---|---|
+| June 2026 | stealth-sender v1.2, stealth-announcer v1.1 (Stellar SAC compatibility) | Wraith Protocol internal | [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility) |
+
+Additional third-party audits are planned. See the [roadmap](/roadmap) for scheduled audit milestones.
+
+---
+
+## See Also
+
+- [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility) — detailed findings on Stellar Asset Contract flag interactions with stealth-sender
+- [Privacy Best Practices](/guides/privacy-best-practices) — withdrawal timing, amount hygiene, and address reuse guidance
+- [EVM Contracts](/contracts/evm) — full EVM contract interface reference
+- [Stellar Contracts](/contracts/stellar) — full Stellar contract interface reference
+- [Solana Contracts](/contracts/solana) — full Solana program interface reference
+- [CKB Contracts](/contracts/ckb) — full CKB script reference and Cell model explanation

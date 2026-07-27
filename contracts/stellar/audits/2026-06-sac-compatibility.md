@@ -173,3 +173,10 @@ USDC and EURC (Circle) are fully compatible with stealth-sender and stealth-addr
 Assets with `AUTH_REQUIRED` are incompatible with stealth payment flows — the issuer cannot pre-authorize an address that doesn't exist yet. Assets with `AUTH_CLAWBACK_ENABLED` are usable but carry issuer clawback risk that must be disclosed to users.
 
 The Wraith SDK and agent surface these warnings automatically.
+
+---
+
+## See Also
+
+- [Threat Model](/reference/threat-model) — full STRIDE analysis for all Wraith Protocol contracts, including residual risk R-05 which covers the SAC flag hazards documented here
+- [Privacy Best Practices](/guides/privacy-best-practices) — withdrawal timing, amount hygiene, and address reuse guidance
