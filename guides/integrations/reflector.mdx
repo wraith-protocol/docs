@@ -1,0 +1,563 @@
+---
+title: "Reflector Oracle Integration"
+description: "Plug Reflector, the canonical Stellar oracle, into Wraith flows for inline fiat conversion. Read price feeds, render fiat equivalents, and handle oracle downtime gracefully."
+keywords: "Stellar, soroban, reflector, oracle, fiat, price feed, XLMUSD, fiat conversion"
+---
+
+Reflector is the canonical oracle provider for the Stellar network's Soroban smart contract platform. It delivers on-chain price feeds backed by decentralized consensus — multiple trusted node operators independently source data from CEXs, DEXs, and on-chain Stellar markets, then a quorum must agree before a price update is accepted.
+
+This guide shows how to query Reflector price feeds from TypeScript, cache them efficiently, render fiat equivalents next to crypto amounts in your Wraith-powered UI, and handle oracle downtime gracefully.
+
+---
+
+## Contract Addresses
+
+Reflector maintains separate deployments for mainnet and testnet. For fiat exchange rates, use the following contract IDs:
+
+| Network | Contract ID |
+|---|---|
+| Testnet | `CCSSOHTBL3LEWUCBBEB5NJFC2OKFRC74OWEIJIZLRJBGAAU4VMU5NV4W` |
+| Mainnet | `CBKGPWGKSKZF52CFHMTRR23TBWTPMRDIYZ4O2P5VS65BMHYH4DXMCJZC` |
+
+<Info>
+  Reflector offers two data models: **ReflectorPulse** (free, 5-minute update interval) and **ReflectorBeam** (paid, more frequent updates with custom triggers). The fiat rates contract uses the Pulse model — prices refresh every ~5 minutes.
+</Info>
+
+The fiat rates contract exposes two read-only functions:
+
+| Function | Returns | Description |
+|---|---|---|
+| `lastprice(ticker)` | `i128` | Most recent price for the given ticker (e.g. `"XLMUSD"`) |
+| `decimals()` | `u32` | Number of decimal places used to represent prices |
+
+To get the actual floating-point price: `price / 10^decimals`.
+
+---
+
+## Reading Price Feeds
+
+Query Reflector from TypeScript using `@stellar/stellar-sdk`'s Soroban RPC client. Read-only contract calls are free — they run as simulations and cost zero stroops.
+
+### Simulation Helper
+
+First, a helper that builds and simulates a Soroban contract invocation. This follows the same pattern used throughout the Wraith codebase for contract interactions:
+
+```typescript
+import {
+  SorobanRpc,
+  TransactionBuilder,
+  Networks,
+  Operation,
+  scValToNative,
+  nativeToScVal,
+  xdr,
+} from "@stellar/stellar-sdk";
+
+async function simulateContractCall(
+  server: SorobanRpc.Server,
+  contractId: string,
+  method: string,
+  args: xdr.ScVal[],
+  sourcePublicKey: string,
+  networkPassphrase: string = Networks.TESTNET
+): Promise<xdr.ScVal> {
+  // Fetch source account for the sequence number
+  const sourceAccount = await server.getAccount(sourcePublicKey);
+
+  // Build a read-only transaction
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: "100",
+    networkPassphrase,
+  })
+    .addOperation(
+      Operation.invokeContractFunction({
+        contract: contractId,
+        function: method,
+        args,
+      })
+    )
+    .setTimeout(30)
+    .build();
+
+  // Simulate — runs on the Soroban RPC but is never submitted to chain
+  const result = await server.simulateTransaction(tx);
+
+  // Return the contract's return value as a raw ScVal
+  return result.result.retval;
+}
+```
+
+<Note>
+  The `sourcePublicKey` can be any funded Stellar account — its balance is not deducted for simulations.
+  For testnet, you can use a freshly Friendbot-funded account or any well-known public key.
+</Note>
+
+### Connecting to the Network
+
+```typescript
+// Connect to testnet Soroban RPC
+const server = new SorobanRpc.Server("https://soroban-testnet.stellar.org");
+
+// Fiat rates contract
+const REFLECTOR_FIAT_CONTRACT =
+  "CCSSOHTBL3LEWUCBBEB5NJFC2OKFRC74OWEIJIZLRJBGAAU4VMU5NV4W";
+```
+
+### Fetching a Single Price
+
+Call `lastprice` by building a simulated transaction. The ticker is a 32-byte `BytesN<32>` ScVal — pad the ticker to 32 bytes and pass it as a `Buffer`:
+
+```typescript
+async function fetchReflectorPrice(
+  server: SorobanRpc.Server,
+  ticker: string,
+  sourcePublicKey: string
+): Promise<{ price: number; decimals: number }> {
+  // Pad ticker to 32 bytes (Reflector expects fixed-width identifiers)
+  const tickerBytes = Buffer.from(ticker.padEnd(32, "\0"), "utf-8");
+
+  // Step 1 — fetch decimals (cached separately, only needed once)
+  const decimalsScVal = await simulateContractCall(
+    server, REFLECTOR_FIAT_CONTRACT, "decimals", [], sourcePublicKey
+  );
+  const decimals = scValToNative(decimalsScVal) as number;
+
+  // Step 2 — fetch lastprice(ticker)
+  const priceScVal = await simulateContractCall(
+    server, REFLECTOR_FIAT_CONTRACT, "lastprice",
+    [nativeToScVal(tickerBytes)],
+    sourcePublicKey
+  );
+  const rawPrice = scValToNative(priceScVal) as bigint;
+
+  return {
+    price: Number(rawPrice) / Math.pow(10, decimals),
+    decimals,
+  };
+}
+```
+
+<Note>
+  Reflector tickers use 32-byte fixed-width identifiers padded with null bytes. Common tickers include `XLMUSD`, `XLMEUR`, `XLMGBP`, and `XLMJPY`. The ticker is case-sensitive — `xlmUSD` will not match.
+</Note>
+
+### Fetching Multiple Prices
+
+Batch multiple ticker queries for efficiency. Fetch decimals once, then run all price simulations in parallel:
+
+```typescript
+async function fetchMultiplePrices(
+  server: SorobanRpc.Server,
+  tickers: string[],
+  sourcePublicKey: string
+): Promise<Record<string, number>> {
+  // Fetch decimals once
+  const decimalsScVal = await simulateContractCall(
+    server, REFLECTOR_FIAT_CONTRACT, "decimals", [], sourcePublicKey
+  );
+  const decimals = scValToNative(decimalsScVal) as number;
+
+  // Fetch all prices in parallel
+  const priceResults = await Promise.all(
+    tickers.map(async (ticker) => {
+      const tickerBytes = Buffer.from(ticker.padEnd(32, "\0"), "utf-8");
+      const priceScVal = await simulateContractCall(
+        server, REFLECTOR_FIAT_CONTRACT, "lastprice",
+        [nativeToScVal(tickerBytes)],
+        sourcePublicKey
+      );
+      return {
+        ticker,
+        rawPrice: scValToNative(priceScVal) as bigint,
+      };
+    })
+  );
+
+  // Convert to readable prices
+  const prices: Record<string, number> = {};
+  for (const { ticker, rawPrice } of priceResults) {
+    prices[ticker] = Number(rawPrice) / Math.pow(10, decimals);
+  }
+
+  return prices;
+}
+```
+
+---
+
+## Rendering "≈ $x" Next to Amounts
+
+Once you have the price, rendering a fiat equivalent is straightforward. Convert the crypto amount to fiat and display it alongside the native amount:
+
+```typescript
+function renderFiatEquivalent(
+  amount: number,
+  asset: string,
+  priceXLMUSD: number
+): string {
+  // For XLM: multiply directly
+  // For tokens with a known XLM pair rate, you'd chain through
+  const fiatValue = amount * priceXLMUSD;
+  return `≈ $${fiatValue.toFixed(2)}`;
+}
+
+// Usage
+const xlmAmount = 100;
+const xlmPrice = 0.12; // fetched from Reflector
+
+console.log(`${xlmAmount} XLM ${renderFiatEquivalent(xlmAmount, "XLM", xlmPrice)}`);
+// "100 XLM ≈ $12.00"
+```
+
+### Integrating with Wraith Payment Flows
+
+Use the fiat equivalent in payment confirmations, balance displays, and transaction summaries:
+
+```typescript
+async function displayPaymentWithFiat(
+  agent: any,
+  recipient: string,
+  amount: number,
+  asset: string,
+  server: SorobanRpc.Server
+) {
+  // Fetch current XLM/USD price from Reflector
+  const { price: xlmPrice } = await fetchReflectorPrice(
+    server, "XLMUSD", process.env.SOURCE_PUBLIC_KEY!
+  );
+
+  // Send the payment via Wraith agent
+  const response = await agent.chat(
+    `send ${amount} ${asset} to ${recipient} on stellar`
+  );
+
+  // Render confirmation with fiat value
+  const fiatStr = renderFiatEquivalent(amount, asset, xlmPrice);
+  console.log(
+    `Payment sent — ${amount} ${asset} ${fiatStr} to ${recipient}`
+  );
+  console.log(response.response);
+}
+```
+
+### Rounding Conventions
+
+| Amount Range | Fiat Precision | Example |
+|---|---|---|
+| < $0.01 | 4 decimal places | `≈ $0.0082` |
+| $0.01 – $1 | 3 decimal places | `≈ $0.123` |
+| $1 – $1,000 | 2 decimal places | `≈ $12.34` |
+| > $1,000 | 0 decimal places | `≈ $1,234` |
+
+```typescript
+function formatFiatSmart(value: number): string {
+  if (value === 0) return "$0.00";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+
+  let formatted: string;
+  if (abs < 0.01)      formatted = abs.toFixed(4);
+  else if (abs < 1)    formatted = abs.toFixed(3);
+  else if (abs < 1000) formatted = abs.toFixed(2);
+  else                 formatted = Math.round(abs).toLocaleString();
+
+  return `${sign}$${formatted}`;
+}
+```
+
+---
+
+## Cache Strategy (60s TTL)
+
+Reflector Pulse prices update every ~5 minutes. Caching with a 60-second TTL avoids redundant RPC calls while keeping fiat values fresh enough for UX. Use an in-memory cache keyed by ticker:
+
+```typescript
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+class PriceCache {
+  private store = new Map<string, CacheEntry<number>>();
+  private ttlMs: number;
+
+  constructor(ttlSeconds = 60) {
+    this.ttlMs = ttlSeconds * 1000;
+  }
+
+  get(ticker: string): number | null {
+    const entry = this.store.get(ticker);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.store.delete(ticker);
+      return null;
+    }
+    return entry.data;
+  }
+
+  /** Get the raw cache entry (including expiry) for staleness checks */
+  getEntry(ticker: string): CacheEntry<number> | null {
+    return this.store.get(ticker) ?? null;
+  }
+
+  set(ticker: string, price: number): void {
+    this.store.set(ticker, {
+      data: price,
+      expiresAt: Date.now() + this.ttlMs,
+    });
+  }
+
+  /** Purge all expired entries — call periodically */
+  purge(): number {
+    let removed = 0;
+    for (const [key, entry] of this.store) {
+      if (Date.now() > entry.expiresAt) {
+        this.store.delete(key);
+        removed++;
+      }
+    }
+    return removed;
+  }
+}
+```
+
+### Cached Price Fetcher
+
+Wrap the raw fetcher with the cache so every caller gets the cached value automatically:
+
+```typescript
+const priceCache = new PriceCache(60); // 60-second TTL
+
+async function getCachedPrice(
+  server: SorobanRpc.Server,
+  ticker: string,
+  sourcePublicKey: string
+): Promise<number> {
+  // Check cache first
+  const cached = priceCache.get(ticker);
+  if (cached !== null) return cached;
+
+  // Cache miss — fetch from Reflector
+  const { price } = await fetchReflectorPrice(server, ticker, sourcePublicKey);
+
+  // Store in cache
+  priceCache.set(ticker, price);
+  return price;
+}
+```
+
+<Info>
+  For serverless environments (Lambda, Vercel Functions), use an external cache like Redis or your platform's edge cache instead of an in-memory `Map`. The same 60-second TTL applies — set it as the key expiration.
+</Info>
+
+### Periodic Purge
+
+Run a purge every 5 minutes to clean up expired entries and prevent memory leaks:
+
+```typescript
+// Purge expired cache entries every 5 minutes
+setInterval(() => {
+  const purged = priceCache.purge();
+  if (purged > 0) {
+    console.log(`Price cache: purged ${purged} expired entries`);
+  }
+}, 5 * 60 * 1000);
+```
+
+---
+
+## Fallback Behavior on Oracle Downtime
+
+Reflector's decentralized consensus provides strong availability — multiple node operators must agree on price updates, so a single node failure doesn't affect the feed. However, the RPC endpoint itself can experience congestion or downtime. Implement a multi-layered fallback:
+
+### Layer 1 — Stale Cache
+
+If the oracle is unreachable but a recent cached price exists, serve the stale value with a warning. A price from 5 minutes ago is better than no price at all for UI display purposes:
+
+```typescript
+const MAX_STALE_AGE_MS = 10 * 60 * 1000; // 10 minutes max staleness
+
+interface PriceResult {
+  price: number;
+  source: "fresh" | "cache" | "stale" | "fallback";
+}
+
+async function getPriceWithFallback(
+  server: SorobanRpc.Server,
+  ticker: string,
+  sourcePublicKey: string,
+  fallbackPrice?: number
+): Promise<PriceResult> {
+  try {
+    const { price } = await fetchReflectorPrice(server, ticker, sourcePublicKey);
+    priceCache.set(ticker, price);
+    return { price, source: "fresh" };
+  } catch (err) {
+    // Layer 2 — stale cache
+    const staleEntry = priceCache.getEntry(ticker);
+    if (staleEntry) {
+      const ageMs = Date.now() - (staleEntry.expiresAt - 60 * 1000);
+      if (ageMs < MAX_STALE_AGE_MS) {
+        console.warn(
+          `Reflector unavailable — serving stale price for ${ticker} (${(ageMs / 1000).toFixed(0)}s old)`
+        );
+        return { price: staleEntry.data, source: "stale" };
+      }
+    }
+
+    // Layer 3 — hardcoded fallback
+    if (fallbackPrice !== undefined) {
+      console.warn(
+        `Reflector unavailable and no usable cache — using fallback for ${ticker}`
+      );
+      return { price: fallbackPrice, source: "fallback" };
+    }
+
+    throw new Error(
+      `Failed to fetch price for ${ticker} and no fallback configured`
+    );
+  }
+}
+```
+
+### Layer 2 — Stale Cache (Extended)
+
+If the oracle is down and the 60s TTL has expired, consider serving the stale cache entry for up to 10 minutes before falling back to a hardcoded value. This handles transient RPC outages gracefully.
+
+### Layer 3 — Hardcoded Fallback
+
+Maintain a configurable fallback price map updated periodically (e.g., on deploy or via a separate cron job). This is a last resort — the price will be stale but prevents the UI from breaking:
+
+```typescript
+// Fallback prices updated on deploy or via background cron
+const FALLBACK_PRICES: Record<string, number> = {
+  XLMUSD: 0.12,
+  XLMEUR: 0.11,
+  XLMGBP: 0.095,
+};
+
+async function getPriceWithLayeredFallback(
+  server: SorobanRpc.Server,
+  ticker: string,
+  sourcePublicKey: string
+): Promise<PriceResult> {
+  return getPriceWithFallback(server, ticker, sourcePublicKey, FALLBACK_PRICES[ticker]);
+}
+```
+
+### Rendering with Source Indicator
+
+Show the price source in the UI so users understand the freshness:
+
+```typescript
+function renderPriceWithSource(result: PriceResult): string {
+  const formatted = formatFiatSmart(result.price);
+
+  switch (result.source) {
+    case "fresh":
+      return formatted;
+    case "cache":
+      return formatted;
+    case "stale":
+      return `${formatted} ⚠️`;
+    case "fallback":
+      return `${formatted} ⚠️`;
+    default:
+      return formatted;
+  }
+}
+```
+
+---
+
+## Full End-to-End Example
+
+A runnable example that fetches the XLM/USD price from Reflector on testnet, caches it, displays a Wraith balance with fiat equivalents, and handles failures gracefully.
+
+<Note>
+  This example depends on helpers defined in earlier sections: `PriceCache`, `getPriceWithLayeredFallback`, `renderPriceWithSource`, and `formatFiatSmart`.
+  Copy those into your project before running.
+</Note>
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+// ─── Reflector Oracle Setup ────────────────────────────────────────
+
+const REFLECTOR_FIAT_CONTRACT =
+  "CCSSOHTBL3LEWUCBBEB5NJFC2OKFRC74OWEIJIZLRJBGAAU4VMU5NV4W";
+const TESTNET_RPC = "https://soroban-testnet.stellar.org";
+
+const priceCache = new PriceCache(60);
+const FALLBACK_PRICES: Record<string, number> = {
+  XLMUSD: 0.12,
+};
+
+// ─── Main Application ──────────────────────────────────────────────
+
+async function main() {
+  // Connect to Soroban RPC
+  const server = new SorobanRpc.Server(TESTNET_RPC);
+
+  // Initialize Wraith agent
+  if (!process.env.WRAITH_API_KEY) throw new Error("Missing WRAITH_API_KEY");
+  if (!process.env.AGENT_ID) throw new Error("Missing AGENT_ID");
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY });
+  const agent = wraith.agent(process.env.AGENT_ID);
+
+  // Fetch price with layered fallback
+  const priceResult = await getPriceWithLayeredFallback(
+    server, "XLMUSD", process.env.SOURCE_PUBLIC_KEY!
+  );
+  console.log(
+    `XLM/USD: ${renderPriceWithSource(priceResult)} (source: ${priceResult.source})`
+  );
+
+  // Get agent balance
+  const balance = await agent.getBalance();
+  const xlmBalance = parseFloat(balance.native ?? "0");
+
+  // Render balance with fiat equivalent
+  const fiatValue = xlmBalance * priceResult.price;
+  console.log(
+    `Balance: ${xlmBalance} XLM (≈ ${formatFiatSmart(fiatValue)})`
+  );
+
+  // Scan for incoming payments
+  const scan = await agent.chat("scan for payments on stellar");
+  console.log("Scan result:", scan.response);
+
+  // Send payment with fiat-aware confirmation
+  const amount = 10;
+  const recipient = "bob.wraith";
+  const fiatStr = formatFiatSmart(amount * priceResult.price);
+
+  console.log(`Sending ${amount} XLM (${fiatStr}) to ${recipient}...`);
+  const payment = await agent.chat(
+    `send ${amount} XLM to ${recipient} on stellar`
+  );
+  console.log(payment.response);
+
+  // Periodic cache cleanup
+  setInterval(() => {
+    const purged = priceCache.purge();
+    if (purged > 0) {
+      console.log(`Price cache: purged ${purged} expired entries`);
+    }
+  }, 5 * 60 * 1000);
+}
+
+main().catch(console.error);
+```
+
+---
+
+## See Also
+
+- [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — understand the fee model for Stellar operations alongside fiat pricing
+- [Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook) — production recipes that can use fiat equivalents in payment flows
+- [Stellar Payment Links](/guides/stellar-payment-links) — generate payment links with fiat amounts
+- [Stellar Custom Assets](/guides/stellar-custom-assets) — handle USDC and other non-native assets with fiat pricing
+- [Reflector Network Docs](https://reflector.network/docs) — official Reflector documentation
+- [Stellar Oracle Providers](https://developers.stellar.org/docs/data/oracles/oracle-providers) — Stellar's official oracle overview

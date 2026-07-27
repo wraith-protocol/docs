@@ -19,7 +19,7 @@
       ["meta-address", "metaaddress", "meta address"],
       ["Soroban", "Stellar smart contract"],
       ["friendbot", "testnet faucet"],
-      ["XLM", "lumen"],
+      ["XLM", "lumen", "reflector"],
       ["Freighter", "Stellar wallet"]
     ],
     "boosts": [
@@ -139,6 +139,10 @@
               "guides/stellar-custom-assets",
               "guides/wraith-names-stellar"
             ]
+          },
+          {
+            "group": "Integrations",
+            "pages": ["guides/integrations/reflector"]
           }
         ]
       },
