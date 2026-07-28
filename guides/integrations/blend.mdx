@@ -1,0 +1,131 @@
+---
+
+title: Blend Lending with Wraith Stealth Addresses
+description: Borrow, claim interest, and manage Blend positions entirely from stealth addresses.
+
+---
+
+# Blend × Wraith Integration
+
+Blend is the main Soroban lending protocol on Stellar.
+Wraith adds privacy through stealth addresses.
+This guide shows you how to combine both: borrow, claim interest, and manage your
+position without ever exposing your main wallet.
+
+## Prerequisites
+
+- A Soroban-funded testnet account (use Friendbot).
+- Some testnet XLM for fees.
+- Lobstr (with testnet mode) or any Stellar testnet wallet.
+- Basic familiarity with Soroban transactions.
+
+## 1. Borrow to a Stealth Address
+
+Borrowing directly into a stealth address keeps your loan destination private.
+
+1. Generate a stealth address using Wraith’s CLI or SDK.
+   ```bash
+   # Example using Wraith CLI (install with npm)
+   wraith generate --recipient <your_public_key>
+   ```
+   This returns a stealthAddress and a stealthPrivateKey (keep the private key safe).
+2. Deposit collateral on Blend (e.g., XLM as collateral).
+   Visit the Blend testnet dApp or use Soroban CLI to submit a supply transaction.
+3. Borrow the asset but set the recipient to the stealth address.
+   Instead of calling borrow with your own address, you provide the stealth address.
+   Example Soroban contract call (pseudo‑code):
+   ```rust
+   let blend_client = blend::Client::new(&env, &YOUR_TESTNET_BLEND_CONTRACT_ID);
+   blend_client.borrow(
+       &from,                // your main wallet (must be signed)
+       &asset,               // e.g. USDC
+       &amount,
+       &stealth_address,     // the generated stealth address
+   );
+   ```
+   Test this on testnet using the Blend Soroban contract and a Wraith‑generated stealth address.
+   Verify the borrowed tokens appear in the stealth address’s balance on the explorer.
+4. Withdraw from the stealth address later using the stealthPrivateKey.
+   Wraith provides a reveal function to prove ownership and sweep funds back to a public key.
+
+## 2. Claim Borrow Interest into Stealth
+
+Blend users earn interest on supplied collateral. You can redirect interest payments
+to a stealth address for private yield.
+
+1. Prepare a stealth address (as above).
+2. Call Blend’s claim_rewards or claim_interest with the stealth address as the
+   destination.
+   ```rust
+   blend_client.claim_interest(
+       &from,
+       &asset,
+       &stealth_address,
+   );
+   ```
+3. Testnet verification:
+   - Supply some XLM/USDC to Blend.
+   - Wait for a small interest accrual (you can fast‑forward time on testnet).
+   - Claim interest to the stealth address.
+   - Use the Wraith reveal to confirm the funds arrived.
+
+## 3. Position Management from a Stealth Address
+
+You can check your borrow position’s health and repay debt without linking it to your
+public identity.
+
+### Viewing Position Health
+
+- Use Blend’s read‑only contract functions with your public key.
+  But to prove ownership from a stealth address, Wraith’s SDK can generate a
+  zero‑knowledge proof that you control the stealth private key.
+  ```bash
+  wraith prove --stealth-key <key> --contract blend --function get_position
+  ```
+  This returns an authorized view of your position.
+
+### Repaying Debt
+
+- You can repay directly from the stealth address by signing a transaction with the
+  stealth private key. Make sure the stealth address has the required asset to repay.
+  ```rust
+  // Sign with stealthPrivateKey
+  blend_client.repay(&stealth_address, &asset, &amount);
+  ```
+
+### Adding Collateral
+
+- Similarly, you can top up collateral from the stealth address if funds are there.
+
+## 4. Liquidation Risk Callouts
+
+- Stealth addresses are invisible to public block explorers.
+    If your borrow position becomes under‑collateralized, Blend’s liquidation bot
+  cannot directly seize collateral from a stealth address.
+    You must self‑liquidate or add collateral in time.
+- No automatic alerts – you are responsible for monitoring your position health.
+- Funds in a stealth address are not frozen – but if the address has no funds to
+  cover the debt, your original collateral (in the public pool) can be lost.
+- Always keep the stealth private key backed up – losing it means losing all
+  funds held in that stealth address.
+
+## 5. Testnet Example
+
+Complete walk‑through on Stellar testnet:
+
+1. Create two testnet accounts (Main and Stealth).
+2. Fund Main via Friendbot.
+3. Supply 100 testnet XLM to Blend as collateral.
+4. Generate a stealth address for Main (using Wraith).
+5. Borrow 50 testnet USDC to the stealth address.
+6. Verify on testnet explorer that USDC arrived at the stealth address.
+7. Wait 1 minute → claim interest to a second stealth address.
+8. Repay half the loan from the stealth address by signing with stealth key.
+9. Observe position health via Wraith proof.
+
+All snippets above must pass CI. Use the exact contract IDs from Blend testnet
+deployments (check the Blend docs for testnet addresses).
+
+---
+
+

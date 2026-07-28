@@ -1,0 +1,143 @@
+---
+title: 'Self‑Hosted Deployment'
+sidebarTitle: 'Self‑Hosted Deployment'
+description: 'Deploy the Wraith protocol on your own Stellar network (Futurenet)'
+---
+
+This guide walks you through a full self‑hosted deployment of the Wraith
+protocol on **Futurenet**. By the end, you’ll have all four core contracts
+deployed, wired, and verified — ready for your own applications.
+
+## Prerequisites
+
+- **Rust** ≥ 1.78 (`rustc --version`)
+- **wasm32 target** installed (`rustup target list --installed | grep wasm32-unknown-unknown`)
+- **stellar‑cli** ≥ 22.0.1 (`stellar --version`)
+- **Funded Stellar keypair** on Futurenet (`stellar account show <address> --network futurenet`)
+
+Install the wasm target if missing:
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+## 1. Set Up a Futurenet Identity
+
+Generate a new keypair and fund it via friendbot:
+
+```bash
+stellar keys generate wraith-deployer --network futurenet
+
+curl "https://friendbot-futurenet.stellar.org/?addr=$(stellar keys address wraith-deployer)"
+```
+
+Verify the balance:
+```bash
+stellar account show $(stellar keys address wraith-deployer) --network futurenet
+```
+You should see at least 10 XLM to cover deployment costs.
+
+## 2. Dry‑Run Walkthrough
+
+A dry‑run prints every command that *would* be executed without spending funds.
+Use it to audit the sequence.
+
+Clone the contracts repo and enter the Stellar directory:
+
+```bash
+git clone https://github.com/wraith-protocol/contracts.git
+cd contracts/stellar
+```
+
+Run the dry‑run:
+
+```bash
+./deploy.sh futurenet wraith-deployer --dry-run
+```
+
+Expected output:
+```
+🚀 Deploying Wraith Protocol to futurenet using wraith-deployer...
+[DRY-RUN] Will execute: cargo build --target wasm32-unknown-unknown --release
+[DRY-RUN] Will execute: stellar contract optimize on all contracts
+[DRY-RUN] Will deploy: stealth-announcer
+[DRY-RUN] Will deploy: stealth-registry
+[DRY-RUN] Will deploy: stealth-sender
+[DRY-RUN] Will invoke: stealth-sender init
+[DRY-RUN] Will deploy: wraith-names
+[DRY-RUN] Will write manifest to deployments/futurenet.json
+```
+
+If this exits cleanly, the deployment plan is valid.
+
+## 3. Full Futurenet Deployment
+
+From the `contracts/stellar` directory, run the same command **without** `--dry-run`:
+
+```bash
+./deploy.sh futurenet wraith-deployer
+```
+
+The script will:
+- Build all contracts (`cargo build --target wasm32-unknown-unknown --release`)
+- Optimize WASM files with `stellar contract optimize`
+- Deploy each contract in dependency order
+- **Wire contracts** by calling `init` on `stealth-sender` with the announcer ID
+- Write a deployment manifest to `stellar/deployments/futurenet.json`
+- Verify each deployed contract responds to a read call
+
+You’ll see output ending with:
+```
+🎉 Deployment Complete!
+--------------------------------------
+Announcer: CAAA...
+Registry:  CBBB...
+Sender:    CCCC...
+Names:     CDDD...
+--------------------------------------
+```
+
+## 4. Wiring Contracts (Already Done)
+
+The deploy script automatically wires the contracts. Specifically, it calls:
+
+```bash
+soroban contract invoke \
+    --id <SENDER_ID> \
+    --source wraith-deployer \
+    --network futurenet \
+    -- init --admin <DEPLOYER_ADDRESS> --announcer <ANNOUNCER_ID>
+```
+
+No additional wiring steps are required for a self‑hosted instance.
+
+## 5. Publishing Contract IDs
+
+The deployment manifest at `stellar/deployments/futurenet.json` contains all
+contract IDs and is the canonical record of your deployment.
+
+Share this file with any consumer application. Its structure:
+
+```json
+{
+  "network": "futurenet",
+  "contracts": {
+    "stealthAnnouncer": "CAAA...",
+    "stealthRegistry": "CBBB...",
+    "stealthSender": "CCCC...",
+    "wraithNames": "CDDD..."
+}
+```
+
+## Verification
+
+Open each contract on Stellar Expert:
+
+```
+https://futurenet.stellar.expert/explorer/futurenet/contract/<CONTRACT_ID>
+```
+
+You should see ledger entries confirming the deployment.
+
+
+**Your self‑hosted Wraith instance is now live.** You can register names,
+announce stealth meta‑addresses, and send private payments against these contracts.

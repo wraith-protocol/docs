@@ -1,0 +1,82 @@
+---
+title: "Passkey Signing Integration"
+description: "How to plug a Passkey (or any smart-account) signer into stealth derivation on Stellar"
+---
+
+This guide explains how to integrate a Passkey signer into the stealth derivation process using the `StellarStealthSigner` interface.
+
+## The `StellarStealthSigner` Interface
+
+To support custom smart-account signing such as Passkeys, you need to implement the `StellarStealthSigner` interface. This allows the stealth derivation logic to interact with your specific signing mechanism.
+
+```typescript
+export interface StellarStealthSigner {
+  /**
+   * The public key associated with this signer.
+   */
+  publicKey(): string;
+
+  /**
+   * Signs the provided payload.
+   * @param payload - The data to sign.
+   * @returns A promise resolving to the signature.
+   */
+  sign(payload: Uint8Array): Promise<Uint8Array>;
+}
+```
+
+## Reference Passkey Adapter
+
+Here is a reference implementation of a Passkey adapter that conforms to the `StellarStealthSigner` interface.
+
+```typescript
+import { StellarStealthSigner } from '@wraith-protocol/sdk';
+
+export class PasskeySignerAdapter implements StellarStealthSigner {
+  private _publicKey: string;
+  private _passkeyId: string;
+
+  constructor(publicKey: string, passkeyId: string) {
+    this._publicKey = publicKey;
+    this._passkeyId = passkeyId;
+  }
+
+  publicKey(): string {
+    return this._publicKey;
+  }
+
+  async sign(payload: Uint8Array): Promise<Uint8Array> {
+    // Invoke WebAuthn or platform-specific passkey API
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge: payload,
+        allowCredentials: [{
+          id: Buffer.from(this._passkeyId, 'base64'),
+          type: 'public-key'
+        }],
+        userVerification: 'required',
+      }
+    });
+
+    // Extract signature from the WebAuthn response
+    // Note: In a real-world scenario you would parse the AuthenticatorAssertionResponse
+    // and extract the signature based on the specific structure.
+    const response = (assertion as PublicKeyCredential).response as AuthenticatorAssertionResponse;
+    const signature = new Uint8Array(response.signature);
+    return signature;
+  }
+}
+```
+
+## Trust Boundary
+
+When integrating Passkeys, it is important to understand the trust boundary:
+
+- **What a passkey covers**: The Passkey ensures that the user's private key material never leaves their device's secure enclave (e.g., Secure Enclave on Apple devices or TPM on Windows). It guarantees that only the authorized user can sign the specific challenge provided during the authentication ceremony.
+- **What it does not cover**: The Passkey does *not* validate the contents of the transaction or the challenge. The application must ensure that the challenge being signed correctly represents the intended operation (such as the transaction hash) and has not been tampered with before it reaches the signing API.
+
+## Note on Determinism Requirements
+
+Stealth derivation often requires deterministic signatures (where the same input always produces the same signature) to reliably compute shared secrets or derivative keys. 
+
+**Important:** Standard Passkey signatures (usually ECDSA P-256) are typically non-deterministic. If your stealth derivation protocol strictly requires deterministic signatures, you cannot directly use raw passkey signatures as the entropy for key derivation. Instead, you should use the passkey to sign a deterministic challenge or unlock a deterministic local key that handles the derivation logic.

@@ -1,0 +1,85 @@
+---
+title: "Cross-Chain Announcement Format"
+description: "Normative specification for cross-chain announcements emitted by Wraith Protocol."
+---
+
+# Cross-Chain Announcement Format Specification
+
+**Status**: Normative  
+**Reviewed By**: SDK Maintainer  
+
+This document specifies the normative announcement format for Wraith Protocol across all supported chains. Third-party indexers MUST adhere to this specification to correctly parse and process cross-chain events.
+
+## Common Canonical Form (JSON)
+
+The SDK normalizes all chain-specific announcements into a common canonical JSON format.
+
+```json
+{
+  "eventId": "string (unique identifier)",
+  "sourceChain": "string (e.g., 'evm', 'solana', 'ckb', 'stellar')",
+  "topic": "string (normalized event type)",
+  "timestamp": "number (UNIX epoch)",
+  "payload": {
+    // Event-specific data
+  }
+}
+```
+
+## Per-Chain Event Topic and Payload Shape
+
+Every chain emits announcements slightly differently. Below is the specification for each currently supported chain.
+
+### CKB
+
+*   **Event Topic**: `WraithAnnouncement`
+*   **Payload Shape**:
+    ```json
+    {
+      "cell_dep": "string (OutPoint)",
+      "data": "string (Hex-encoded announcement data)"
+    }
+    ```
+
+### EVM
+
+*   **Event Topic**: `AnnouncementEvent(bytes32 indexed topic, bytes data)`
+*   **Payload Shape**:
+    ```json
+    {
+      "contractAddress": "string (Hex address)",
+      "topicHash": "string (Hex bytes32)",
+      "data": "string (Hex encoded bytes)"
+    }
+    ```
+
+### Solana
+
+*   **Event Topic**: `WraithAnnouncementLog`
+*   **Payload Shape**:
+    ```json
+    {
+      "programId": "string (Base58)",
+      "instructionData": "string (Base64 encoded announcement data)"
+    }
+    ```
+
+### Stellar
+
+*   **Event Topic**: `WRAITH_ANNOUNCEMENT`
+*   **Payload Shape**:
+    ```json
+    {
+      "contractId": "string (Contract ID)",
+      "topic": "string (Symbol)",
+      "data": "string (XDR encoded ScVal)"
+    }
+    ```
+
+## Extensibility Notes for Future Chains
+
+When integrating future chains into the Wraith Protocol SDK, the following guidelines MUST be followed:
+1.  **Unique Source Chain Identifier**: The new chain must be assigned a unique `sourceChain` identifier.
+2.  **Deterministic Event IDs**: The `eventId` must be deterministically generated using the chain's native transaction hash or log index to ensure uniqueness across the network.
+3.  **Payload Normalization**: The SDK implementation for the new chain must map the native event data into the common canonical `payload` structure.
+4.  **Documentation**: This normative specification must be updated to include the new chain's event topic and native payload shape.

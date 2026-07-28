@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';" />
+  <title>Wraith Scanner Playground</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #181c27;
+      --border:    #2a2f3d;
+      --accent:    #7c6af7;
+      --accent-lo: #7c6af720;
+      --green:     #34d399;
+      --green-lo:  #34d39918;
+      --red:       #f87171;
+      --red-lo:    #f8717118;
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --mono:      'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 20px 16px 32px;
+      min-height: 100vh;
+    }
+
+    h1 {
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+    .subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 5px;
+    }
+
+    .field { margin-bottom: 14px; }
+
+    input[type="text"] {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input[type="text"]:focus { border-color: var(--accent); }
+    input[type="text"]::placeholder { color: var(--muted); }
+    input[type="text"].error { border-color: var(--red); }
+
+    .row { display: flex; gap: 10px; }
+    .row .field { flex: 1; }
+
+    button {
+      width: 100%;
+      padding: 9px 14px;
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .15s;
+      margin-top: 4px;
+    }
+    button:hover { opacity: .88; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    .hint {
+      margin-top: 6px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .hint a {
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .hint a:hover { text-decoration: underline; }
+
+    #results { margin-top: 20px; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      margin-bottom: 10px;
+    }
+    .status-bar .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-scanning { background: var(--accent); animation: pulse 1s infinite; }
+    .dot-done     { background: var(--green); }
+    .dot-err      { background: var(--red); }
+    @keyframes pulse {
+      0%,100% { opacity:1; } 50% { opacity:.35; }
+    }
+
+    .match-card {
+      background: var(--green-lo);
+      border: 1px solid var(--green);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 10px;
+    }
+    .match-card .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--green);
+      margin-bottom: 8px;
+    }
+    .match-card .tag::before {
+      content: '';
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .kv-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 6px;
+    }
+    .kv-row:last-child { margin-bottom: 0; }
+    .kv-row .k {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+    }
+    .kv-row .v {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text);
+      word-break: break-all;
+    }
+
+    .no-match {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .fixture-section {
+      margin-top: 18px;
+    }
+    .fixture-section summary {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+      padding: 6px 0;
+    }
+    .fixture-section summary:hover { color: var(--text); }
+    .fixture-table {
+      margin-top: 8px;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    th {
+      text-align: left;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-size: 10px;
+      color: var(--muted);
+      padding: 4px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    .badge-yours {
+      display: inline-block;
+      background: var(--green-lo);
+      color: var(--green);
+      border: 1px solid var(--green);
+      border-radius: 4px;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      letter-spacing: .05em;
+    }
+    .badge-other {
+      display: inline-block;
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 9px;
+      padding: 1px 5px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>Wraith Scanner Playground</h1>
+<p class="subtitle">Scan a canned batch of announcements client-side — no wallet, no network calls.</p>
+
+<div class="field">
+  <label>Stealth Meta-Address <span style="font-weight:400;text-transform:none">(st:xlm:…)</span></label>
+  <input type="text" id="metaAddr"
+         placeholder="st:xlm:&lt;64-char spending pubkey hex&gt;&lt;64-char viewing pubkey hex&gt;"
+         spellcheck="false" autocomplete="off" />
+</div>
+
+<div class="row">
+  <div class="field">
+    <label>Viewing Key <span style="font-weight:400;text-transform:none">(32-byte hex seed)</span></label>
+    <input type="text" id="viewingKey"
+           placeholder="64 hex chars"
+           spellcheck="false" autocomplete="off" />
+  </div>
+  <div class="field">
+    <label>Spending Scalar <span style="font-weight:400;text-transform:none">(decimal bigint)</span></label>
+    <input type="text" id="spendingScalar"
+           placeholder="decimal integer"
+           spellcheck="false" autocomplete="off" />
+  </div>
+</div>
+
+<p class="hint">
+  No keys handy? <a id="loadFixture">Load the demo keys</a> that match the fixture announcements below.
+</p>
+
+<button id="scanBtn">Scan announcements</button>
+
+<div id="results"></div>
+
+<details class="fixture-section">
+  <summary>Fixture announcements (5 total)</summary>
+  <div class="fixture-table">
+    <table id="fixtureTable"></table>
+  </div>
+</details>
+
+<script src="scanner.js"></script>
+</body>
+</html>

@@ -167,3 +167,12 @@ To ensure smooth operations in production apps, implement these heuristics:
 2. **Prioritize Batching**: Always batch transfers when sending payments to multiple recipients. Calling `batch_send` reduces transaction fee costs and cuts ledger read overhead.
 3. **Set a Surge Pricing Margin**: In production, configure your fee estimator to add a margin (e.g., 20% to 50%) to the suggested base fee during network congestion to prevent transactions from getting stuck in the transaction queue.
 4. **Account for Rent Renewal**: For stateful registries, monitor the Time-to-Live (TTL) of storage entries. Implement automated routines to call the `extend_ttl` endpoint on contracts to prevent crucial records (like registrant meta-addresses) from being archived.
+
+---
+
+## See Also
+
+- [Reflector Oracle Integration](/guides/integrations/reflector) — plug Reflector into Wraith flows for inline fiat conversion alongside fee estimation
+- [Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook) — production recipes for Stellar agents
+- [Stellar Payment Links](/guides/stellar-payment-links) — generate payment links with fiat amounts
+- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — fixes for common Stellar and Soroban errors
