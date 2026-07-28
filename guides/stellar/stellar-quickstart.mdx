@@ -1,165 +1,625 @@
 ---
-title: "Stellar Quickstart"
-description: "Derive stealth keys, scan announcements, and spend from a stealth address on Stellar — with an interactive demo"
-keywords: "Stellar, stealth address, ed25519, scanner, quickstart, soroban"
+title: "Stellar Quickstart (End-to-End)"
+description: "Complete tutorial: connect Freighter, derive stealth keys, register a .wraith name, send a stealth USDC payment, scan for incoming payments, and withdraw — all on Stellar testnet."
+keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, meta-address, stealth payment, quickstart, tutorial"
 ---
 
-This guide walks you through the complete Stellar stealth-address flow in five steps:
-derive keys → generate a stealth address → send → announce → scan.
-The interactive playground at the bottom lets you run the scanner against a
-real batch of fixture announcements, entirely in your browser.
+By the end of this tutorial you will have:
 
-## Prerequisites
+- A funded Wraith agent on the Stellar **testnet**
+- A registered `.wraith` name for receiving private payments
+- Sent a stealth USDC payment to another `.wraith` name
+- Scanned for incoming payments and withdrawn funds to your wallet
+- Understanding of common Stellar stealth-payment errors and how to fix them
+
+**Prerequisites:** Node.js 18+, a Wraith API key ([sign up at usewraith.xyz](https://usewraith.xyz)), and the Freighter browser extension installed ([get it here](https://www.freighter.app)).
+
+---
+
+## 1. Install Dependencies
 
 ```bash
-npm install @wraith-protocol/sdk @stellar/stellar-sdk
+npm install @wraith-protocol/sdk @stellar/stellar-sdk @stellar/freighter-api
 ```
 
-## 1. Derive Stealth Keys
+| Package | Purpose |
+|---|---|
+| `@wraith-protocol/sdk` | Agent client — create agents, chat, send stealth payments |
+| `@stellar/stellar-sdk` | Stellar keypair generation and transaction building |
+| `@stellar/freighter-api` | Connect to the Freighter browser wallet |
 
-Sign the canonical Wraith message with a Stellar keypair, then pass the signature
-to `deriveStealthKeys`. The two derived keys serve different purposes:
-the **viewing key** detects incoming payments; the **spending key** authorizes withdrawals.
+---
+
+## 2. Connect Freighter
+
+Freighter is the most widely used Stellar browser extension. Use it to connect your wallet, sign messages, and prove ownership.
+
+```typescript
+import { isConnected, requestAccess, getPublicKey } from "@stellar/freighter-api";
+
+async function connectFreighterWallet(): Promise<string> {
+  const connected = await isConnected();
+  if (!connected.isConnected) {
+    throw new Error(
+      "Freighter not installed. Install it from https://www.freighter.app"
+    );
+  }
+
+  const access = await requestAccess();
+  if (access.error) {
+    throw new Error(`Freighter access denied: ${access.error}`);
+  }
+
+  const pubKeyResult = await getPublicKey();
+  if (pubKeyResult.error) {
+    throw new Error(`Freighter error: ${pubKeyResult.error}`);
+  }
+
+  console.log("Connected to Freighter. Public key:", pubKeyResult.publicKey);
+  return pubKeyResult.publicKey;
+}
+```
+
+<Tip>
+  If you prefer to work without a browser extension, generate a keypair programmatically: `const keypair = Keypair.random();`. Keep the secret key in `STELLAR_SECRET`.
+</Tip>
+
+### Network Configuration
+
+Ensure Freighter is set to **testnet** before proceeding. The network passphrase for testnet is `"Test SDF Network ; September 2015"`.
+
+```typescript
+import { signMessage } from "@stellar/freighter-api";
+
+async function signWithFreighter(message: string): Promise<Uint8Array> {
+  const result = await signMessage(message, {
+    networkPassphrase: "Test SDF Network ; September 2015",
+  });
+
+  if (result.error) {
+    throw new Error(`Freighter signing error: ${result.error}`);
+  }
+
+  // Freighter returns base64-encoded signature
+  return Buffer.from(result.signedMessage, "base64");
+}
+```
+
+---
+
+## 3. Derive Stealth Keys
+
+The Wraith protocol uses the Ed25519 signature from your Stellar wallet to deterministically derive two key pairs:
+
+- **Spending key** — controls the ability to spend from stealth addresses
+- **Viewing key** — detects incoming stealth payments (can be shared with a scanner)
+
+Sign the canonical Wraith message with Freighter, then derive the keys:
 
 ```typescript
 import {
   deriveStealthKeys,
   encodeStealthMetaAddress,
   STEALTH_SIGNING_MESSAGE,
+  pubKeyToStellarAddress,
 } from "@wraith-protocol/sdk/chains/stellar";
+
+async function deriveStealthKeysFromFreighter() {
+  // Step 1: Sign the canonical Wraith message with Freighter
+  const signature = await signWithFreighter(STEALTH_SIGNING_MESSAGE);
+
+  // Step 2: Derive spending and viewing key pairs from the signature
+  const keys = deriveStealthKeys(signature);
+
+  console.log("Spending scalar:  ", keys.spendingScalar.toString());
+  console.log("Viewing scalar:   ", keys.viewingScalar.toString());
+  console.log("Spending pub key: ", pubKeyToStellarAddress(keys.spendingPubKey));
+  console.log("Viewing pub key:  ", pubKeyToStellarAddress(keys.viewingPubKey));
+
+  // Step 3: Encode both public keys into a stealth meta-address
+  const metaAddress = encodeStealthMetaAddress(
+    keys.spendingPubKey,
+    keys.viewingPubKey
+  );
+
+  console.log("Stealth meta-address:", metaAddress);
+  // st:xlm:<64hex><64hex> — share this so others can pay you privately
+
+  return { keys, metaAddress };
+}
+```
+
+### What's happening under the hood
+
+1. `STEALTH_SIGNING_MESSAGE` is signed with your Stellar keypair via Freighter
+2. The 64-byte Ed25519 signature is split into two domain-separated seeds via SHA-256:
+   - `SHA-256("wraith:spending:" || signature)` → spending key seed
+   - `SHA-256("wraith:viewing:" || signature)` → viewing key seed
+3. Each seed is expanded via SHA-512 + clamping to produce an Ed25519 scalar
+4. Public keys are derived via standard Ed25519 point multiplication
+5. The meta-address is simply the two 32-byte public keys concatenated and prefixed with `st:xlm:`
+
+You do **not** need to remember these details — the SDK handles them. But understanding the design helps when debugging.
+
+---
+
+## 4. Create an Agent
+
+An agent is your identity on the Wraith network. It has a `.wraith` name, an on-chain Stellar address, and stealth keys — all managed inside a Trusted Execution Environment (TEE).
+
+<div style={{ marginTop: "1rem" }} />
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
 import { Keypair } from "@stellar/stellar-sdk";
 
-const keypair = Keypair.fromSecret("S...");
-const signature = keypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
-const keys = deriveStealthKeys(signature);
+const wraith = new Wraith({
+  apiKey: process.env.WRAITH_API_KEY!,
+});
 
-// Publish this so senders can find you
-const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
-console.log(metaAddress); // "st:xlm:<64hex><64hex>"
+// Use the Freighter-connected keypair, or generate one
+const stellarKeypair = Keypair.fromSecret(process.env.STELLAR_SECRET!);
+
+// Sign a message to prove ownership of the Stellar keypair
+const message = "Sign to create Wraith agent on Stellar";
+const signature = stellarKeypair.sign(Buffer.from(message));
+
+const agent = await wraith.createAgent({
+  name: "my-stellar-agent",          // becomes my-stellar-agent.wraith
+  chain: Chain.Stellar,
+  wallet: stellarKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+
+console.log("Agent ID:        ", agent.info.id);
+console.log("Stellar address: ", agent.info.addresses[Chain.Stellar]);
+console.log("Meta-address:    ", agent.info.metaAddresses[Chain.Stellar]);
 ```
 
-## 2. Generate a Stealth Address (Sender Side)
+### curl Equivalent
 
-The sender decodes the recipient's meta-address and generates a fresh one-time
-stealth address. The ephemeral public key and view tag are announced on-chain.
-
-```typescript
-import {
-  decodeStealthMetaAddress,
-  generateStealthAddress,
-} from "@wraith-protocol/sdk/chains/stellar";
-
-const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(
-  "st:xlm:<recipient-meta-address>"
-);
-
-const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(
-  spendingPubKey,
-  viewingPubKey
-);
-
-// Send XLM to stealthAddress via Operation.createAccount
-// Then call the Soroban announcer contract with:
-//   ephemeralPubKey (hex), viewTag (as first byte of metadata)
+```bash
+curl -X POST https://api.usewraith.xyz/agent/create \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-stellar-agent",
+    "chain": "stellar",
+    "wallet": "GABC...your-stellar-pubkey",
+    "signature": "hex-encoded-ed25519-signature",
+    "message": "Sign to create Wraith agent on Stellar"
+  }'
 ```
 
-## 3. Scan for Incoming Payments
+**Response:**
 
-`scanAnnouncements` takes the raw announcement list from `fetchAnnouncements`
-(or your own indexer) and returns only the entries that belong to your keys,
-together with the derived private scalar needed to spend.
+```json
+{
+  "id": "a1b2c3d4-...",
+  "name": "my-stellar-agent",
+  "chain": "stellar",
+  "address": "GABC...agent-address",
+  "metaAddress": "st:xlm:abc123...def456..."
+}
+```
+
+<Info>
+  The `.wraith` name is registered on-chain via the `wraith-names` Soroban contract. This costs ~0.0046 XLM in network fees. The agent pays this automatically during creation.
+</Info>
+
+### Registration Without XLM
+
+If the agent address has no XLM balance yet, the SDK falls back to **delegated (gasless) registration**. The Wraith API pays the Soroban fee on your behalf using Soroban's built-in auth framework:
 
 ```typescript
+// This works even if the agent address is unfunded
+const agent = await wraith.createAgent({
+  name: "my-stellar-agent",
+  chain: Chain.Stellar,
+  wallet: stellarKeypair.publicKey(),
+  signature: Buffer.from(signature).toString("hex"),
+  message,
+});
+// The SDK automatically handles delegated auth when needed
+```
+
+<Warning>
+  Gasless registration relies on the Soroban auth framework and the Wraith API relay. Your API key must have sufficient credits to cover the relay fee. See [pricing](https://usewraith.xyz/pricing) for details.
+</Warning>
+
+---
+
+## 5. Fund the Agent (Testnet)
+
+Stellar testnet accounts need at least 1 XLM to activate. Friendbot hands out 10,000 XLM for free — enough for hundreds of test transactions.
+
+```typescript
+const response = await agent.chat("fund my wallet");
+console.log(response.response);
+// "Wallet funded via Friendbot. Balance: 10,000 XLM"
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "fund my wallet" }'
+```
+
+<Warning>
+  Friendbot only works on **testnet**. For mainnet, send at least 1.5 XLM to the agent address to activate the account and cover the base reserve.
+</Warning>
+
+### Manual Funding (Alternative)
+
+If you prefer to fund the agent yourself, send XLM directly to the agent's Stellar address:
+
+```typescript
+// Get the agent's Stellar address
+const agentAddress = agent.info.addresses[Chain.Stellar];
+console.log("Send XLM to:", agentAddress);
+// Then send at least 1.5 XLM from your wallet
+```
+
+---
+
+## 6. Check Balance
+
+```typescript
+const balance = await agent.getBalance();
+console.log("XLM:", balance.native);          // "10000.0"
+console.log("Tokens:", balance.tokens);       // { USDC: "0.0" }
+
+// Or via chat
+const res = await agent.chat("what's my balance?");
+console.log(res.response);
+// "Balance: 10,000 XLM, 0 USDC"
+```
+
+---
+
+## 7. Send a Stealth Payment
+
+Send USDC to any `.wraith` name. The agent resolves the name to a stealth meta-address, generates a fresh one-time stealth address, and broadcasts the announcement on-chain — all in a single Soroban transaction.
+
+```typescript
+const res = await agent.chat("send 10 USDC to alice.wraith on stellar");
+console.log(res.response);
+// "Payment sent — 10 USDC to alice.wraith via stealth address GABC...xyz on Stellar."
+
+// Inspect the tool call for the transaction hash
+console.log(res.toolCalls);
+// [{ name: "send_payment", status: "success", detail: "{...txHash...}" }]
+```
+
+**curl:**
+
+```bash
+curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
+  -H "Authorization: Bearer $WRAITH_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "message": "send 10 USDC to alice.wraith on stellar" }'
+```
+
+### Sending XLM
+
+```typescript
+const res = await agent.chat("send 50 XLM to bob.wraith on stellar");
+console.log(res.response);
+```
+
+### How Stealth Payments Work (Behind the Scenes)
+
+1. **Resolve** — `alice.wraith` is resolved to a stealth meta-address (two Ed25519 public keys)
+2. **Generate** — A random ephemeral key pair `(r, R)` is generated
+3. **ECDH** — A shared secret `S = r * viewingPubKey` is computed via X25519 (Montgomery form conversion)
+4. **Derive** — The stealth address = `spendingPubKey + SHA-256("wraith:scalar:" || S) * G`
+5. **Send** — USDC is transferred to the stealth address via the `stealth-sender` Soroban contract
+6. **Announce** — The ephemeral public key `R` and a 1-byte view tag are published on-chain
+
+Alice's agent scans for announcements, matches them using her viewing key, and derives the private scalar needed to spend from the stealth address.
+
+<div style={{ marginTop: "1rem" }} />
+
+<Accordion title="What is a view tag?">
+  A view tag is the first byte of `SHA-256("wraith:tag:" || sharedSecret)`. It allows scanners to reject ~255/256 non-matching announcements with a single byte comparison — no expensive Ed25519 point operations needed. This makes scanning fast even over thousands of announcements.
+</Accordion>
+
+---
+
+## 8. Scan for Incoming Payments
+
+If someone has sent a payment to your `.wraith` name (or directly to your stealth meta-address), scan the chain to detect those payments:
+
+```typescript
+const res = await agent.chat("scan for payments on stellar");
+console.log(res.response);
+// "Scan complete. Found 2 incoming payments:
+//  - 10 USDC at stealth address GABC...abc (tx: a1b2c3...)
+//  - 5 USDC at stealth address GABC...def (tx: d4e5f6...)"
+```
+
+### How Scanning Works
+
+The agent queries the Soroban RPC for `stealth-announcer` contract events, then runs each announcement through `scanAnnouncements()`:
+
+```typescript
+// This is what the agent does internally (simplified)
 import {
-  scanAnnouncements,
   fetchAnnouncements,
+  scanAnnouncements,
 } from "@wraith-protocol/sdk/chains/stellar";
 
-// Fetch all announcements from the Soroban RPC
 const announcements = await fetchAnnouncements("stellar");
-
-const matched = await scanAnnouncements(
+const matched = scanAnnouncements(
   announcements,
-  keys.viewingKey,       // 32-byte Uint8Array seed
+  keys.viewingKey,       // 32-byte Uint8Array
   keys.spendingPubKey,   // 32-byte Uint8Array
   keys.spendingScalar,   // bigint
 );
 
 for (const m of matched) {
-  console.log("Found payment at:", m.stealthAddress);
-  console.log("Private scalar:  ", m.stealthPrivateScalar);
+  console.log("Found:", m.stealthAddress);
 }
 ```
 
-<Tip>
-  View tags filter out ~255 of every 256 non-matching announcements with a
-  single byte comparison, making scans fast even over thousands of events.
-</Tip>
-
-## 4. Spend From a Stealth Address
-
-Because stealth private keys are derived scalars (not raw seeds), standard
-Stellar signing does not work. Use `signStellarTransaction` instead.
-
-```typescript
-import {
-  signStellarTransaction,
-  pubKeyToStellarAddress,
-} from "@wraith-protocol/sdk/chains/stellar";
-import { Transaction, Keypair } from "@stellar/stellar-sdk";
-
-// m = a matched announcement from scanAnnouncements()
-const txHash = transaction.hash(); // 32-byte Buffer
-const sig    = signStellarTransaction(txHash, m.stealthPrivateScalar, m.stealthPubKeyBytes);
-
-// Attach signature and submit
-const hint = Buffer.from(m.stealthPubKeyBytes.slice(0, 4));
-transaction.addSignature(
-  pubKeyToStellarAddress(m.stealthPubKeyBytes),
-  hint.toString("base64"),
-  sig.toString("base64"),
-);
-```
-
-## 5. Key Differences from EVM
-
-| Aspect | EVM | Stellar |
-|---|---|---|
-| Curve | secp256k1 | ed25519 |
-| ECDH | `secp256k1.getSharedSecret` | X25519 (Montgomery form) |
-| Private key output | hex string | bigint scalar |
-| Address format | `0x…` (20 bytes) | `G…` (56 chars) |
-| Signing | secp256k1 ECDSA | `signWithScalar` / `signStellarTransaction` |
+You don't need to call these functions directly — the managed agent does it for you via `agent.chat("scan for payments")`.
 
 ---
 
-## Interactive Scanner Demo
+## 9. Withdraw to Your Wallet
 
-Paste your own stealth meta-address and keys, or click **Load demo keys** to
-scan the five pre-built fixture announcements. Everything runs client-side —
-no wallet, no network calls, no third-party scripts.
+Move funds from stealth addresses to your regular Stellar wallet. The agent warns about privacy tradeoffs before executing:
 
-<iframe
-  src="/scripts/playground/index.html"
-  sandbox="allow-scripts"
-  width="100%"
-  height="700"
-  style={{ border: "1px solid #2a2f3d", borderRadius: "8px" }}
-  title="Wraith Stellar Scanner Playground"
-/>
+```typescript
+const res = await agent.chat(
+  `withdraw all USDC to ${stellarKeypair.publicKey()} on stellar`
+);
+console.log(res.response);
+```
 
-<Note>
-  The demo keys are derived deterministically from a test seed and are not
-  connected to any real wallet. Two of the five fixture announcements match
-  the pre-filled keys; the other three are noise.
-</Note>
+### Privacy-Aware Withdrawal
+
+```typescript
+// Request a privacy analysis before withdrawing
+const privacy = await agent.chat("run a privacy check");
+console.log(privacy.response);
+// "Privacy Score: 85/100
+//  (medium) 7 unspent stealth addresses — consider consolidating"
+```
+
+<Info>
+  To protect your privacy, space withdrawals at least **1 hour apart** and avoid withdrawing uniform round amounts. The agent's privacy scoring algorithm checks for timing patterns, address correlation, and dust amounts. See [Privacy Best Practices](/guides/privacy-best-practices) for details.
+</Info>
+
+### Withdrawing to Any Destination
+
+```typescript
+// Withdraw to a specific address (not necessarily the owner wallet)
+const res = await agent.chat(
+  "withdraw 5 USDC to GDOE...recipient-address on stellar"
+);
+console.log(res.response);
+```
+
+---
+
+## 10. Reconnect to an Existing Agent
+
+After the initial setup, reconnect without creating a new agent:
+
+```typescript
+// By agent ID (fastest — store this after createAgent)
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// By .wraith name
+const agent = await wraith.getAgentByName("my-stellar-agent");
+```
+
+---
+
+## Common Errors
+
+<AccordionGroup type="warning">
+  <Accordion title="`op_no_destination` — Destination account doesn't exist">
+    Stellar requires every account to exist with a minimum 1 XLM balance before it can receive payments.
+
+    **Fix:** Use `createAccount` (which creates and funds the account) instead of `payment` when sending to new stealth addresses. The agent handles this automatically — if you encounter this error at the SDK level, ensure you're sending to a funded address or using `createAccount`.
+
+    ```typescript
+    // SDK-level example — the agent handles this internally
+    import { Operation } from "@stellar/stellar-sdk";
+
+    // Correct: createAccount funds AND activates in one operation
+    const op = Operation.createAccount({
+      destination: stealthAddress,
+      startingBalance: "1.5", // Must be >= 1 XLM
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="`op_underfunded` — Insufficient balance">
+    The sender's account doesn't have enough XLM or USDC to complete the transaction.
+
+    **Fix:** Check your balance before sending. Keep a buffer of at least 1.5 XLM for Soroban fees (each contract call costs ~0.0035 XLM). If sending USDC, ensure you have both USDC tokens and enough XLM for fees.
+
+    ```typescript
+    const balance = await agent.getBalance();
+    const xlm = parseFloat(balance.native);
+    if (xlm < 1.5) {
+      console.log("Insufficient XLM for fees. Fund via Friendbot: agent.chat('fund my wallet')");
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="`op_low_reserve` — Trustline would breach minimum reserve">
+    Adding a new trustline (required for non-native assets like USDC) requires an additional 0.5 XLM minimum balance.
+
+    **Fix:** Ensure the sending account has at least `1 XLM (base) + 0.5 XLM (per trustline)` before sending custom assets.
+
+    The agent checks this automatically before sending. If you see this error, add more XLM to the agent's address.
+  </Accordion>
+
+  <Accordion title="`tx_bad_seq` — Stale sequence number">
+    The transaction was built with a sequence number that's no longer current. This happens when multiple transactions are submitted in quick succession.
+
+    **Fix:** Always refetch the account before building a transaction. The agent handles this internally, but if you're using the SDK primitives directly, ensure you call `server.loadAccount()` before each transaction build.
+
+    ```typescript
+    // The agent handles this — but if using SDK primitives:
+    const account = await server.loadAccount(agentAddress);
+    // Use account.sequenceNumber() to build the transaction
+    ```
+  </Accordion>
+
+  <Accordion title="`Name not found` — .wraith name not registered">
+    The `.wraith` name you're sending to doesn't exist on-chain.
+
+    **Fix:** Verify the name is registered:
+    ```typescript
+    const info = await wraith.getAgentByName("alice");
+    // Throws if the name doesn't exist
+    ```
+
+    You can also check on [stellar.expert](https://stellar.expert) by looking up the wraith-names contract: `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV`.
+  </Accordion>
+
+  <Accordion title="`Freighter not connected` — Wallet not detected">
+    Freighter extension is not installed, locked, or not on the correct network.
+
+    **Fix:**
+    - Install Freighter from [freighter.app](https://www.freighter.app)
+    - Unlock the extension
+    - Switch to **testnet** network in Freighter settings
+    - Refresh the page and try again
+
+    ```typescript
+    const connected = await isConnected();
+    if (!connected.isConnected) {
+      console.log("Install Freighter: https://www.freighter.app");
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="`op_no_trust` — No trustline for asset">
+    The receiving account hasn't established a trustline for the asset being sent (e.g., USDC).
+
+    **Fix:** On Protocol 22+, trustlines can be auto-created via `trust()` operations. The agent handles this automatically. If using SDK primitives directly, add a trustline operation before the payment.
+
+    ```typescript
+    const trustOp = Operation.changeTrust({
+      asset: new Asset("USDC", USDC_ISSUER),
+      limit: "1000000",
+    });
+    ```
+  </Accordion>
+
+  <Accordion title="`STEALTH_SIGNING_MESSAGE` mismatch — Signature verification failed">
+    The message signed by Freighter doesn't match what the agent expects.
+
+    **Fix:** Always use the canonical `STEALTH_SIGNING_MESSAGE` constant from the SDK:
+    ```typescript
+    import { STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
+    ```
+    Do **not** use a custom message — the TEE verifies it matches the canonical format.
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Fee Reference
+
+| Operation | Typical Cost |
+|---|---|
+| Account activation (first time) | 1 XLM minimum balance |
+| Soroban contract call (stealth-sender::send) | ~0.0035 XLM |
+| Soroban contract call (stealth-announcer) | ~0.0020 XLM |
+| Batch payment, 10 recipients | ~0.011 XLM total |
+| Name registration (`.wraith`) | ~0.0046 XLM |
+| Classic XLM withdrawal | 0.00001 XLM |
+| Trustline creation (USDC) | 0.0005 XLM |
+| Friendbot funding | Free (testnet only) |
+
+See [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) for full resource breakdowns and surge pricing guidance.
 
 ---
 
 ## Next Steps
 
-- [Stellar Primitives Reference](/sdk/chains/stellar) — full API docs for all exported functions
-- [Stealth Payments Explained](/guides/stealth-payments) — visual walkthrough of the cryptography
-- [Stellar Custom Assets](/guides/stellar-custom-assets) — send USDC and other SAC tokens via stealth addresses
-- [Stellar Multisig Withdrawals](/guides/stellar-multisig-withdrawal) — N-of-M coordinator flows
-- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — common errors and fixes
+<CardGroup cols={2}>
+  <Card title="Stellar Contracts Reference" href="/contracts/stellar" icon="file-code">
+    Soroban contract specs: stealth-announcer, stealth-registry, stealth-sender, wraith-names
+  </Card>
+  <Card title="Stellar Primitives SDK" href="/sdk/chains/stellar" icon="book-open">
+    Full API reference for all Stellar stealth crypto functions
+  </Card>
+  <Card title="Privacy Best Practices" href="/guides/privacy-best-practices" icon="shield">
+    Scoring algorithm, withdrawal spacing, and what to avoid
+  </Card>
+  <Card title="Stellar Fees Guide" href="/guides/stellar-fees" icon="receipt">
+    Full resource breakdowns, SDK fee estimation helper
+  </Card>
+  <Card title="Spectre Stellar Cookbook" href="/guides/spectre-stellar-cookbook" icon="utensils">
+    Three production-ready recipes: SaaS payments, DAO payroll, privacy monitor
+  </Card>
+  <Card title="Stellar Troubleshooting" href="/guides/stellar-troubleshooting" icon="wrench">
+    Common Stellar, Soroban, and Stealth errors explained
+  </Card>
+  <Card title="Stealth Payments Explained" href="/guides/stealth-payments" icon="eye-off">
+    Visual walkthrough of stealth address cryptography
+  </Card>
+  <Card title="Stellar Wallet Integration" href="/guides/stellar-wallet-integration" icon="wallet">
+    Multi-wallet support: Freighter, Albedo, xBull, LOBSTR, Stellar Wallets Kit
+  </Card>
+  <Card title="Wraith Names on Stellar" href="/guides/wraith-names-stellar" icon="at-sign">
+    Lifecycle guide: registration, meta-address updates, subdomain delegation
+  </Card>
+  <Card title="Stellar Custom Assets" href="/guides/stellar-custom-assets" icon="coin">
+    Send USDC and other SAC tokens via stealth addresses
+  </Card>
+  <Card title="Stellar Mainnet Deployment" href="/guides/stellar-mainnet-deployment" icon="rocket">
+    Deploying agents to production on Stellar mainnet
+  </Card>
+  <Card title="Single-Chain Agent Guide" href="/guides/single-chain-agent" icon="circle">
+    Full lifecycle walkthrough for a single-chain agent
+  </Card>
+</CardGroup>
+
+---
+
+## Quick Reference
+
+### Environment Variables
+
+```
+WRAITH_API_KEY=wraith_...            # From https://usewraith.xyz
+STELLAR_SECRET=S...                   # Stellar secret key (if not using Freighter)
+AGENT_ID=uuid...                      # Agent UUID (returned by createAgent)
+```
+
+### Useful Commands
+
+```bash
+# Install
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+
+# Testnet Horizon
+curl https://horizon-testnet.stellar.org/
+
+# Friendbot (fund a new address)
+curl "https://friendbot.stellar.org?addr=GABC..."
+```
+
+### Stellar Testnet Resources
+
+| Resource | URL |
+|---|---|
+| Horizon RPC | `https://horizon-testnet.stellar.org` |
+| Soroban RPC | `https://soroban-testnet.stellar.org` |
+| Network Passphrase | `Test SDF Network ; September 2015` |
+| Friendbot | `https://friendbot.stellar.org` |
+| Explorer | `https://stellar.expert/explorer/testnet` |
+| Wraith Names Contract | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` |
