@@ -123,6 +123,12 @@
             ]
           },
           {
+            "group": "Integrations",
+            "pages": [
+              "guides/integrations/aquarius"
+            ]
+          },
+          {
             "group": "Operations",
             "pages": [
               "guides/stellar-mainnet-deployment",
