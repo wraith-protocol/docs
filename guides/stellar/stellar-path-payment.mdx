@@ -1,0 +1,288 @@
+---
+title: "Stellar Path Payments for Stealth Payments"
+description: "Pay in any held asset on Stellar while the recipient receives their target token at a stealth address via DEX path payments and Soroban stealth announcements."
+keywords: "Stellar, path payment, stealth address, Horizon, DEX, XLM, USDC, slippage, strict send, strict receive, Soroban"
+---
+
+Stellar Path Payments allow a sender to pay using asset A (such as XLM or BTC) while the recipient receives asset B (such as USDC) in a single atomic transaction. The Stellar network automatically routes the swap through order books, liquidity pools, or a combination of both.
+
+When combined with Wraith Protocol stealth addresses, path payments enable powerful "pay in any asset" flows: senders pay in whatever token they hold, and recipients receive their requested token at an un-linkable, one-time stealth address.
+
+> **Prerequisite reading:** Review the [Stellar Quickstart](/guides/stellar/stellar-quickstart) to understand how stealth meta-addresses, stealth keys, and announcement scanning work on Stellar.
+
+---
+
+## Path Payment Concepts
+
+Stellar provides two distinct path payment operations:
+
+1. **`PathPaymentStrictReceive`**: The sender specifies the *exact amount of target asset* the recipient must receive (`destAmount`), along with a *maximum amount of source asset* they are willing to spend (`sendMax`).
+2. **`PathPaymentStrictSend`**: The sender specifies the *exact amount of source asset* to spend (`sendAmount`), along with a *minimum amount of target asset* the recipient must receive (`destMin`).
+
+For stealth payments, **`PathPaymentStrictReceive`** is commonly preferred because invoice amounts are usually denominated in a target currency (e.g., exactly 50 USDC for a service), while the sender pays with whatever asset is available in their wallet (e.g., XLM).
+
+### Operational Sequence
+
+```
+[Sender Wallet] 
+   │ (Pays XLM)
+   ▼
+[Stellar DEX / Pools] ──► Path Routing (XLM → Liquidity Pool / Order Book → USDC)
+   │
+   ▼ (Receives USDC)
+[Stealth Address] ◄───── Announce Event (Soroban Contract) ◄───── [Recipient Scans]
+```
+
+---
+
+## Off-Chain Path Finding via Horizon
+
+Before building a transaction, you must query Horizon to find an available DEX path and determine the required source asset amount.
+
+### Querying `strictReceivePaths`
+
+To find how much XLM is needed to deliver a fixed amount of USDC:
+
+```typescript
+import { Horizon, Asset } from "@stellar/stellar-sdk";
+
+// Initialize Horizon server (Testnet by default)
+const server = new Horizon.Server("https://horizon-testnet.stellar.org");
+
+const usdcIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const destinationAsset = new Asset("USDC", usdcIssuer);
+const sourceAsset = Asset.native(); // XLM
+const targetAmount = "50"; // Recipient gets 50 USDC
+
+// Find paths that deliver exactly 50 USDC
+const pathResponse = await server
+  .strictReceivePaths(sourceAsset, targetAmount)
+  .destinationAsset(destinationAsset)
+  .call();
+
+if (pathResponse.records.length === 0) {
+  throw new Error("No path found between XLM and USDC. Check DEX liquidity.");
+}
+
+// Select the path requiring the minimum source asset amount
+const bestPath = pathResponse.records.reduce((prev, curr) =>
+  parseFloat(curr.source_amount) < parseFloat(prev.source_amount) ? curr : prev
+);
+
+console.log("Estimated XLM required:", bestPath.source_amount);
+console.log("Intermediate path hops:", bestPath.path);
+```
+
+### Querying `strictSendPaths`
+
+Alternatively, if the sender wants to spend a fixed 100 XLM and maximize recipient USDC output:
+
+```typescript
+const sendResponse = await server
+  .strictSendPaths(sourceAsset, "100")
+  .destinationAsset(destinationAsset)
+  .call();
+
+if (sendResponse.records.length === 0) {
+  throw new Error("No path found for sending 100 XLM to USDC.");
+}
+
+const bestSendPath = sendResponse.records[0];
+console.log("Estimated USDC received:", bestSendPath.destination_amount);
+```
+
+---
+
+## Wrapping in a Stealth Announcement
+
+Classic path payments transfer tokens on-chain but do not emit stealth announcements. To ensure the recipient can detect and spend the payment, the transaction must include both:
+
+1. **Path Payment Operation**: Transfers the converted asset to the one-time `stealthAddress`.
+2. **Soroban Announcement Contract Call**: Emits a Soroban event containing the `ephemeralPubKey`, `viewTag`, `stealthAddress`, and asset details.
+
+Combining both operations in a single Stellar transaction guarantees atomicity: either both succeed in the same ledger block or the entire transaction fails.
+
+---
+
+## End-to-End Example: XLM → USDC to Stealth Address
+
+This complete example derives a stealth address, finds an off-chain path from XLM to USDC, calculates slippage protection, and submits an atomic transaction on Stellar Testnet.
+
+### Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+### Complete Code Example
+
+```typescript
+import {
+  Horizon,
+  Asset,
+  Operation,
+  TransactionBuilder,
+  Keypair,
+  Networks,
+} from "@stellar/stellar-sdk";
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+  getDeployment,
+  createAnnounceOperation,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// 1. Network Configuration
+// Default: Stellar Testnet
+const HORIZON_URL = "https://horizon-testnet.stellar.org";
+const NETWORK_PASSPHRASE = Networks.TESTNET;
+
+// NOTE FOR MAINNET:
+// For production, use:
+// const HORIZON_URL = "https://horizon.stellar.org";
+// const NETWORK_PASSPHRASE = Networks.PUBLIC;
+
+const server = new Horizon.Server(HORIZON_URL);
+const deployment = getDeployment("stellar");
+
+// Sender Keypair
+const senderKeypair = Keypair.fromSecret("S..."); // Replace with sender secret key
+const senderAccount = await server.loadAccount(senderKeypair.publicKey());
+
+// Assets
+const sourceAsset = Asset.native(); // XLM
+const usdcIssuer = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"; // Testnet USDC issuer
+const destAsset = new Asset("USDC", usdcIssuer);
+const destAmount = "50"; // 50 USDC
+
+// 2. Generate Stealth Address from Recipient Meta-Address
+const recipientMetaAddress = "st:xlm:02a1b2c3...03d4e5f6...";
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(recipientMetaAddress);
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+const stealthAddress = stealth.stealthAddress; // G... public key for one-time address
+
+console.log("Derived Stealth Address:", stealthAddress);
+console.log("Ephemeral Public Key:", stealth.ephemeralPubKey);
+
+// 3. Off-Chain Path Finding via Horizon
+const pathResponse = await server
+  .strictReceivePaths(sourceAsset, destAmount)
+  .destinationAsset(destAsset)
+  .call();
+
+if (pathResponse.records.length === 0) {
+  throw new Error("No DEX path found for XLM -> USDC swap.");
+}
+
+const bestPath = pathResponse.records[0];
+const estimatedSourceAmount = parseFloat(bestPath.source_amount);
+
+// 4. Calculate Slippage (e.g., 2% tolerance)
+const SLIPPAGE_BPS = 200; // 2%
+const sendMax = (estimatedSourceAmount * (1 + SLIPPAGE_BPS / 10000)).toFixed(7);
+
+console.log(`Sending max ${sendMax} XLM to receive exactly ${destAmount} USDC`);
+
+// Format intermediate path assets for Operation
+const intermediatePath = bestPath.path.map((p) =>
+  p.asset_type === "native"
+    ? Asset.native()
+    : new Asset(p.asset_code, p.asset_issuer)
+);
+
+// 5. Construct Soroban Stealth Announcement Operation
+const announceOp = createAnnounceOperation({
+  contractId: deployment.announcerContractId,
+  ephemeralPubKey: stealth.ephemeralPubKey,
+  viewTag: stealth.viewTag,
+  stealthAddress: stealthAddress,
+  asset: "USDC",
+  amount: destAmount,
+});
+
+// 6. Build Atomic Transaction
+const transaction = new TransactionBuilder(senderAccount, {
+  fee: "100000", // Account for inclusion fee + Soroban resource fee
+  networkPassphrase: NETWORK_PASSPHRASE,
+})
+  .addOperation(
+    Operation.pathPaymentStrictReceive({
+      sendAsset: sourceAsset,
+      sendMax: sendMax,
+      destination: stealthAddress,
+      destAsset: destAsset,
+      destAmount: destAmount,
+      path: intermediatePath,
+    })
+  )
+  .addOperation(announceOp)
+  .setTimeout(60) // 60-second expiration window
+  .build();
+
+// 7. Sign & Submit
+transaction.sign(senderKeypair);
+
+try {
+  const result = await server.submitTransaction(transaction);
+  console.log("Path payment + stealth announcement submitted successfully!");
+  console.log("Transaction Hash:", result.hash);
+} catch (error) {
+  console.error("Transaction failed:", error);
+}
+```
+
+---
+
+## Failure Modes and Recovery Strategies
+
+When executing path payments with stealth announcements, handle these primary network failure modes gracefully:
+
+### 1. No Path Found (`op_no_destination`, `op_too_few_offers`)
+
+- **Cause**: Horizon returns an empty `records` array because there is insufficient liquidity across DEX order books and pools for the requested asset pair.
+- **Handling**:
+  - Verify that the asset issuer addresses and asset codes are valid.
+  - Fall back to checking liquidity pool swaps via [Stellar Liquidity Pool Swaps](/guides/stellar/stellar-liquidity-pool-swap).
+  - Offer the user the choice to pay directly in the destination asset if already held.
+
+### 2. Slippage / Send Max Exceeded (`op_over_source_max`, `op_under_dest_min`)
+
+- **Cause**: Market price moved between off-chain path query and ledger inclusion, causing the source asset cost to exceed `sendMax` (`PATH_PAYMENT_STRICT_RECEIVE_OVER_SOURCE_MAX`) or destination output to fall below `destMin` (`PATH_PAYMENT_STRICT_SEND_UNDER_DEST_MIN`).
+- **Handling**:
+  - Re-fetch path recommendations immediately prior to transaction construction.
+  - Increase slippage budget (e.g. from 1% to 2% or 3%) for volatile assets.
+  - Use realistic price buffers based on order book depth.
+
+| Slippage | Basis Points | `sendMax` for 100 XLM estimated cost |
+|---|---|---|
+| 0.5% | 50 | 100.50 XLM |
+| 1.0% | 100 | 101.00 XLM |
+| 2.0% | 200 | 102.00 XLM |
+| 5.0% | 500 | 105.00 XLM |
+
+### 3. Expired Transaction / Timeout (`tx_too_late`)
+
+- **Cause**: Ledger submission exceeded `setTimeout()` duration during network congestion or due to low inclusion fees.
+- **Handling**:
+  - Re-query Horizon for fresh path rates before rebuilding an expired transaction.
+  - Use fee estimation helpers to adjust base fee during network traffic surges.
+  - Set reasonable timeouts (30-60 seconds).
+
+### 4. Destination Trustline / Unfunded Account (`op_no_trust`, `op_no_destination`)
+
+- **Cause**: Receiving non-native tokens (such as USDC) requires the target account to hold a trustline or Soroban Asset Certificate (SAC) approval. If the stealth address is new and un-funded, sending custom assets directly will fail with `op_no_destination` or `op_no_trust`.
+- **Handling**:
+  - If the stealth address is brand new, include an `Operation.createAccount` operation in the transaction prior to asset transfer to fund minimum XLM reserves.
+  - Use SAC wrappers or trustline initialization patterns as detailed in [Stellar Custom Assets](/guides/stellar-custom-assets).
+
+---
+
+## Related Guides
+
+- [Stellar Quickstart](/guides/stellar/stellar-quickstart) — derive stealth keys and run client-side payment scanners
+- [Stellar Managed Quickstart](/guides/stellar-quickstart) — TEE-managed stealth agent walkthrough
+- [Stellar Liquidity Pool Swaps](/guides/stellar/stellar-liquidity-pool-swap) — direct constant-product AMM swaps
+- [Stellar Custom Assets](/guides/stellar-custom-assets) — USDC trustlines and SAC asset compatibility
+- [Stellar Fee Estimation](/guides/stellar-fees) — calculate transaction inclusion and Soroban resource fees
+- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — resolve transaction error codes and simulation failures
