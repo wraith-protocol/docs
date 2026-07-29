@@ -138,6 +138,7 @@
               "guides/stellar-explorer-recipes",
               "guides/stellar-federation",
               "guides/stellar-custom-assets",
+              "guides/stellar/stellar-liquidity-pool-swap",
               "guides/wraith-names-stellar",
               "guides/ops/self-hosted-deployment"
             ]
