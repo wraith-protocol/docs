@@ -474,3 +474,75 @@ interface ResolvedName {
   address?: string;
 }
 ```
+
+---
+
+## Announcement Stream Types
+
+Exported from `@wraith-protocol/sdk`:
+
+```typescript
+import type {
+  AnnouncementsStreamOptions,
+  AnnouncementStream,
+  RetentionConfig,
+  ViewTagFilter,
+  StreamCacheOptions,
+  BackpressureOptions,
+  StreamError,
+  RetentionExceededError,
+  StreamDisruptedError,
+  BackpressureOverflowError,
+  ProviderTimeoutError,
+  InvalidViewTagError,
+} from "@wraith-protocol/sdk";
+```
+
+### `AnnouncementsStreamOptions`
+
+```typescript
+interface AnnouncementsStreamOptions {
+  fromBlock?: bigint | number | "latest" | "earliest";
+  retention?: RetentionConfig | number;
+  viewTag?: number | number[] | ViewTagFilter;
+  cache?: StreamCacheOptions | FederationCache | boolean;
+  backpressure?: BackpressureOptions;
+  batchSize?: number;
+  pollingIntervalMs?: number;
+  signal?: AbortSignal;
+  onError?: (error: StreamError) => void;
+}
+```
+
+### `RetentionConfig`
+
+```typescript
+interface RetentionConfig {
+  maxAgeMs?: number;
+  fallbackPolicy?: "error" | "horizon" | "archive_node" | "latest_checkpoint";
+  allowGap?: boolean;
+  archiveRpcUrl?: string;
+}
+```
+
+### `ViewTagFilter`
+
+```typescript
+interface ViewTagFilter {
+  tag?: number | number[];
+  matchMode?: "exact" | "range" | "mask";
+  range?: [number, number];
+  mask?: number;
+}
+```
+
+### `BackpressureOptions`
+
+```typescript
+interface BackpressureOptions {
+  highWaterMark?: number;
+  lowWaterMark?: number;
+  strategy?: "pause" | "drop_oldest" | "error";
+}
+```
+

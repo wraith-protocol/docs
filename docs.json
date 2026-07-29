@@ -150,7 +150,11 @@
         "groups": [
           {
             "group": "API Reference",
-            "pages": ["api-reference/endpoints", "api-reference/types"]
+            "pages": [
+              "api-reference/endpoints",
+              "api-reference/fetch-announcements-stream",
+              "api-reference/types"
+            ]
           }
         ]
       }
