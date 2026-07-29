@@ -93,8 +93,12 @@
           },
           {
             "group": "Reference",
-            "pages": ["reference/security-disclosure"]
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas", "reference/threat-model"]
+            "pages": [
+              "reference/stellar-networks",
+              "reference/stellar-event-schemas",
+              "reference/threat-model",
+              "reference/security-disclosure"
+            ]
           }
         ]
       },
