@@ -84,7 +84,8 @@
               "architecture/overview",
               "architecture/chain-connectors",
               "architecture/tee",
-              "architecture/stellar-cryptography"
+              "architecture/stellar-cryptography",
+              "architecture/view-tag-scanner"
             ]
           },
           {
