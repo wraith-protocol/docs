@@ -1,0 +1,368 @@
+---
+title: "Migrating to v1"
+description: "Every renamed symbol, removed export, and behavioral change when upgrading from @wraith-protocol/sdk 0.x to 1.0"
+sidebarTitle: "Migrating to v1"
+tag: "NEW"
+keywords: ["migration", "upgrade", "breaking changes", "0.x", "1.0", "codemod"]
+---
+
+SDK 1.0 is the first stable release. It ships with a stabilised public API, a cleaned-up export surface, and a handful of behavioral changes — most of which are mechanical renames. This page documents every change and provides automated codemods for the tedious parts.
+
+<Warning>
+  SDK 1.0 is not backwards-compatible with 0.x. Every entry in the symbol table below is a compile-time error if left unchanged.
+</Warning>
+
+## What changed, at a glance
+
+| Category | Count |
+|---|---|
+| Renamed exports (mechanical) | 14 |
+| Removed exports (with workarounds) | 6 |
+| Behavioral changes | 4 |
+| New exports (no action needed) | 8 |
+
+The majority of upgrades require running a single codemod and updating one import per chain module. Read the [removed exports](#removed-exports) and [behavioral changes](#behavioral-changes) sections before shipping — a few require manual review.
+
+---
+
+## Renamed exports
+
+These are direct one-to-one renames. The codemod in `reference/codemods/rename-evm-exports.js` handles all EVM renames automatically.
+
+### Root package (`@wraith-protocol/sdk`)
+
+| 0.x name | 1.0 name | Notes |
+|---|---|---|
+| `WraithClient` | `Wraith` | Class rename. Construction API unchanged. |
+| `WraithAgentClient` | `WraithAgent` | Class rename. All instance methods unchanged. |
+| `AgentCreateConfig` | `AgentConfig` | Type rename. All fields identical. |
+| `WraithClientConfig` | `WraithConfig` | Type rename. All fields identical. |
+| `ChainEnum` | `Chain` | Enum rename. All values (`Chain.Horizen`, `Chain.Stellar`, etc.) unchanged. |
+
+```typescript
+// 0.x
+import { WraithClient, ChainEnum } from "@wraith-protocol/sdk";
+const wraith = new WraithClient({ apiKey: "..." });
+const agent = await wraith.createAgent({ chain: ChainEnum.Stellar, ... });
+
+// 1.0
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+const wraith = new Wraith({ apiKey: "..." });
+const agent = await wraith.createAgent({ chain: Chain.Stellar, ... });
+```
+
+### EVM chain module (`@wraith-protocol/sdk/chains/evm`)
+
+| 0.x name | 1.0 name | Notes |
+|---|---|---|
+| `buildSend` | `buildSendStealth` | Renamed for clarity. Signature unchanged. |
+| `buildSendToken` | `buildSendERC20` | Renamed to match token standard. Signature unchanged. |
+| `buildRegister` | `buildRegisterName` | Renamed. Signature unchanged. |
+| `buildUpdate` | `buildUpdateName` | Renamed. Signature unchanged. |
+| `buildRelease` | `buildReleaseName` | Renamed. Signature unchanged. |
+| `buildResolve` | `buildResolveName` | Renamed. Signature unchanged. |
+| `EvmStealthKeys` | `StealthKeys` | Type rename (also applies to Stellar, Solana, CKB modules). |
+| `EvmAnnouncement` | `Announcement` | Type rename (also applies to Stellar, Solana, CKB modules). |
+
+```typescript
+// 0.x
+import { buildSend, buildSendToken, buildRegister } from "@wraith-protocol/sdk/chains/evm";
+
+// 1.0
+import { buildSendStealth, buildSendERC20, buildRegisterName } from "@wraith-protocol/sdk/chains/evm";
+```
+
+### Stellar chain module (`@wraith-protocol/sdk/chains/stellar`)
+
+| 0.x name | 1.0 name | Notes |
+|---|---|---|
+| `signTransaction` | `signStellarTransaction` | Renamed for clarity (mirrors `signSolanaTransaction`). Signature unchanged. |
+
+```typescript
+// 0.x
+import { signTransaction } from "@wraith-protocol/sdk/chains/stellar";
+
+// 1.0
+import { signStellarTransaction } from "@wraith-protocol/sdk/chains/stellar";
+```
+
+### Solana chain module (`@wraith-protocol/sdk/chains/solana`)
+
+| 0.x name | 1.0 name | Notes |
+|---|---|---|
+| `signTransaction` | `signSolanaTransaction` | Renamed for clarity (mirrors `signStellarTransaction`). Signature unchanged. |
+
+```typescript
+// 0.x
+import { signTransaction } from "@wraith-protocol/sdk/chains/solana";
+
+// 1.0
+import { signSolanaTransaction } from "@wraith-protocol/sdk/chains/solana";
+```
+
+---
+
+## Removed exports
+
+These exports are gone and have no drop-in replacement. Use the workarounds below.
+
+### `createClient(config)` (root package)
+
+**Removed.** This was a factory function alias for `new Wraith(config)` added in 0.3. It was never documented and is removed in 1.0.
+
+```typescript
+// 0.x
+import { createClient } from "@wraith-protocol/sdk";
+const wraith = createClient({ apiKey: "..." });
+
+// 1.0
+import { Wraith } from "@wraith-protocol/sdk";
+const wraith = new Wraith({ apiKey: "..." });
+```
+
+### `deriveKeys(signature)` (all chain modules)
+
+**Removed.** This was a deprecated short alias for `deriveStealthKeys`. All four chain modules exported it in 0.x.
+
+```typescript
+// 0.x
+import { deriveKeys } from "@wraith-protocol/sdk/chains/evm";
+
+// 1.0
+import { deriveStealthKeys } from "@wraith-protocol/sdk/chains/evm";
+```
+
+Same change for `/chains/stellar`, `/chains/solana`, and `/chains/ckb`.
+
+### `StellarStealthKeys` / `SolanaStealthKeys` / `EvmStealthKeys` / `CkbStealthKeys` (type aliases)
+
+**Removed.** These chain-prefixed type aliases were replaced by a single `StealthKeys` export in each module. Because they were type-only, they never affect runtime — only TypeScript type imports.
+
+```typescript
+// 0.x
+import type { StellarStealthKeys } from "@wraith-protocol/sdk/chains/stellar";
+
+// 1.0
+import type { StealthKeys } from "@wraith-protocol/sdk/chains/stellar";
+```
+
+### `CHAIN_IDS` (EVM module)
+
+**Removed.** A plain object mapping chain names to chain IDs that duplicated `getDeployment(chain).chainId`. Use `getDeployment` instead.
+
+```typescript
+// 0.x
+import { CHAIN_IDS } from "@wraith-protocol/sdk/chains/evm";
+const id = CHAIN_IDS["horizen"]; // 2651420
+
+// 1.0
+import { getDeployment } from "@wraith-protocol/sdk/chains/evm";
+const id = getDeployment("horizen").chainId; // 2651420
+```
+
+### `computeEphemeralKey()` (EVM module)
+
+**Removed.** This was an internal helper that generated a random ephemeral key for use with `generateStealthAddress`. It was incorrectly exported in 0.x. Pass `undefined` as the third argument to `generateStealthAddress` (the default) to get a random ephemeral key, or pass your own `HexString` for deterministic keys.
+
+```typescript
+// 0.x
+import { computeEphemeralKey, generateStealthAddress } from "@wraith-protocol/sdk/chains/evm";
+const ephem = computeEphemeralKey();
+const stealth = generateStealthAddress(spendPub, viewPub, ephem);
+
+// 1.0 — let the function generate a random key (default behaviour)
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/evm";
+const stealth = generateStealthAddress(spendPub, viewPub);
+
+// 1.0 — or pass your own deterministic key for testing
+const stealth = generateStealthAddress(spendPub, viewPub, myDeterministicKey);
+```
+
+---
+
+## Behavioral changes
+
+These require reading — they won't produce a compile error, but they change runtime behavior.
+
+### 1. `scanAnnouncements` fourth argument type (EVM)
+
+In 0.x, the fourth argument was `spendingKey: HexString` (the raw 32-byte private key). In 1.0 it is still `spendingKey: HexString` for the **EVM module only** — this is unchanged.
+
+**However**, for the **Stellar and Solana modules**, the fourth argument changed from `spendingKey: Uint8Array` (seed) to `spendingScalar: bigint` (clamped scalar) in 1.0. If you passed `keys.spendingKey` before, pass `keys.spendingScalar` now.
+
+```typescript
+// 0.x — Stellar/Solana (incorrect, silent bug)
+scanAnnouncements(announcements, keys.viewingKey, keys.spendingPubKey, keys.spendingKey);
+
+// 1.0 — Stellar/Solana (correct)
+scanAnnouncements(announcements, keys.viewingKey, keys.spendingPubKey, keys.spendingScalar);
+```
+
+The EVM module is unchanged — it still takes `spendingKey: HexString`.
+
+### 2. `fetchAnnouncements` returns an empty array instead of throwing (all modules)
+
+In 0.x, `fetchAnnouncements` threw a `NetworkError` when the remote RPC or subgraph returned no events (e.g. fresh testnet deployment, zero announcements). In 1.0 it returns `[]`.
+
+```typescript
+// 0.x — required a try/catch
+let announcements: Announcement[] = [];
+try {
+  announcements = await fetchAnnouncements("horizen");
+} catch (e) {
+  // "no announcements found" threw here
+}
+
+// 1.0 — always returns an array
+const announcements = await fetchAnnouncements("horizen");
+// Empty array on fresh deployment, no throw
+```
+
+### 3. Stellar memo API — `@stellar/stellar-sdk` v13 (Wave 6)
+
+The Wraith Stellar module uses `@stellar/stellar-sdk` as an optional peer dependency for `StrKey` encoding and transaction building. In `@stellar/stellar-sdk` v13 (shipped alongside SDK 1.0), the memo API changed as part of the Wave 6 protocol upgrade.
+
+**What changed in `@stellar/stellar-sdk` v13:**
+
+The `Memo.text()` / `Memo.id()` / `Memo.hash()` / `Memo.return()` static constructors were replaced by a unified `MemoValue` object passed directly to `TransactionBuilder`. If you were attaching memos to Stellar transactions that send to stealth addresses, update your transaction building code.
+
+```typescript
+// 0.x — Stellar SDK v12 memo API
+import { Memo, TransactionBuilder, Networks } from "@stellar/stellar-sdk";
+
+const tx = new TransactionBuilder(sourceAccount, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+})
+  .addOperation(paymentOp)
+  .addMemo(Memo.text("payment ref"))   // <-- old API
+  .setTimeout(30)
+  .build();
+
+// 1.0 — Stellar SDK v13 memo API (Wave 6)
+import { TransactionBuilder, Networks } from "@stellar/stellar-sdk";
+
+const tx = new TransactionBuilder(sourceAccount, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+  memo: { type: "text", value: "payment ref" },  // <-- new API: pass in constructor
+})
+  .addOperation(paymentOp)
+  .setTimeout(30)
+  .build();
+```
+
+<Note>
+  The Wraith SDK itself does not call the memo API — the SDK builds stealth transactions without memos. This change affects **your** transaction-building code if you attach memos before submitting to Horizon. The `signStellarTransaction` and `signWithScalar` functions are unaffected.
+</Note>
+
+If you use `resolveStellarFederation()` and the federation server returns a `memo_type` + `memo` field (common for exchange deposits), update the memo attachment code in your payment flow.
+
+```typescript
+// 0.x
+import { Memo } from "@stellar/stellar-sdk";
+const memoObj = record.memoType === "text"
+  ? Memo.text(record.memoValue)
+  : Memo.id(record.memoValue);
+
+// 1.0
+const memo = record.memoType
+  ? { type: record.memoType, value: record.memoValue }
+  : undefined;
+
+const tx = new TransactionBuilder(sourceAccount, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET,
+  ...(memo && { memo }),
+})
+  // ...
+```
+
+### 4. `getDeployment` throws instead of returning `undefined` for unknown chains
+
+In 0.x, `getDeployment("unknown-chain")` returned `undefined`. In 1.0 it throws a `DeploymentError` with the message `"No deployment found for chain: unknown-chain"`.
+
+```typescript
+// 0.x — unsafe, could silently swallow missing deployments
+const d = getDeployment("wrongchain");
+if (!d) { /* handle */ }
+
+// 1.0 — throws immediately
+try {
+  const d = getDeployment("wrongchain");
+} catch (e) {
+  // DeploymentError: "No deployment found for chain: wrongchain"
+}
+```
+
+Any code that checked the return value for nullability should switch to a `try/catch`.
+
+---
+
+## New exports in 1.0
+
+These were added in 1.0. No migration action needed — they're listed here for completeness.
+
+| Export | Module | Description |
+|---|---|---|
+| `resolveStellarFederation` | `chains/stellar` | Resolve `alice*example.com` federation addresses |
+| `fetchAnnouncements` | `chains/stellar` | Auto-paginated Soroban event fetching |
+| `fetchAnnouncements` | `chains/solana` | Anchor event log parsing |
+| `fetchStealthCells` | `chains/ckb` | Auto-paginated `get_cells` RPC fetch |
+| `buildRegisterMetaAddress` | `chains/evm` | Build ERC-6538 registry registration calldata |
+| `buildAnnounce` | `chains/evm` | Build standalone announcement calldata |
+| `metaAddressFromNameData` | `chains/ckb` | Parse name Cell data into public keys |
+| `hashName` | `chains/ckb` | blake2b name hash for type script args |
+
+---
+
+## Migration checklist
+
+<Steps>
+  <Step title="Update the package">
+    ```bash
+    npm install @wraith-protocol/sdk@^1.0.0
+    # Also update the Stellar peer dep if you use chains/stellar
+    npm install @stellar/stellar-sdk@^13.0.0
+    ```
+  </Step>
+  <Step title="Run the EVM rename codemod">
+    Handles all `buildSend` → `buildSendStealth`, `buildSendToken` → `buildSendERC20`, and related EVM renames automatically.
+    ```bash
+    npx jscodeshift \
+      --transform reference/codemods/rename-evm-exports.js \
+      --extensions ts,tsx,js,jsx \
+      src/
+    ```
+    See [codemods README](/reference/codemods) for full options.
+  </Step>
+  <Step title="Fix root package renames">
+    Replace `WraithClient` → `Wraith`, `WraithAgentClient` → `WraithAgent`, `ChainEnum` → `Chain`, `AgentCreateConfig` → `AgentConfig`, `WraithClientConfig` → `WraithConfig`.
+  </Step>
+  <Step title="Fix the Stellar/Solana scanAnnouncements call">
+    Change the fourth argument from `keys.spendingKey` to `keys.spendingScalar` in any `scanAnnouncements` call against the Stellar or Solana modules.
+  </Step>
+  <Step title="Remove uses of deleted exports">
+    Replace `createClient` → `new Wraith`, `deriveKeys` → `deriveStealthKeys`, `CHAIN_IDS` → `getDeployment(chain).chainId`, remove `computeEphemeralKey`, update chain-prefixed type aliases.
+  </Step>
+  <Step title="Update Stellar memo API (if applicable)">
+    If your code calls `Memo.text()`, `Memo.id()`, `Memo.hash()`, or `Memo.return()`, migrate to the `TransactionBuilder` constructor `memo` option per the [behavioral change above](#3-stellar-memo-api----stellar-stellar-sdk-v13-wave-6).
+  </Step>
+  <Step title="Handle getDeployment errors">
+    If any code checks `if (!getDeployment(chain))`, replace the nullability check with a `try/catch`.
+  </Step>
+  <Step title="TypeScript: update type imports">
+    Replace `EvmStealthKeys`, `StellarStealthKeys`, `SolanaStealthKeys`, `CkbStealthKeys`, `EvmAnnouncement` with the unqualified `StealthKeys` / `Announcement` from each module.
+  </Step>
+</Steps>
+
+---
+
+## See also
+
+- [Codemods](/reference/codemods) — jscodeshift transforms for automated migration
+- [SDK overview](/sdk/overview) — current entry points and package structure
+- [EVM primitives](/sdk/chains/evm) — full 1.0 EVM API reference
+- [Stellar primitives](/sdk/chains/stellar) — full 1.0 Stellar API reference
+- [Solana primitives](/sdk/chains/solana) — full 1.0 Solana API reference
+- [CKB primitives](/sdk/chains/ckb) — full 1.0 CKB API reference
