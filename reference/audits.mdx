@@ -1,0 +1,53 @@
+---
+title: "Audits"
+description: "Curated summaries of Wraith Protocol contract audits, with links to the full raw reports"
+---
+
+This page summarizes every audit and formal security review of Wraith Protocol's on-chain contracts, in plain language, for readers who don't need to read a full technical report line by line. Each entry links to the raw report for anyone who wants the complete findings.
+
+<Note>
+  Wraith Protocol currently has one completed review, conducted internally by
+  the Wraith Protocol security team rather than an external audit firm.
+  Additional third-party audits from independent security firms are planned —
+  see the [roadmap](/roadmap) and the [Threat Model's Audit History](/reference/threat-model#audit-history)
+  for status. This page will be updated as new audits complete.
+</Note>
+
+## Stellar Asset Contract (SAC) Compatibility Review — June 2026
+
+| | |
+|---|---|
+| **Firm** | Wraith Protocol internal security review (not a third-party firm) |
+| **Date** | June 2026 |
+| **Scope** | `stealth-sender` v1.2, `stealth-announcer` v1.1 (Stellar Protocol 22, mainnet and testnet) |
+| **Raw report** | [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility) |
+
+### What was reviewed
+
+This was a compatibility review, not a general code audit. It tested how Wraith's Stellar contracts behave against every Stellar Asset Contract (SAC) flag combination an issuer could set — things like requiring pre-authorization or allowing an issuer to claw back funds — to work out which assets are safe to use with stealth payments and which are not.
+
+### Findings summary
+
+Seven findings, none of them bugs in Wraith's own code — all seven describe how Wraith's contracts interact with asset issuer configuration that Wraith does not control.
+
+| ID | Severity | Finding |
+|---|---|---|
+| F-01 | Informational | USDC and EURC (Circle) carry no restrictive flags and work with `stealth-sender` with no special handling. |
+| F-02 | Informational | Stellar Protocol 22's `trust()` lets `stealth-sender` create a trustline for the recipient in the same transaction, but the sender needs to budget ~0.5 XLM per new trustline for the reserve. |
+| F-03 | **High** | Assets with the `AUTH_REQUIRED` flag block transfers to stealth addresses: the issuer must authorize each address, but stealth addresses are freshly generated per payment, so there's no address to pre-authorize without breaking the privacy model. USDC and EURC are not affected. |
+| F-04 | **High** | Assets with `AUTH_CLAWBACK_ENABLED` allow the issuer to reclaim funds from a stealth address without the holder's consent. USDC and EURC are not affected. |
+| F-05 | Medium | Assets with `AUTH_REVOCABLE` (but not clawback) let the issuer freeze — not seize — a stealth address's trustline, which can trap funds until the issuer re-authorizes it. |
+| F-06 | Informational | Sending to an issuer's own account burns tokens; sending from it mints tokens. Documented for completeness — not a practical risk. |
+| F-07 | Low | Trustline balances are 64-bit integers, capping the largest possible single payment for assets with very few decimal places. Not a real-world constraint for USDC. |
+
+### Remediation status
+
+No contract code changes were required — every finding is a property of how a given asset issuer configures their token, not a defect in Wraith's contracts. Remediation took the form of user-facing guardrails instead:
+
+- **F-03 (`AUTH_REQUIRED`) and F-04 (`AUTH_CLAWBACK_ENABLED`) — resolved via warnings.** The Wraith SDK and agent detect both flags before a payment is sent and surface a warning automatically. The audit's recommendation was to avoid `AUTH_REQUIRED` assets entirely and to warn users about clawback exposure; both are implemented.
+- **F-05 (`AUTH_REVOCABLE`) — open, monitoring recommended.** Treated as an elevated-risk case; the audit recommends monitoring trustline authorization status for wallets handling these assets. No automated mitigation beyond the general warning surfaced for non-standard flags.
+- **F-01, F-02, F-06, F-07 — informational, no action required.** USDC and EURC, the primary assets used in production, are unaffected by any of these findings.
+
+<Info>
+  See the [Threat Model](/reference/threat-model#stellar-contracts) for how these findings map into Wraith's broader STRIDE threat analysis (risk R-05 / S-15), and the [Privacy Best Practices guide](/guides/privacy-best-practices) for user-facing guidance on asset selection.
+</Info>
