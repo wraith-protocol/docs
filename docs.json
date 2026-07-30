@@ -84,7 +84,8 @@
               "architecture/overview",
               "architecture/chain-connectors",
               "architecture/tee",
-              "architecture/stellar-cryptography"
+              "architecture/stellar-cryptography",
+              "architecture/view-tag-scanner"
             ]
           },
           {
@@ -93,7 +94,12 @@
           },
           {
             "group": "Reference",
-            "pages": ["reference/security-disclosure", "reference/threat-model"]
+            "pages": [
+              "reference/stellar-networks",
+              "reference/stellar-event-schemas",
+              "reference/threat-model",
+              "reference/security-disclosure"
+            ]
           }
         ]
       },
@@ -127,6 +133,12 @@
             ]
           },
           {
+            "group": "Integrations",
+            "pages": [
+              "guides/integrations/aquarius"
+            ]
+          },
+          {
             "group": "Operations",
             "pages": [
               "guides/stellar-mainnet-deployment",
@@ -150,7 +162,11 @@
         "groups": [
           {
             "group": "API Reference",
-            "pages": ["api-reference/endpoints", "api-reference/types"]
+            "pages": [
+              "api-reference/endpoints",
+              "api-reference/fetch-announcements-stream",
+              "api-reference/types"
+            ]
           }
         ]
       }
