@@ -510,6 +510,8 @@ await server.submitTransaction(tx);
 ```
 
 > **Important:** Classic payment operations don't call the `stealth-sender` contract, so no announcement is emitted. You need a separate announcement transaction for the recipient to scan and detect the payment.
+>
+> For swaps that must route through a liquidity pool (when the orderbook has no path), see the [Liquidity Pool Swap](/guides/stellar/stellar-liquidity-pool-swap) guide.
 
 ### Emitting the announcement separately
 

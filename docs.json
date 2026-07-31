@@ -84,12 +84,22 @@
               "architecture/overview",
               "architecture/chain-connectors",
               "architecture/tee",
-              "architecture/stellar-cryptography"
+              "architecture/stellar-cryptography",
+              "architecture/view-tag-scanner"
             ]
           },
           {
             "group": "Contracts",
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas", "reference/threat-model"]
+            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas"]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/stellar-networks",
+              "reference/stellar-event-schemas",
+              "reference/threat-model",
+              "reference/security-disclosure"
+            ]
           }
         ]
       },
@@ -112,8 +122,6 @@
           {
             "group": "Guides",
             "pages": [
-              "guides/stellar-quickstart",
-              "guides/stellar-quickstart.es",
               "guides/stealth-payments",
               "guides/single-chain-agent",
               "guides/multichain-agent",
@@ -121,20 +129,13 @@
               "guides/privacy-best-practices",
               "guides/stellar-fees",
               "guides/stellar-troubleshooting",
-              "guides/spectre-stellar-cookbook",
-              "guides/integrations/react-native"
-            ]
-          },
-          {
-            "group": "Stellar",
-            "pages": [
-              "guides/stellar/stellar-quickstart"
+              "guides/spectre-stellar-cookbook"
             ]
           },
           {
             "group": "Integrations",
             "pages": [
-              "guides/integrations/soroswap"
+              "guides/integrations/aquarius"
             ]
           },
           {
@@ -148,12 +149,10 @@
               "guides/stellar-explorer-recipes",
               "guides/stellar-federation",
               "guides/stellar-custom-assets",
-              "guides/wraith-names-stellar"
+              "guides/stellar/stellar-liquidity-pool-swap",
+              "guides/wraith-names-stellar",
+              "guides/ops/self-hosted-deployment"
             ]
-          },
-          {
-            "group": "Integrations",
-            "pages": ["guides/integrations/reflector"]
           }
         ]
       },
@@ -162,7 +161,11 @@
         "groups": [
           {
             "group": "API Reference",
-            "pages": ["api-reference/endpoints", "api-reference/types"]
+            "pages": [
+              "api-reference/endpoints",
+              "api-reference/fetch-announcements-stream",
+              "api-reference/types"
+            ]
           }
         ]
       }

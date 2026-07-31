@@ -1,0 +1,146 @@
+---
+title: "Security Disclosure Policy"
+description: "How to report vulnerabilities in Wraith Protocol responsibly"
+---
+
+Wraith Protocol handles private payments and stealth-address key material across multiple blockchains. Security is not a feature — it is the foundation. If you find a vulnerability, we want to hear from you quickly and privately, and we will treat you fairly in return.
+
+## Contact
+
+Email all security reports to **security@usewraith.xyz**.
+
+Use PGP if the report contains sensitive proof-of-concept material. Our public key is available at [https://usewraith.xyz/.well-known/security.txt](https://usewraith.xyz/.well-known/security.txt).
+
+Do not open a public GitHub issue, post on social media, or discuss the finding in any public forum until a fix has shipped and coordinated disclosure has been agreed.
+
+## Scope
+
+### In Scope
+
+The following components are covered by this policy:
+
+| Component | Examples |
+|---|---|
+| TEE server and key derivation | `packages/tee`, DStack integration, Intel TDX attestation |
+| Smart contracts | EVM `StealthAnnouncer`, Stellar Soroban contracts, Solana Anchor programs, CKB lock scripts |
+| SDK | `@wraith-protocol/sdk`, crypto primitives, stealth address generation/scanning |
+| API server | HTTP endpoints, authentication, agent management |
+| Protocol-level cryptography | ECDH key exchange, view tags, meta-address derivation |
+
+Bugs in third-party dependencies (e.g., viem, stellar-sdk, @solana/web3.js) are in scope if Wraith uses the vulnerable code path in a way that creates a real risk to users. Please disclose to the upstream project in parallel.
+
+### Out of Scope
+
+The following are not covered:
+
+- Theoretical attacks without a realistic exploit path
+- Social engineering or phishing against Wraith staff
+- Denial-of-service via resource exhaustion (unless it can drain user funds or expose keys)
+- UI bugs with no security impact (broken layouts, missing copy, display errors)
+- Findings from automated scanners submitted without manual validation
+- Reports that duplicate a previously reported, known, or already-patched issue
+- Issues in infrastructure we do not control (RPC providers, cloud providers, Phala Network itself)
+
+If you are unsure whether something qualifies, email us and ask — we would rather triage a borderline report than miss a real one.
+
+## Response SLA
+
+We treat security reports as highest priority. Our commitments from the moment your email arrives:
+
+| Milestone | Target |
+|---|---|
+| Acknowledgment | 1 business day |
+| Initial triage and severity assessment | 3 business days |
+| Fix timeline communicated to reporter | 7 business days |
+| Patch shipped for critical / high severity | 14 days |
+| Patch shipped for medium severity | 45 days |
+| Patch shipped for low severity | 90 days |
+
+If we cannot meet a deadline we will tell you proactively and explain why. For issues under active exploitation we will move faster than these targets.
+
+## Severity Definitions
+
+We use a simplified four-level scale aligned with CVSS v3.
+
+| Severity | Definition |
+|---|---|
+| **Critical** | Remote key exfiltration, arbitrary fund theft, TEE bypass, complete loss of privacy across all users |
+| **High** | Partial key leakage, targeted fund theft, stealth-address deanonymization for a specific user |
+| **Medium** | Limited information disclosure, integrity violation without direct fund loss, privacy degradation requiring unusual conditions |
+| **Low** | Minor information leakage, requires physical access or already-compromised machine, no realistic path to fund loss |
+
+## Coordinated Disclosure
+
+We follow a 90-day coordinated disclosure window, starting from the date we confirm receipt of a complete, reproducible report.
+
+- After the patch ships, we will coordinate the public disclosure date with you.
+- If a patch ships early, we will offer to publish the advisory sooner at your preference.
+- If 90 days pass without a patch for reasons outside your control, you may disclose and we will not pursue any legal or reputational action against you.
+- We may ask for a short extension (up to 14 days) if the fix is nearly complete. We will not ask more than once.
+- For critical vulnerabilities under active exploitation, we reserve the right to publish an advisory and mitigation advice before a full patch is ready, with or without technical details.
+
+## Safe Harbor
+
+Wraith Protocol will not initiate legal action against researchers who:
+
+1. Discover and report vulnerabilities following this policy in good faith.
+2. Avoid accessing, modifying, or exfiltrating user data beyond what is necessary to demonstrate the vulnerability.
+3. Do not exploit the vulnerability for personal gain, cause harm to users, or disrupt live systems.
+4. Do not publicly disclose the vulnerability before the agreed disclosure date.
+5. Comply with applicable laws.
+
+We will work with researchers to understand findings and will not treat good-faith research as a violation of our terms of service. If a third party initiates legal action related to your security research conducted under this policy, we will make clear that your research was conducted in accordance with it.
+
+Wraith does not run a "no testing permitted" policy on all production infrastructure. However:
+
+- Do not perform testing against wallets or agents that you do not own or control.
+- Do not attempt to access, modify, or delete other users' data.
+- Do not exfiltrate any user funds or private key material from production.
+- Use testnet environments for proof-of-concept work wherever possible.
+
+## Recognition and Rewards
+
+We publicly credit researchers (with their permission) in our security advisories and in the changelog entry for the fix. If you prefer to remain anonymous, we will respect that.
+
+**Bug Bounty**
+
+We operate a discretionary bug bounty program. Rewards are paid in USDC on the chain of your choice.
+
+| Severity | Reward range |
+|---|---|
+| Critical | $5,000 – $20,000 |
+| High | $1,000 – $5,000 |
+| Medium | $250 – $1,000 |
+| Low | $0 – $250 |
+
+Actual awards within each range depend on the quality of the report, the novelty of the finding, the clarity of the proof of concept, and the impact on users. Reports that include a working exploit and clear remediation advice receive higher awards.
+
+Duplicate reports, out-of-scope issues, and reports that violate this policy are not eligible for rewards. The first reporter of a given vulnerability receives the reward; subsequent reports of the same issue do not.
+
+<Note>
+  The bounty program is discretionary and does not constitute a binding obligation. We reserve the right to modify reward ranges or discontinue the program with reasonable notice.
+</Note>
+
+## What to Include in a Report
+
+A good report helps us fix the problem faster. Please include:
+
+- A clear title and one-line summary.
+- The affected component(s) and version or commit hash.
+- Steps to reproduce, as minimal as possible.
+- A proof of concept — script, transaction, or screenshot — that demonstrates the impact.
+- Your assessment of severity and why.
+- Any suggested fix or mitigation, if you have one.
+- Whether you want public credit, and if so, what name to use.
+
+We will confirm receipt and may ask follow-up questions. Please keep the email thread open until the issue is resolved.
+
+## Acceptance
+
+By submitting a security report to Wraith Protocol, you agree to the terms of this policy.
+
+## See Also
+
+- [TEE Security](/architecture/tee) — key derivation, attestation, and the privacy model
+- [Privacy Best Practices](/guides/privacy-best-practices) — how to use Wraith without degrading your own privacy
+- [Architecture Overview](/architecture/overview) — system components and trust boundaries
