@@ -1,0 +1,524 @@
+---
+title: "Stellar Liquidity Pool Swap & Stealth Announce"
+description: "Swap assets through Stellar liquidity pools and announce the result to a stealth address — with slippage protection and the YXLM → USDC example"
+keywords: "Stellar, liquidity pool, LP, AMM, YXLM, USDC, slippage, path payment, swap, stealth address"
+---
+
+Stellar liquidity pools are constant-product automated market makers (AMMs) built into the protocol. This guide explains how to swap one asset for another through a pool — when the orderbook has no route — then stealth-announce the payment so the recipient can detect it.
+
+> **Sister guide:** The [Path Payments](/guides/stellar-custom-assets#path-payments-receive-a-different-asset) pattern routes through the orderbook-based DEX. Use this guide when only a liquidity pool has the pair you need.
+
+---
+
+## LP Basics
+
+A Stellar liquidity pool holds two reserves (`A` and `B`) and maintains the invariant:
+
+```
+A × B = k
+```
+
+Anyone can contribute to a pool via `LiquidityPoolDeposit` and receive pool shares that represent their proportional ownership. Pool shares are non-transferable — they can only be redeemed back for the underlying assets via `LiquidityPoolWithdraw`.
+
+Traders swap through the pool by using a `PathPaymentStrictSend` or `PathPaymentStrictReceive` operation whose path includes the pool. The pool collects a small fee (currently 0.3%) that is distributed to liquidity providers.
+
+### Pool ID
+
+Each pool is identified by a deterministic SHA-256 hash of its pool type and the two assets (sorted lexicographically):
+
+```typescript
+import { LiquidityPoolId, Asset, LiquidityPoolType } from "@stellar/stellar-sdk";
+
+const assetA = new Asset("YXLM", "G...issuer");
+const assetB = new Asset("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+
+const poolId = LiquidityPoolId.fromConstantProduct(
+  assetA.getAssetType() === "native" ? assetA : assetA,
+  assetB.getAssetType() === "native" ? assetB : assetB,
+);
+console.log(poolId.toString()); // 64-char hex pool ID
+```
+
+You can look up existing pools and their reserves via Horizon:
+
+```typescript
+const resp = await server
+  .liquidityPools()
+  .forAssets(assetA, assetB)
+  .call();
+
+if (resp.records.length > 0) {
+  const pool = resp.records[0];
+  console.log("Pool ID:", pool.id);
+  console.log("Reserve A:", pool.reserves[0].amount);
+  console.log("Reserve B:", pool.reserves[1].amount);
+  console.log("Total shares:", pool.total_shares);
+  console.log("Fee (bps):", pool.fee); // 30 = 0.3%
+}
+```
+
+---
+
+## LiquidityPoolDeposit (Providing Liquidity)
+
+The `LiquidityPoolDeposit` operation adds liquidity to a pool. You must hold both assets and specify the maximum amounts you're willing to deposit.
+
+```typescript
+import { Operation, TransactionBuilder, Asset } from "@stellar/stellar-sdk";
+import { LiquidityPoolId } from "@stellar/stellar-sdk";
+
+const poolId = LiquidityPoolId.fromConstantProduct(
+  new Asset("YXLM", yxlmIssuer),
+  new Asset("USDC", usdcIssuer),
+);
+
+const depositTx = new TransactionBuilder(senderAccount, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.liquidityPoolDeposit({
+      liquidityPoolId: poolId.getPoolId(),
+      maxAmountA: "100",     // 100 YXLM
+      maxAmountB: "50",      // 50 USDC
+      minPrice: { n: 1, d: 3 },  // 1/3 YXLM per USDC floor
+      maxPrice: { n: 1, d: 2 },  // 1/2 YXLM per USDC ceiling
+    })
+  )
+  .setTimeout(30)
+  .build();
+
+depositTx.sign(senderKeypair);
+await server.submitTransaction(depositTx);
+```
+
+The pool calculates the actual deposit amounts based on the current reserve ratio. Any excess beyond what the pool accepts is refunded. The `minPrice` and `maxPrice` parameters protect you from depositing at an unfavorable rate.
+
+> Depositing into a pool is not a swap — it creates liquidity for others. To *swap* through a pool, use the path payment operations in the next section.
+
+---
+
+## Swapping via a Liquidity Pool
+
+To swap through a liquidity pool, use `PathPaymentStrictSend` or `PathPaymentStrictReceive`. The pool appears as one of the hops in the path. If the path is empty, the Stellar network finds the best route — through the orderbook, liquidity pools, or both.
+
+### Strict Send (pay YXLM, receive USDC)
+
+```typescript
+import { Operation, Asset } from "@stellar/stellar-sdk";
+
+const swapTx = new TransactionBuilder(senderAccount, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.pathPaymentStrictSend({
+      sendAsset: new Asset("YXLM", yxlmIssuer),
+      sendAmount: "100",                              // Spend exactly 100 YXLM
+      destination: stealthAddress,                     // Stealth address receives
+      destAsset: new Asset("USDC", usdcIssuer),        // Recipient gets USDC
+      destMin: "45",                                   // Minimum USDC to accept (slippage)
+      path: [],                                        // Auto-route through any pool/DEX
+    })
+  )
+  .setTimeout(30)
+  .build();
+```
+
+### Strict Receive (pay YXLM, receive exactly N USDC)
+
+```typescript
+const swapTx = new TransactionBuilder(senderAccount, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.pathPaymentStrictReceive({
+      sendAsset: new Asset("YXLM", yxlmIssuer),
+      sendMax: "110",                                  // Max YXLM to spend
+      destination: stealthAddress,
+      destAsset: new Asset("USDC", usdcIssuer),
+      destAmount: "50",                                // Get exactly 50 USDC
+      path: [],
+    })
+  )
+  .setTimeout(30)
+  .build();
+```
+
+> **Important:** Classic path payment operations do not call the `stealth-sender` contract. No announcement event is emitted. You need a separate announcement transaction for the recipient to detect the payment. See [Swap + Announce](#swap--announce) below.
+
+### Forcing a Pool Route
+
+If you know a specific pool has the best rate, you can supply its asset pair as an intermediate path. The network will route through that pool:
+
+```typescript
+const poolAsset = new Asset(
+  "YXLM",
+  yxlmIssuer,
+);
+
+const swapTx = new TransactionBuilder(senderAccount, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.pathPaymentStrictSend({
+      sendAsset: new Asset("YXLM", yxlmIssuer),
+      sendAmount: "100",
+      destination: stealthAddress,
+      destAsset: new Asset("USDC", usdcIssuer),
+      destMin: "45",
+      path: [poolAsset],  // Route through the YXLM/USDC pool
+    })
+  )
+  .setTimeout(30)
+  .build();
+```
+
+---
+
+## Slippage Protection
+
+When swapping through a liquidity pool, the effective exchange rate depends on the pool's current reserves. A large swap moves the price — the more you swap, the worse the rate.
+
+### Calculating Slippage
+
+Use Horizon's path finding to estimate the expected output before building the transaction:
+
+```typescript
+const paths = await server
+  .strictSendPaths()
+  .sourceAsset(new Asset("YXLM", yxlmIssuer))
+  .sourceAmount("100")
+  .destinationAccount(stealthAddress)
+  .destinationAssets([new Asset("USDC", usdcIssuer)])
+  .call();
+
+if (paths.records.length === 0) {
+  throw new Error("No path found — check pool liquidity");
+}
+
+const bestPath = paths.records[0];
+const expectedOutput = parseFloat(bestPath.destination_amount);
+console.log("Expected USDC:", expectedOutput);
+
+// Apply 2% slippage tolerance
+const SLIPPAGE_BPS = 200; // 200 basis points = 2%
+const minOutput = expectedOutput * (1 - SLIPPAGE_BPS / 10000);
+```
+
+For `pathPaymentStrictSend`, set `destMin` to the minimum output you'll accept:
+
+```typescript
+const destMin = minOutput.toFixed(7); // USDC has 7 decimals
+```
+
+For `pathPaymentStrictReceive`, set `sendMax` to the maximum input you're willing to spend:
+
+```typescript
+const sendMax = (expectedInput * (1 + SLIPPAGE_BPS / 10000)).toFixed(7);
+```
+
+### Price Protection Table
+
+| Slippage | Basis Points | `destMin` for 100 YXLM → 50 USDC expected |
+|----------|-------------|-------------------------------------------|
+| 0.5%     | 50          | 49.75 USDC                               |
+| 1.0%     | 100         | 49.50 USDC                               |
+| 2.0%     | 200         | 49.00 USDC                               |
+| 5.0%     | 500         | 47.50 USDC                               |
+
+### Querying Pool Reserves Directly
+
+For manual slippage calculations without path finding:
+
+```typescript
+const poolResp = await server
+  .liquidityPools()
+  .forAssets(
+    new Asset("YXLM", yxlmIssuer),
+    new Asset("USDC", usdcIssuer),
+  )
+  .call();
+
+if (poolResp.records.length > 0) {
+  const reserveA = parseFloat(poolResp.records[0].reserves[0].amount);
+  const reserveB = parseFloat(poolResp.records[0].reserves[1].amount);
+
+  // Constant product: k = reserveA × reserveB
+  // Swapping 100 YXLM: newReserveA = reserveA + 100
+  // newReserveB = k / newReserveA
+  // USDC out = reserveB - newReserveB (minus 0.3% fee)
+  const feeBps = 30; // 0.3%
+  const effectiveIn = 100 * (1 - feeBps / 10000);
+  const newReserveA = reserveA + effectiveIn;
+  const newReserveB = (reserveA * reserveB) / newReserveA;
+  const usdcOut = reserveB - newReserveB;
+
+  console.log("Estimated USDC output (manual):", usdcOut.toFixed(7));
+}
+```
+
+---
+
+## Swap + Announce
+
+Since classic path payments don't emit stealth announcements, the swap and announce must happen in two separate transactions:
+
+1. **Swap transaction** — path payment through the liquidity pool to the stealth address
+2. **Announce transaction** — call the `stealth-announcer` Soroban contract
+
+### End-to-End: YXLM → USDC via YXLM/USDC Pool
+
+This example swaps 100 YXLM for USDC through the YXLM/USDC liquidity pool on testnet, then announces the payment to the recipient.
+
+#### Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+#### Step 1 — Generate a stealth address
+
+```typescript
+import {
+  generateStealthAddress,
+  decodeStealthMetaAddress,
+  SCHEME_ID,
+  getDeployment,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const deployment = getDeployment("stellar");
+
+// Recipient's stealth meta-address (from their .wraith name or shared directly)
+const recipientMetaAddress = "st:xlm:abc123...def456...";
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(recipientMetaAddress);
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+console.log("Stealth address:", stealth.stealthAddress);
+// G... address that will receive the USDC
+```
+
+#### Step 2 — Verify sender balances and pool liquidity
+
+```typescript
+import { Horizon, Asset, LiquidityPoolId } from "@stellar/stellar-sdk";
+
+const NETWORK = "Test SDF Network ; September 2015";
+
+// Testnet asset addresses
+const YXLM_ISSUER = "G...YXLM_ISSUER";   // Verify on stellar.expert
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+
+const server = new Horizon.Server(deployment.horizonUrl);
+
+// Check sender has YXLM
+const senderAccount = await server.loadAccount(senderKeypair.publicKey());
+const yxlmBalance = senderAccount.balances.find(
+  (b) => b.asset_code === "YXLM" && b.asset_issuer === YXLM_ISSUER
+);
+if (!yxlmBalance || parseFloat(yxlmBalance.balance) < 100) {
+  throw new Error("Insufficient YXLM balance");
+}
+
+// Check pool exists and has liquidity
+const poolResp = await server
+  .liquidityPools()
+  .forAssets(
+    new Asset("YXLM", YXLM_ISSUER),
+    new Asset("USDC", USDC_ISSUER),
+  )
+  .call();
+
+if (poolResp.records.length === 0) {
+  throw new Error("YXLM/USDC pool not found on testnet");
+}
+console.log("Pool total shares:", poolResp.records[0].total_shares);
+```
+
+#### Step 3 — Swap YXLM → USDC via the liquidity pool
+
+```typescript
+import { Operation, TransactionBuilder, Asset, SorobanRpc } from "@stellar/stellar-sdk";
+
+const sorobanServer = new SorobanRpc.Server(deployment.sorobanUrl);
+const account = await sorobanServer.getAccount(senderKeypair.publicKey());
+
+// Query path to estimate output
+const paths = await server
+  .strictSendPaths()
+  .sourceAsset(new Asset("YXLM", YXLM_ISSUER))
+  .sourceAmount("100")
+  .destinationAccount(stealth.stealthAddress)
+  .destinationAssets([new Asset("USDC", USDC_ISSUER)])
+  .call();
+
+if (paths.records.length === 0) {
+  throw new Error("No liquidity pool route found");
+}
+
+const expectedUsdc = paths.records[0].destination_amount;
+const SLIPPAGE_BPS = 200; // 2% tolerance
+const minUsdc = (parseFloat(expectedUsdc) * (1 - SLIPPAGE_BPS / 10000)).toFixed(7);
+
+// Transaction 1: Swap via path payment through the pool
+const swapTx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.pathPaymentStrictSend({
+      sendAsset: new Asset("YXLM", YXLM_ISSUER),
+      sendAmount: "100",
+      destination: stealth.stealthAddress,
+      destAsset: new Asset("USDC", USDC_ISSUER),
+      destMin: minUsdc,
+      path: [],
+    })
+  )
+  .setTimeout(30)
+  .build();
+
+swapTx.sign(senderKeypair);
+const swapResult = await server.submitTransaction(swapTx);
+console.log("Swap tx hash:", swapResult.hash);
+```
+
+#### Step 4 — Announce the payment
+
+```typescript
+import { Contract, xdr } from "@stellar/stellar-sdk";
+import { bytesToHex } from "@wraith-protocol/sdk/chains/stellar";
+
+// Reload account for the new sequence number after the swap
+const account2 = await sorobanServer.getAccount(senderKeypair.publicKey());
+
+const announcerContractId = deployment.contracts.announcer;
+const announcerContract = new Contract(announcerContractId);
+
+const metadata = new Uint8Array([stealth.viewTag]);
+
+// Transaction 2: Announce via Soroban contract
+const announceTx = new TransactionBuilder(account2, {
+  fee: "1000000",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    announcerContract.call(
+      "announce",
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeAccount(
+          xdr.AccountID.publicKeyTypeEd25519(
+            Buffer.from(senderKeypair.rawPublicKey())
+          )
+        )
+      ),
+      xdr.ScVal.scvU32(SCHEME_ID),
+      xdr.ScVal.scvAddress(
+        xdr.ScAddress.scAddressTypeAccount(
+          xdr.AccountID.publicKeyTypeEd25519(
+            Buffer.from(
+              Keypair.fromPublicKey(stealth.stealthAddress).rawPublicKey()
+            )
+          )
+        )
+      ),
+      xdr.ScVal.scvBytes(Buffer.from(stealth.ephemeralPubKey)),
+      xdr.ScVal.scvBytes(Buffer.from(metadata)),
+    )
+  )
+  .setTimeout(30)
+  .build();
+
+const simResult = await sorobanServer.simulateTransaction(announceTx);
+if (SorobanRpc.Api.isSimulationError(simResult)) {
+  throw new Error(`Simulation failed: ${simResult.error}`);
+}
+
+const assembledTx = SorobanRpc.assembleTransaction(announceTx, simResult).build();
+assembledTx.sign(senderKeypair);
+
+const announceResult = await sorobanServer.sendTransaction(assembledTx);
+console.log("Announce tx hash:", announceResult.hash);
+```
+
+#### Step 5 — Recipient scans and detects
+
+```typescript
+import {
+  fetchAnnouncements,
+  scanAnnouncements,
+  deriveStealthKeys,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const sig = recipientKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+const announcements = await fetchAnnouncements("stellar");
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar
+);
+
+for (const m of matched) {
+  const account = await server.loadAccount(m.stealthAddress);
+  const usdcBalance = account.balances.find(
+    (b) => b.asset_code === "USDC" && b.asset_issuer === USDC_ISSUER
+  );
+  if (usdcBalance) {
+    console.log(`Stealth address ${m.stealthAddress} holds ${usdcBalance.balance} USDC`);
+  }
+}
+```
+
+The recipient can then withdraw the USDC using `signStellarTransaction` with the derived stealth private scalar (see the [Custom Assets guide](/guides/stellar-custom-assets#recipient-flow-trustlines-on-stealth-addresses) for the withdrawal flow).
+
+---
+
+## Providing Liquidity + Stealth Announce
+
+If you want to provide liquidity to a pool and stealth-announce separate from any swap, the `LiquidityPoolDeposit` operation works alongside the announce transaction:
+
+```typescript
+// Transaction 1: Provide liquidity
+const depositTx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: NETWORK,
+})
+  .addOperation(
+    Operation.liquidityPoolDeposit({
+      liquidityPoolId: poolId.getPoolId(),
+      maxAmountA: "500",
+      maxAmountB: "250",
+      minPrice: { n: 1, d: 3 },
+      maxPrice: { n: 1, d: 2 },
+    })
+  )
+  .setTimeout(30)
+  .build();
+
+depositTx.sign(senderKeypair);
+await server.submitTransaction(depositTx);
+
+// Transaction 2: Announce a separate payment to a stealth address
+// (same Soroban announce pattern as Step 4 above)
+```
+
+> Pool shares cannot be sent to a stealth address directly — they are non-transferable. Only the underlying assets (after withdrawal) can be stealth-announced.
+
+---
+
+## Related
+
+- [Path Payments (Custom Assets)](/guides/stellar-custom-assets#path-payments-receive-a-different-asset) — orderbook-based DEX routing for stealth payments
+- [Stellar Custom Assets (USDC)](/guides/stellar-custom-assets) — trustlines, SAC mechanics, and asset compatibility
+- [Stellar Crypto Primitives](/sdk/chains/stellar) — low-level stealth address functions
+- [Stellar Contracts](/contracts/stellar) — `stealth-sender` and `stealth-announcer` contract specs
+- [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — inclusion fees, Soroban resource fees, and fee bumps
+- [Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook) — production recipes for Stellar agents
+- [Liquidity Pools on Stellar](https://developers.stellar.org/docs/glossary/liquidity-pool) — official Stellar docs on liquidity pools
+- [Path Payment](https://developers.stellar.org/docs/learn/fundamentals/path-payments) — official Stellar path payment documentation

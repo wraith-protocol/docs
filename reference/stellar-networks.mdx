@@ -1,0 +1,243 @@
+---
+title: "Stellar Networks"
+description: "Passphrase, RPC endpoints, Friendbot, reset cadence, and Wraith contract IDs for every Stellar network"
+keywords: "Stellar, testnet, mainnet, futurenet, soroban, passphrase, RPC, friendbot, contract IDs, network"
+---
+
+Quick reference for every Stellar network supported by Wraith Protocol — what each one is for, how to connect to it, and which contract addresses to use.
+
+## Network overview
+
+| Network | Purpose | Wraith contracts | Friendbot |
+|---|---|---|---|
+| [Testnet](#testnet) | Development and integration testing | Live | ✓ |
+| [Futurenet](#futurenet) | Experimental Soroban preview features | Not deployed | ✓ |
+| [Mainnet](#mainnet) | Production | Pending mainnet launch | ✗ |
+
+---
+
+## Testnet
+
+The SDF-operated Stellar testnet. This is where Wraith contracts are deployed today
+and where you should build and test integrations.
+
+<Warning>
+  The testnet is reset **approximately every quarter**. All accounts, balances, and
+  contract state are wiped on reset. Watch
+  [status.stellar.org](https://status.stellar.org) and the `#stellar-dev`
+  channel for reset announcements.
+</Warning>
+
+### Connection details
+
+| Property | Value |
+|---|---|
+| Network passphrase | `Test SDF Network ; September 2015` |
+| Horizon URL | `https://horizon-testnet.stellar.org` |
+| Soroban RPC URL | `https://soroban-testnet.stellar.org` |
+| Friendbot URL | `https://friendbot.stellar.org?addr=<G_ADDRESS>` |
+
+### Friendbot — fund a testnet account
+
+New accounts need at least 1 XLM to activate. Friendbot hands out 10,000 XLM for free:
+
+```bash
+# Fund via curl
+curl "https://friendbot.stellar.org?addr=GABC...YOURADDRESS"
+```
+
+```typescript
+// Fund via the Stellar SDK
+import { Server } from "@stellar/stellar-sdk/rpc";
+
+const server = new Server("https://soroban-testnet.stellar.org");
+await fetch(`https://friendbot.stellar.org?addr=${keypair.publicKey()}`);
+```
+
+<Note>
+  Friendbot is only available on testnet and Futurenet. On mainnet you must fund
+  accounts yourself with real XLM.
+</Note>
+
+### Wraith contract IDs
+
+<!-- Last verified: 2026-07-29. Re-run `npm run generate:stellar-reference` to refresh from bindings. -->
+
+| Contract | Testnet address | Version |
+|---|---|---|
+| `stealth-announcer` | `CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL` | v2 |
+| `stealth-registry` | `CPLACEHOLDER_REGISTRY_TESTNET` | v1 |
+| `stealth-sender` | `CPLACEHOLDER_SENDER_TESTNET` | v1 |
+| `wraith-names` | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` | v1 |
+
+<Note>
+  `stealth-registry` and `stealth-sender` addresses are pending deployment.
+  Track progress in `contracts/stellar/MAINNET_READINESS.md` in the contracts repo.
+  The `stealth-announcer` and `wraith-names` addresses above are live and sourced
+  from `getDeployment("stellar")` in the SDK.
+</Note>
+
+### Connecting with the SDK
+
+```typescript
+import { getDeployment } from "@wraith-protocol/sdk/chains/stellar";
+import { Server } from "@stellar/stellar-sdk/rpc";
+import { Horizon } from "@stellar/stellar-sdk";
+
+const deployment = getDeployment("stellar");
+// {
+//   network: "testnet",
+//   networkPassphrase: "Test SDF Network ; September 2015",
+//   horizonUrl: "https://horizon-testnet.stellar.org",
+//   sorobanUrl: "https://soroban-testnet.stellar.org",
+//   contracts: {
+//     announcer: "CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL",
+//     names: "CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV",
+//   },
+// }
+
+const soroban  = new Server(deployment.sorobanUrl);
+const horizon  = new Horizon.Server(deployment.horizonUrl);
+```
+
+### Environment variables
+
+Copy this block into your `.env` when targeting testnet:
+
+```bash
+STELLAR_NETWORK=testnet
+STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+STELLAR_HORIZON_URL=https://horizon-testnet.stellar.org
+STELLAR_RPC_URL=https://soroban-testnet.stellar.org
+STELLAR_ANNOUNCER_CONTRACT_ID=CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL
+STELLAR_NAMES_CONTRACT_ID=CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV
+# STELLAR_REGISTRY_CONTRACT_ID — pending deployment
+# STELLAR_SENDER_CONTRACT_ID   — pending deployment
+```
+
+---
+
+## Futurenet
+
+The SDF's preview network for upcoming Soroban features. **Wraith contracts are not
+deployed on Futurenet.** Use it only if you are building against unreleased Soroban
+capabilities or testing SDK changes that require a bleeding-edge node.
+
+<Warning>
+  Futurenet can reset at any time without notice and runs protocol versions that
+  are not yet production-stable. Do not use it for integration testing.
+</Warning>
+
+### Connection details
+
+| Property | Value |
+|---|---|
+| Network passphrase | `Test SDF Future Network ; October 2022` |
+| Soroban RPC URL | `https://rpc-futurenet.stellar.org` |
+| Friendbot URL | `https://friendbot-futurenet.stellar.org?addr=<G_ADDRESS>` |
+
+### Connecting with the SDK
+
+```typescript
+import { Server } from "@stellar/stellar-sdk/rpc";
+import { Networks } from "@stellar/stellar-sdk";
+
+const FUTURENET_RPC        = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+
+const soroban = new Server(FUTURENET_RPC);
+```
+
+<Note>
+  `getDeployment("futurenet")` returns RPC and passphrase details but no Wraith
+  contract addresses, because contracts are not deployed there.
+</Note>
+
+---
+
+## Mainnet
+
+The Stellar public network. **Wraith contracts are not yet deployed on mainnet.**
+Contract addresses will be published here and in `contracts/stellar/MAINNET_READINESS.md`
+once the mainnet deployment is complete.
+
+<Warning>
+  All contract addresses below are **placeholder values** (`CPLACEHOLDER…`).
+  Do not use these in production. Subscribe to the `#announcements` channel for
+  the mainnet launch notification.
+</Warning>
+
+### Connection details
+
+| Property | Value |
+|---|---|
+| Network passphrase | `Public Global Stellar Network ; September 2015` |
+| Horizon URL | `https://horizon.stellar.org` |
+| Soroban RPC | Provider-dependent (see below) |
+| Friendbot | Not available |
+
+### Soroban RPC providers for mainnet
+
+The SDF does not operate a public Soroban RPC endpoint for mainnet. Choose a provider:
+
+| Provider | Endpoint | Free tier | Notes |
+|---|---|---|---|
+| Validation Cloud | `https://mainnet.stellar.validationcloud.io/v1/<API_KEY>` | Yes | Recommended for production |
+| QuickNode | `https://<slug>.stellar-mainnet.quiknode.pro/<API_KEY>` | No | High-volume workloads |
+| Ankr | `https://rpc.ankr.com/stellar_soroban` | Yes | Budget option |
+| Self-hosted | `http://localhost:8000` | N/A | Best for validators |
+
+See [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment) for RPC rate limits,
+failover configuration, and retention window guidance.
+
+### Wraith contract IDs (pending)
+
+| Contract | Mainnet address | Version |
+|---|---|---|
+| `stealth-announcer` | `CPLACEHOLDER_ANNOUNCER_MAINNET` | v2 |
+| `stealth-registry` | `CPLACEHOLDER_REGISTRY_MAINNET` | v1 |
+| `stealth-sender` | `CPLACEHOLDER_SENDER_MAINNET` | v1 |
+| `wraith-names` | `CPLACEHOLDER_NAMES_MAINNET` | v1 |
+
+### Environment variables
+
+```bash
+STELLAR_NETWORK=mainnet
+STELLAR_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
+STELLAR_HORIZON_URL=https://horizon.stellar.org
+STELLAR_RPC_URL=https://mainnet.stellar.validationcloud.io/v1/<YOUR_API_KEY>
+# Contract IDs will be published here on mainnet launch
+```
+
+---
+
+## Quick comparison
+
+| | Testnet | Futurenet | Mainnet |
+|---|---|---|---|
+| Passphrase | `Test SDF Network ; September 2015` | `Test SDF Future Network ; October 2022` | `Public Global Stellar Network ; September 2015` |
+| Horizon | `https://horizon-testnet.stellar.org` | — | `https://horizon.stellar.org` |
+| Soroban RPC | `https://soroban-testnet.stellar.org` | `https://rpc-futurenet.stellar.org` | Provider (see above) |
+| Friendbot | `https://friendbot.stellar.org` | `https://friendbot-futurenet.stellar.org` | Not available |
+| Reset cadence | \~quarterly | On demand | Never |
+| Wraith contracts | Live | Not deployed | Pending |
+| Real value | No | No | Yes |
+
+---
+
+## Related resources
+
+<CardGroup cols={2}>
+  <Card title="Stellar Contracts Reference" href="/contracts/stellar" icon="file-code">
+    Full interface specs for stealth-announcer, stealth-registry, stealth-sender, and wraith-names
+  </Card>
+  <Card title="Stellar Mainnet Deployment" href="/guides/stellar-mainnet-deployment" icon="server">
+    Operator guide: RPC providers, monitoring, upgrade governance, incident runbooks
+  </Card>
+  <Card title="Stellar Quickstart" href="/guides/stellar-quickstart" icon="bolt">
+    Create an agent, fund it on testnet, and send your first stealth payment
+  </Card>
+  <Card title="Stellar Event Schemas (v2)" href="/reference/stellar-event-schemas" icon="list">
+    Soroban announcement event topics and view-tag filtering
+  </Card>
+</CardGroup>

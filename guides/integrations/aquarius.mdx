@@ -1,0 +1,512 @@
+---
+title: "Aquarius LP Incentivization"
+description: "Provide liquidity on Aquarius, earn AQUA rewards, and claim them directly into a stealth address"
+keywords: "Aquarius, AMM, liquidity, AQUA, XLM, Stellar, stealth address, rewards, DeFi, incentivization"
+---
+
+[Aquarius](https://aqua.network) is Stellar's LP incentivization layer. ICE and AQUA holders vote on which markets receive hourly rewards, and LPs in those markets earn AQUA continuously. This guide covers the full lifecycle: depositing into an Aquarius pool, watching rewards accrue, claiming them into a Wraith stealth address so the payout can't be traced back to your LP account, then withdrawing your principal.
+
+## How it fits together
+
+A standard Aquarius claim sends AQUA to the same account that holds the LP position. Anyone watching the ledger can link your LP address to the claim address to the withdrawal address — a straight chain of custody. Routing the claim through a stealth address breaks that chain:
+
+```
+LP account ──deposit──► Aquarius pool
+                              │
+                              │ rewards accrue per block
+                              ▼
+LP account ──claimRewards──► stealth address (Wraith)
+                                      │
+                                      │ invisible recipient
+                                      ▼
+                              your cold wallet
+```
+
+The stealth address is a one-time Stellar account that only you can detect and spend from. An observer sees the AQUA land somewhere, but cannot link that address to you or to the LP position.
+
+---
+
+## Prerequisites
+
+```bash
+npm install @aquariusdefi/sdk @stellar/stellar-sdk @wraith-protocol/sdk
+```
+
+Your LP account needs:
+- XLM and whichever assets you want to deposit (e.g. XLM + AQUA for the XLM/AQUA pool)
+- An AQUA trustline — rewards are paid in AQUA and will fail to land without one
+
+Your stealth claim address will need an AQUA trustline too. Wraith creates it automatically when it creates the stealth account (Protocol 22 SAC trustline auto-creation), but you need to fund the account with enough XLM to cover the 0.5 XLM trustline reserve.
+
+---
+
+## Testnet addresses
+
+All examples below target testnet. Swap these constants for the mainnet values when you go live.
+
+```typescript
+// Testnet constants — safe to commit
+const AQUARIUS_ROUTER   = "CBCFTQSPDBAIZ6R6PJQKSQWKNKWH2QIV3I4J72SHWBIK3ADRRAM5A6GD";
+const AQUARIUS_API      = "https://amm-api-testnet.aqua.network/api/external/v2";
+const SOROBAN_RPC       = "https://soroban-testnet.stellar.org:443";
+const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+
+// Testnet AQUA — issued by the Aquarius testnet deployer
+const AQUA_ISSUER_TESTNET = "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER";
+
+// Testnet USDC — Circle testnet issuer (for XLM/USDC pools)
+const USDC_ISSUER_TESTNET = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+```
+
+Mainnet equivalents:
+
+| Constant | Mainnet value |
+|---|---|
+| Router | `CBQDHNBFBZYE4MKPWBSJOPIYLW4SFSXAXUTSXJN76GNKYVYPCKWC6QUK` |
+| AQUA issuer | `GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA` |
+| API | `https://amm-api.aqua.network/api/external/v2` |
+| Soroban RPC | `https://mainnet.sorobanrpc.com` |
+
+---
+
+## Step 1 — Set up the Aquarius client
+
+```typescript
+import { Keypair } from "@stellar/stellar-sdk";
+import { AquariusClient, Asset, XLM } from "@aquariusdefi/sdk";
+
+// Your LP account keypair — never commit real secrets
+const lpKeypair = Keypair.fromSecret(process.env.LP_SECRET!);
+
+// Testnet client — change network: "mainnet" for production
+const aqua = new AquariusClient({
+  network: "testnet",
+  signer: lpKeypair,
+});
+
+// Define the AQUA asset on testnet
+const AQUA = Asset.classic("AQUA", "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER");
+```
+
+---
+
+## Step 2 — Find and select a pool
+
+A pair can have several pools — different pool types (volatile, stable) and fee tiers. `pools.forPair()` returns all of them; pick the one that matches your strategy.
+
+```typescript
+// Returns all XLM/AQUA pools, sorted by type and fee tier
+const pools = await aqua.pools.forPair(XLM, AQUA);
+// e.g. [Pool { type: 'volatile', feeBps: 10 }, Pool { type: 'volatile', feeBps: 30 }, ...]
+
+// Pick the standard volatile 0.3% pool
+const pool = pools.find((p) => p.type === "volatile" && p.feeBps === 30);
+if (!pool) throw new Error("XLM/AQUA 0.3% pool not found on testnet");
+```
+
+To check whether a pool is in a reward zone (i.e. actually accrues AQUA for LPs), query the API:
+
+```typescript
+// GET /pools/?pool_address=<contract_id> → includes `reward_tps` (tokens per second)
+const poolInfo = await fetch(
+  `${AQUARIUS_API}/pools/?pool_address=${pool.contractId}`
+).then((r) => r.json());
+
+const rewardTps = poolInfo.results?.[0]?.reward_tps ?? "0";
+console.log(`Reward rate: ${rewardTps} AQUA stroops/second`);
+// "0" means the pool is outside the current reward zone
+```
+
+> Reward zones update each voting cycle (~weekly). Check [aqua.network/rewards](https://aqua.network/rewards) to see the currently incentivized markets before depositing.
+
+---
+
+## Step 3 — Deposit liquidity
+
+Amounts are in stroops (base units: 1 XLM = 10,000,000 stroops). The SDK handles token ordering, simulates the deposit to derive a `min_shares` guard, and submits the transaction.
+
+```typescript
+// Deposit 50 XLM + 2500 AQUA into the XLM/AQUA 0.3% pool
+// The pool takes them at the current reserve ratio — surplus stays in your account
+const depositResult = await pool.deposit({
+  amounts: [
+    [XLM, 50_0000000n],    // 50 XLM in stroops
+    [AQUA, 2500_0000000n], // 2500 AQUA in stroops
+  ],
+  slippage: 0.01, // 1% slippage tolerance — tighten for stable pairs
+});
+
+console.log("Deposited amounts:", depositResult.amounts);
+console.log("Shares minted:    ", depositResult.shares);
+console.log("Transaction:      ", depositResult.txHash);
+```
+
+The `slippage` guard is enforced by the contract: if pool state shifts between simulation and inclusion such that fewer than `min_shares` would be minted, the transaction fails with `SlippageError` instead of minting less than you expected.
+
+---
+
+## Step 4 — Monitor accrued rewards
+
+Rewards accumulate per ledger (roughly every 5 seconds). Reading pending rewards does not require a transaction.
+
+```typescript
+// Check what the signer's position has accrued, in stroops of AQUA
+const pendingStroops = await pool.pendingRewards();
+const pendingAqua = Number(pendingStroops) / 1e7;
+
+console.log(`Pending rewards: ${pendingAqua.toFixed(7)} AQUA`);
+```
+
+Build a polling loop if you want to track accrual over time:
+
+```typescript
+async function watchRewards(intervalMs = 30_000) {
+  while (true) {
+    const pending = await pool.pendingRewards();
+    console.log(`[${new Date().toISOString()}] Pending: ${Number(pending) / 1e7} AQUA`);
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+```
+
+---
+
+## Step 5 — Generate a stealth claim address
+
+Instead of claiming to your LP account, derive a one-time stealth address from your Wraith meta-address. AQUA lands there, invisible to observers.
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { deriveStealthKeys, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
+import { signMessage } from "@stellar/freighter-api";
+
+// Connect to Wraith
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+// Derive your stealth keys from your wallet signature
+// (works with any Stellar wallet — Freighter shown here)
+const sigResult = await signMessage(STEALTH_SIGNING_MESSAGE, {
+  networkPassphrase: NETWORK_PASSPHRASE,
+});
+const sigBytes = Buffer.from(sigResult.signedMessage, "base64");
+const stealthKeys = deriveStealthKeys(sigBytes);
+```
+
+Now generate the one-time stealth address for this claim:
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/stellar";
+
+const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(
+  stealthKeys.spendingPublicKey,
+  stealthKeys.viewingPublicKey,
+);
+
+console.log("Claim to stealth address:", stealthAddress);
+// G... — a fresh one-time address; publish ephemeralPubKey on-chain for scanning
+```
+
+> If you use the Wraith managed agent, the agent generates stealth addresses for you automatically — see [Managed agent claim](#managed-agent-claim) below.
+
+---
+
+## Step 6 — Fund the stealth address
+
+The stealth address doesn't exist on-chain yet. Stellar requires a minimum reserve (1 XLM base + 0.5 XLM per trustline). Send enough to activate it and add an AQUA trustline before you claim.
+
+```typescript
+import {
+  Keypair,
+  Networks,
+  TransactionBuilder,
+  Operation,
+  Asset,
+  BASE_FEE,
+} from "@stellar/stellar-sdk";
+import { Server } from "@stellar/stellar-sdk/horizon";
+
+const horizon = new Server("https://horizon-testnet.stellar.org");
+const aquaAsset = new Asset("AQUA", "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER");
+
+async function activateStealthAddress(
+  funderKeypair: Keypair,
+  targetAddress: string,
+) {
+  const funderAccount = await horizon.loadAccount(funderKeypair.publicKey());
+
+  const tx = new TransactionBuilder(funderAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: Networks.TESTNET,
+  })
+    // Create account with 2 XLM — 1 XLM base reserve + 0.5 XLM per trustline (×2 = 1 XLM) + buffer
+    .addOperation(
+      Operation.createAccount({
+        destination: targetAddress,
+        startingBalance: "2",
+      }),
+    )
+    // Add AQUA trustline on behalf of the new account via SAC (Protocol 22+)
+    // The stealth-sender contract handles this automatically if you use send() instead
+    .setTimeout(30)
+    .build();
+
+  tx.sign(funderKeypair);
+  const result = await horizon.submitTransaction(tx);
+  console.log("Stealth account created:", result.hash);
+}
+
+// Fund with your LP account (or any funded account)
+await activateStealthAddress(lpKeypair, stealthAddress);
+```
+
+> On mainnet, fund the stealth address from an unlinked wallet — funding it from your LP account creates an on-chain link. Use a small intermediary or an exchange withdrawal to break the connection.
+
+---
+
+## Step 7 — Claim rewards into the stealth address
+
+The Aquarius SDK's `claimRewards()` claims to the signer by default. To redirect to the stealth address, pass it as the `recipient` option.
+
+```typescript
+// Claim accrued AQUA directly to the stealth address
+const claimResult = await pool.claimRewards({ recipient: stealthAddress });
+
+console.log("AQUA claimed:   ", Number(claimResult.amount) / 1e7, "AQUA");
+console.log("To address:     ", stealthAddress);
+console.log("Transaction:    ", claimResult.txHash);
+```
+
+The claimed AQUA lands at the stealth address. Your LP position is untouched and keeps accruing. Claim again to a different stealth address next time — reusing the same address weakens privacy.
+
+---
+
+## Managed agent claim
+
+If you use the Wraith managed agent, the agent can handle stealth address generation, funding, and claiming in one command:
+
+```typescript
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+const agent = wraith.agent(process.env.AGENT_ID!);
+
+// The agent generates a fresh stealth address and claims into it
+const result = await agent.chat(
+  "claim my Aquarius LP rewards on the XLM/AQUA pool to a new stealth address"
+);
+console.log(result.response);
+// "Claimed 42.1 AQUA to stealth address GABC...xyz. Position keeps accruing."
+```
+
+Scan for the payment later:
+
+```typescript
+// Detect which stealth addresses belong to you
+const scan = await agent.chat("scan for Aquarius reward payments on stellar testnet");
+console.log(scan.response);
+// Lists all stealth addresses with pending AQUA balances you can sweep
+```
+
+---
+
+## Step 8 — Withdraw rewards from the stealth address
+
+Derive the private key for the stealth address to sweep the AQUA to your final destination.
+
+```typescript
+import { deriveStealthPrivateKey } from "@wraith-protocol/sdk/chains/stellar";
+
+// Derive the scalar private key that controls the stealth address
+const stealthPrivateKey = deriveStealthPrivateKey(
+  stealthKeys.spendingKey,
+  ephemeralPubKey,
+  stealthKeys.viewingKey,
+);
+
+const stealthKeypair = Keypair.fromRawEd25519Seed(Buffer.from(stealthPrivateKey));
+```
+
+Send the AQUA from the stealth address to your cold wallet:
+
+```typescript
+async function sweepAqua(
+  stealthKp: Keypair,
+  destination: string,
+  amount: string,
+) {
+  const account = await horizon.loadAccount(stealthKp.publicKey());
+  const aquaAssetLocal = new Asset(
+    "AQUA",
+    "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER",
+  );
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      Operation.payment({
+        destination,
+        asset: aquaAssetLocal,
+        amount,
+      }),
+    )
+    .setTimeout(30)
+    .build();
+
+  tx.sign(stealthKp);
+  const result = await horizon.submitTransaction(tx);
+  console.log("Swept AQUA to cold wallet:", result.hash);
+  return result;
+}
+
+await sweepAqua(stealthKeypair, process.env.COLD_WALLET!, "42.1");
+```
+
+---
+
+## Step 9 — Withdraw LP position
+
+When you're done providing liquidity, burn your pool shares to reclaim the underlying tokens.
+
+```typescript
+// Read how many shares you hold
+const shares = await pool.shareBalance();
+console.log("Shares held:", shares.toString());
+
+// Withdraw all shares — receive XLM and AQUA back
+const withdrawResult = await pool.withdraw({ shares, slippage: 0.01 });
+
+console.log("Received:", withdrawResult.amounts);
+// { xlm: 49_9950000n, aqua: 2499_7000000n } — slight difference from fees earned
+console.log("Transaction:", withdrawResult.txHash);
+```
+
+> `withdraw()` does not claim pending rewards. Always claim before withdrawing if you want the accrued AQUA — unclaimed rewards are gone once the position is closed.
+
+---
+
+## Privacy checklist
+
+| | Check |
+|---|---|
+| Claim to a fresh stealth address, not your LP account | ✓ required |
+| Fund the stealth address from an unlinked source | ✓ required on mainnet |
+| Use a different stealth address for each claim | ✓ recommended |
+| Sweep the stealth address within a few ledgers | ✓ recommended |
+| Announce the ephemeral public key on-chain for scanning | ✓ required |
+
+---
+
+## Putting it all together
+
+The complete end-to-end flow in a single file:
+
+```typescript
+import { Keypair, Networks, TransactionBuilder, Operation, Asset, BASE_FEE } from "@stellar/stellar-sdk";
+import { AquariusClient, Asset as AqAsset, XLM } from "@aquariusdefi/sdk";
+import { Wraith } from "@wraith-protocol/sdk";
+import { deriveStealthKeys, generateStealthAddress, deriveStealthPrivateKey, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
+import { Server } from "@stellar/stellar-sdk/horizon";
+
+const NETWORK_PASSPHRASE_LOCAL = "Test SDF Network ; September 2015";
+const AQUA_ISSUER = "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJE2XSWF5LAGER";
+
+async function fullFlow() {
+  // 1. Client setup
+  const lpKeypair = Keypair.fromSecret(process.env.LP_SECRET!);
+  const aqua = new AquariusClient({ network: "testnet", signer: lpKeypair });
+  const horizon = new Server("https://horizon-testnet.stellar.org");
+  const AQUA = AqAsset.classic("AQUA", AQUA_ISSUER);
+
+  // 2. Find pool
+  const pools = await aqua.pools.forPair(XLM, AQUA);
+  const pool = pools.find((p) => p.type === "volatile" && p.feeBps === 30)!;
+
+  // 3. Deposit
+  const deposit = await pool.deposit({
+    amounts: [[XLM, 50_0000000n], [AQUA, 2500_0000000n]],
+    slippage: 0.01,
+  });
+  console.log("Deposited, shares:", deposit.shares);
+
+  // 4. Check rewards (after some blocks pass)
+  const pending = await pool.pendingRewards();
+  console.log("Pending AQUA (stroops):", pending);
+
+  // 5. Generate stealth claim address
+  // Replace with your wallet's signed message bytes
+  const sigBytes = Buffer.alloc(64); // placeholder — use real wallet signature
+  const stealthKeys = deriveStealthKeys(sigBytes);
+  const { stealthAddress, ephemeralPubKey } = generateStealthAddress(
+    stealthKeys.spendingPublicKey,
+    stealthKeys.viewingPublicKey,
+  );
+
+  // 6. Activate stealth account (create + AQUA trustline)
+  const funderAccount = await horizon.loadAccount(lpKeypair.publicKey());
+  const setupTx = new TransactionBuilder(funderAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.createAccount({ destination: stealthAddress, startingBalance: "2" }))
+    .setTimeout(30)
+    .build();
+  setupTx.sign(lpKeypair);
+  await horizon.submitTransaction(setupTx);
+
+  // 7. Claim to stealth address
+  const claim = await pool.claimRewards({ recipient: stealthAddress });
+  console.log("Claimed to stealth address:", claim.txHash);
+
+  // 8. Sweep from stealth address to cold wallet
+  const stealthPrivateKey = deriveStealthPrivateKey(
+    stealthKeys.spendingKey,
+    ephemeralPubKey,
+    stealthKeys.viewingKey,
+  );
+  const stealthKeypair = Keypair.fromRawEd25519Seed(Buffer.from(stealthPrivateKey));
+  const stealthAccount = await horizon.loadAccount(stealthKeypair.publicKey());
+  const sweepTx = new TransactionBuilder(stealthAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(Operation.payment({
+      destination: process.env.COLD_WALLET!,
+      asset: new Asset("AQUA", AQUA_ISSUER),
+      amount: String(Number(claim.amount) / 1e7),
+    }))
+    .setTimeout(30)
+    .build();
+  sweepTx.sign(stealthKeypair);
+  await horizon.submitTransaction(sweepTx);
+
+  // 9. Withdraw LP position
+  const shares = await pool.shareBalance();
+  const withdrawal = await pool.withdraw({ shares, slippage: 0.01 });
+  console.log("Withdrew LP position:", withdrawal.txHash);
+}
+```
+
+---
+
+## Errors and edge cases
+
+| Error | Cause | Fix |
+|---|---|---|
+| `SlippageError` | Pool moved between simulation and inclusion | Widen `slippage` or retry immediately |
+| `NoTrustlineError` | Stealth address missing AQUA trustline | Activate account first (Step 6) |
+| `2002 TokensNotSorted` | Tokens passed in wrong order to router | Use the SDK — it handles ordering |
+| `pending: 0n` | Pool not in reward zone | Check [aqua.network/rewards](https://aqua.network/rewards) |
+| Claim returns 0 | Nothing accrued yet, or pool outside reward zone | Wait for more ledgers or switch pools |
+
+---
+
+## Related resources
+
+- [Stealth Payments guide](/guides/stealth-payments) — how stealth address cryptography works
+- [Stellar Custom Assets (USDC)](/guides/stellar-custom-assets) — trustlines, SAC mechanics
+- [Stellar Wallet Integration](/guides/stellar-wallet-integration) — connecting Freighter and other wallets
+- [Privacy Best Practices](/guides/privacy-best-practices) — avoid address correlation
+- [Aquarius developer docs](https://docs.aqua.network/developers/integrating-with-aquarius) — full SDK and API reference
+- [Aquarius reward zone markets](https://aqua.network/rewards) — which pools are currently incentivized

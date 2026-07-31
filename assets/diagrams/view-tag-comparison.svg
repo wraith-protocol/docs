@@ -1,0 +1,90 @@
+<svg viewBox="0 0 720 400" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="400" fill="transparent" />
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#767575" />
+    </marker>
+    <marker id="arr-red" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#ee7d77" />
+    </marker>
+    <marker id="arr-green" viewBox="0 0 10 7" refX="10" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 3.5 L 0 7" fill="#22c55e" />
+    </marker>
+  </defs>
+
+  <!-- LEFT PANEL: Without view tags -->
+  <rect x="20" y="10" width="320" height="370" fill="none" stroke="#444444" stroke-width="1" stroke-dasharray="4,4" />
+  <text x="180" y="34" text-anchor="middle" fill="#ee7d77" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.05em">WITHOUT VIEW TAGS</text>
+
+  <!-- N announcements -->
+  <rect x="110" y="48" width="140" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="180" y="67" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="11">N announcements</text>
+
+  <line x1="180" y1="76" x2="180" y2="100" stroke="#767575" stroke-width="1.5" marker-end="url(#arr)" />
+
+  <!-- ECDH box 1 -->
+  <rect x="80" y="104" width="200" height="32" fill="#141414" stroke="#ee7d77" stroke-width="1" />
+  <text x="180" y="125" text-anchor="middle" fill="#ee7d77" font-family="JetBrains Mono, monospace" font-size="11">X25519 ECDH → address</text>
+
+  <line x1="180" y1="136" x2="180" y2="156" stroke="#767575" stroke-width="1.5" marker-end="url(#arr)" />
+
+  <!-- ECDH box 2 -->
+  <rect x="80" y="160" width="200" height="32" fill="#141414" stroke="#ee7d77" stroke-width="1" />
+  <text x="180" y="181" text-anchor="middle" fill="#ee7d77" font-family="JetBrains Mono, monospace" font-size="11">X25519 ECDH → address</text>
+
+  <line x1="180" y1="192" x2="180" y2="212" stroke="#767575" stroke-width="1.5" marker-end="url(#arr)" />
+
+  <!-- ECDH box 3 -->
+  <rect x="80" y="216" width="200" height="32" fill="#141414" stroke="#ee7d77" stroke-width="1" />
+  <text x="180" y="237" text-anchor="middle" fill="#ee7d77" font-family="JetBrains Mono, monospace" font-size="11">X25519 ECDH → address</text>
+
+  <!-- dots -->
+  <text x="180" y="270" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="16">⋮</text>
+  <text x="180" y="290" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="11">× N iterations</text>
+
+  <!-- Summary box -->
+  <rect x="50" y="310" width="260" height="48" fill="#141414" stroke="#ee7d77" stroke-width="1" />
+  <text x="180" y="330" text-anchor="middle" fill="#ee7d77" font-family="Inter, sans-serif" font-size="11" font-weight="600">N × (X25519 + point add)</text>
+  <text x="180" y="350" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">cost scales linearly with N</text>
+
+  <!-- RIGHT PANEL: With view tags -->
+  <rect x="380" y="10" width="320" height="370" fill="none" stroke="#22c55e" stroke-width="1" />
+  <text x="540" y="34" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="11" letter-spacing="0.05em">WITH VIEW TAGS</text>
+
+  <!-- N announcements -->
+  <rect x="470" y="48" width="140" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="540" y="67" text-anchor="middle" fill="#c6c6c7" font-family="Inter, sans-serif" font-size="11">N announcements</text>
+
+  <line x1="540" y1="76" x2="540" y2="100" stroke="#767575" stroke-width="1.5" marker-end="url(#arr)" />
+
+  <!-- Byte compare 1 — skip -->
+  <rect x="440" y="104" width="200" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="540" y="123" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="11">byte compare → skip (99.61%)</text>
+
+  <line x1="540" y1="132" x2="540" y2="148" stroke="#767575" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)" />
+
+  <!-- Byte compare 2 — skip -->
+  <rect x="440" y="152" width="200" height="28" fill="#141414" stroke="#444444" stroke-width="1" />
+  <text x="540" y="171" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="11">byte compare → skip (99.61%)</text>
+
+  <line x1="540" y1="180" x2="540" y2="196" stroke="#767575" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr)" />
+
+  <!-- Byte compare 3 — match -->
+  <rect x="440" y="200" width="200" height="28" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="540" y="219" text-anchor="middle" fill="#22c55e" font-family="Inter, sans-serif" font-size="11">byte compare → MATCH</text>
+
+  <line x1="540" y1="228" x2="540" y2="248" stroke="#22c55e" stroke-width="1.5" marker-end="url(#arr-green)" />
+
+  <!-- ECDH only on match -->
+  <rect x="440" y="252" width="200" height="28" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="540" y="271" text-anchor="middle" fill="#22c55e" font-family="JetBrains Mono, monospace" font-size="11">X25519 ECDH → verify</text>
+
+  <!-- dots -->
+  <text x="540" y="300" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="11">( N − ~N/256 skipped )</text>
+
+  <!-- Summary box -->
+  <rect x="410" y="310" width="260" height="48" fill="#141414" stroke="#22c55e" stroke-width="1.5" />
+  <text x="540" y="330" text-anchor="middle" fill="#22c55e" font-family="Inter, sans-serif" font-size="11" font-weight="600">N × (byte compare) + ~N/256 × ECDH</text>
+  <text x="540" y="350" text-anchor="middle" fill="#767575" font-family="Inter, sans-serif" font-size="10">~256× fewer curve operations</text>
+</svg>
