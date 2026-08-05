@@ -145,9 +145,14 @@
               "guides/stellar-federation",
               "guides/stellar-custom-assets",
               "guides/stellar/stellar-liquidity-pool-swap",
+              "guides/stellar/stellar-path-payment",
               "guides/wraith-names-stellar",
               "guides/ops/self-hosted-deployment"
             ]
+          },
+          {
+            "group": "Integrations",
+            "pages": ["guides/integrations/nuxt"]
           }
         ]
       },
