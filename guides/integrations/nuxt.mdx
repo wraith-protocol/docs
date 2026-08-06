@@ -1,0 +1,282 @@
+---
+title: "Nuxt integration"
+description: "Add Wraith to your Nuxt 3 app with auto-imported composables and SSR-safe patterns"
+---
+
+Use the official Nuxt module to add Wraith to your Nuxt 3 application. The module auto-imports composables, handles SSR safety, and lets you use Wraith with native Nuxt patterns.
+
+## Install the module
+
+```bash
+npx nuxi module add @wraith-protocol/nuxt
+```
+
+This registers the module in your `nuxt.config.ts`:
+
+```ts
+export default defineNuxtConfig({
+  modules: ["@wraith-protocol/nuxt"],
+  wraith: {
+    apiKey: process.env.NUXT_PUBLIC_WRAITH_API_KEY,
+  },
+});
+```
+
+Set your API key in `.env`:
+
+```bash
+NUXT_PUBLIC_WRAITH_API_KEY=wraith_live_abc123
+```
+
+## Auto-imported composables
+
+The module auto-imports three composables. No manual imports needed.
+
+### `useWraith()`
+
+Returns a shared `Wraith` client configured with the API key from `nuxt.config.ts`.
+
+```ts
+import { Chain } from "@wraith-protocol/sdk";
+
+const wraith = useWraith();
+
+const agent = await wraith.createAgent({
+  name: "alice",
+  chain: Chain.Horizen,
+  wallet: walletAddress,
+  signature: signature,
+});
+```
+
+### `useWraithAgent()`
+
+Returns the currently active agent, or `null` if no agent has been created yet.
+
+```ts
+const agent = useWraithAgent();
+
+if (agent) {
+  const res = await agent.chat("send 0.1 ETH to bob.wraith");
+  console.log(res.response);
+}
+```
+
+### `useWraithBalance()`
+
+Reactive balance state for the active agent. Refreshes on an interval.
+
+```ts
+const { balance, refresh } = useWraithBalance();
+
+// balance.value is a Ref<{ native: string; tokens: Record<string, string> }>
+console.log(balance.value.native); // "1.5"
+console.log(balance.value.tokens); // { ZEN: "100.0", USDC: "50.0" }
+```
+
+## SSR gotchas
+
+The Wraith SDK uses `fetch` and has no Node.js-specific dependencies. The managed agent client (`useWraith`, `useWraithAgent`) is safe to use during SSR. Crypto modules require client-side only.
+
+### Crypto modules are client-only
+
+If you import chain-specific crypto modules (`@wraith-protocol/sdk/chains/evm`, etc.), they must run client-side. These modules use `@noble/curves` which works in the browser but causes hydration mismatches during SSR.
+
+Use dynamic imports guarded by `import.meta.client`:
+
+```ts
+let generateStealthMetaAddress: typeof import("@wraith-protocol/sdk/chains/evm").generateStealthMetaAddress;
+
+if (import.meta.client) {
+  const evm = await import("@wraith-protocol/sdk/chains/evm");
+  generateStealthMetaAddress = evm.generateStealthMetaAddress;
+}
+```
+
+### Client-only components
+
+For UI components that interact with Wraith, mark them with the `.client.vue` suffix or use `<ClientOnly>`:
+
+```vue
+<template>
+  <ClientOnly>
+    <WraithDashboard />
+    <template #fallback>
+      <div class="skeleton">Loading Wraith dashboard...</div>
+    </template>
+  </ClientOnly>
+</template>
+```
+
+### Module SSR configuration
+
+The module registers a Nuxt plugin that initializes the `Wraith` client. It defaults to `ssr: false` (client-only). Toggle this in `nuxt.config.ts`:
+
+```ts
+export default defineNuxtConfig({
+  wraith: {
+    apiKey: process.env.NUXT_PUBLIC_WRAITH_API_KEY,
+    ssr: false, // default — runs Wraith client in browser only
+  },
+});
+```
+
+Set `ssr: true` to initialize the Wraith client on the server too. The composables will work during SSR, but crypto modules remain client-only regardless.
+
+## Full send and receive example
+
+This composable handles agent creation, sending stealth payments, and scanning for incoming payments:
+
+```ts no-check
+import { Chain } from "@wraith-protocol/sdk";
+
+export function useWraithPayment() {
+  const wraith = useWraith();
+  const agentState = useWraithAgent();
+  const { balance, refresh: refreshBalance } = useWraithBalance();
+
+  const sending = ref(false);
+  const error = ref("");
+  const lastResponse = ref("");
+
+  const ensureAgent = async () => {
+    if (agentState.value) return;
+
+    const newAgent = await wraith.createAgent({
+      name: "alice",
+      chain: Chain.Horizen,
+      wallet: walletAddress,
+      signature: signature,
+    });
+    agentState.value = newAgent;
+  };
+
+  const send = async (to: string, amount: string, asset: string) => {
+    sending.value = true;
+    error.value = "";
+    try {
+      const res = await agentState.value!.chat(
+        `send ${amount} ${asset} to ${to}`
+      );
+      lastResponse.value = res.response;
+      await refreshBalance();
+      return res;
+    } catch (err) {
+      error.value = (err as Error).message;
+      throw err;
+    } finally {
+      sending.value = false;
+    }
+  };
+
+  const scan = async () => {
+    const res = await agentState.value!.chat("scan for incoming payments");
+    lastResponse.value = res.response;
+    return res;
+  };
+
+  return {
+    agent: agentState,
+    balance,
+    sending,
+    error,
+    lastResponse,
+    ensureAgent,
+    send,
+    scan,
+  };
+}
+```
+
+Use it in a component:
+
+```vue
+<script setup lang="ts">
+const {
+  balance,
+  lastResponse,
+  error,
+  sending,
+  ensureAgent,
+  send,
+  scan,
+} = useWraithPayment();
+
+const recipient = ref("bob.wraith");
+const amount = ref("0.1");
+const asset = ref("ETH");
+
+onMounted(() => ensureAgent());
+</script>
+
+<template>
+  <ClientOnly>
+    <div>
+      <div v-if="error" class="error">{{ error }}</div>
+
+      <section>
+        <h2>Balance</h2>
+        <p>{{ balance?.native ?? "—" }} {{ asset }}</p>
+      </section>
+
+      <section>
+        <h2>Send payment</h2>
+        <input v-model="recipient" placeholder="bob.wraith" />
+        <input v-model="amount" type="number" placeholder="0.1" />
+        <select v-model="asset">
+          <option>ETH</option>
+          <option>USDC</option>
+          <option>ZEN</option>
+        </select>
+        <button :disabled="sending" @click="send(recipient, amount, asset)">
+          {{ sending ? "Sending..." : "Send" }}
+        </button>
+        <p v-if="lastResponse">{{ lastResponse }}</p>
+      </section>
+
+      <section>
+        <h2>Incoming payments</h2>
+        <button @click="scan">Scan</button>
+      </section>
+    </div>
+    <template #fallback>
+      <p>Loading Wraith...</p>
+    </template>
+  </ClientOnly>
+</template>
+```
+
+Payments sent via `send` go to a fresh stealth address. The recipient can detect them by calling `scan`. Both operations happen through the AI agent running in the TEE — you never touch chain-specific crypto directly.
+
+## Configuration reference
+
+Full `wraith` options in `nuxt.config.ts`:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `apiKey` | `string` | Required | Your Wraith API key |
+| `ssr` | `boolean` | `false` | Enable server-side initialization of the Wraith client |
+| `baseUrl` | `string` | `"https://api.wraith.dev"` | API base URL override |
+| `ai.provider` | `"gemini"` \| `"openai"` \| `"claude"` | `"gemini"` | AI provider for agent chat |
+| `ai.apiKey` | `string` | `undefined` | Your AI provider API key |
+
+## Type safety
+
+Types ship with the module. Add them to your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["@wraith-protocol/nuxt"]
+  }
+}
+```
+
+All composable return types are inferred from `@wraith-protocol/sdk`. `useWraith()` returns `Wraith`, `useWraithAgent()` returns `WraithAgent | null`, and `useWraithBalance()` returns a typed reactive balance object.
+
+## Next steps
+
+- [Single-chain agent guide](/guides/single-chain-agent) — full agent lifecycle
+- [Multichain agent](/guides/multichain-agent) — deploy across multiple chains
+- [SDK overview](/sdk/overview) — all SDK entry points
+- [Bring your own model](/guides/bring-your-own-model) — use OpenAI or Claude

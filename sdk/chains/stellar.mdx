@@ -244,6 +244,8 @@ for (const m of matched) {
 
 The fourth argument is `spendingScalar` (bigint), not `spendingKey` like in the EVM module.
 
+This function applies the view tag prefilter internally (`scan.ts:12`), skipping the X25519 ECDH for ~255/256 non-matching announcements. See [View-Tag Scanner Architecture](/architecture/view-tag-scanner) for the full complexity analysis and benchmark methodology.
+
 ### `deriveStealthPrivateScalar(spendingScalar, viewingKey, ephemeralPubKey)`
 
 Derive the private scalar for a specific stealth address.
