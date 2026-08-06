@@ -1,0 +1,125 @@
+---
+title: "Codemod: Wraith SDK v0 → v1"
+description: "jscodeshift transform that automates all Wraith SDK v1 renames"
+---
+
+A single [jscodeshift](https://github.com/facebook/jscodeshift) transform that automates every rename from the [v1 migration guide](/reference/migrating-to-v1).
+
+The transform is located at `reference/codemods/wraith-sdk-v0-to-v1.cjs` in this repository. It is safe to run multiple times — running it on already-migrated code is a no-op.
+
+## What It Transforms
+
+| Old (v0.x) | New (v1.x) | Transform type |
+|---|---|---|
+| `import { ChainEnum }` | `import { Chain }` | Import rename + usages |
+| `import { WraithClientConfig }` | `import { WraithConfig }` | Import rename + usages |
+| `import { CreateAgentOptions }` | `import { AgentConfig }` | Import rename + usages |
+| `agent.sendMessage(` | `agent.chat(` | Method call rename |
+| `await wraith.getAgent(id)` | `wraith.agent(id)` | Method rename + `await` removal |
+| `agent.payments(` | `agent.scanPayments(` | Method call rename |
+| `agent.balance(` | `agent.getBalance(` | Method call rename |
+| `agent.conversations(` | `agent.getConversations(` | Method call rename |
+| `agent.messages(` | `agent.getMessages(` | Method call rename |
+
+## Install
+
+```bash
+npm install --save-dev jscodeshift
+```
+
+## Run
+
+Apply all transforms to your source directory:
+
+```bash
+npx jscodeshift \
+  --transform reference/codemods/wraith-sdk-v0-to-v1.cjs \
+  --extensions ts,tsx,js,jsx \
+  src/
+```
+
+Add `--dry` to preview changes without writing:
+
+```bash
+npx jscodeshift \
+  --transform reference/codemods/wraith-sdk-v0-to-v1.cjs \
+  --extensions ts,tsx,js,jsx \
+  --dry \
+  src/
+```
+
+## Example Input / Output
+
+### Import renames
+
+```typescript no-check
+// Input
+import { ChainEnum, WraithClientConfig, CreateAgentOptions } from "@wraith-protocol/sdk";
+
+const config: WraithClientConfig = { apiKey: process.env.WRAITH_KEY };
+const opts: CreateAgentOptions = {
+  name: "alice",
+  chain: ChainEnum.Stellar,
+  wallet: walletAddress,
+  signature: sig,
+};
+```
+
+```typescript no-check
+// Output
+import { Chain, WraithConfig, AgentConfig } from "@wraith-protocol/sdk";
+
+const config: WraithConfig = { apiKey: process.env.WRAITH_KEY };
+const opts: AgentConfig = {
+  name: "alice",
+  chain: Chain.Stellar,
+  wallet: walletAddress,
+  signature: sig,
+};
+```
+
+### Method renames
+
+```typescript no-check
+// Input
+const agent = await wraith.getAgent("agent-uuid-here");
+const res = await agent.sendMessage("what's my balance?");
+const payments = await agent.payments();
+const balance = await agent.balance();
+const convs = await agent.conversations();
+const msgs = await agent.messages(convId);
+```
+
+```typescript no-check
+// Output
+const agent = wraith.agent("agent-uuid-here");
+const res = await agent.chat("what's my balance?");
+const payments = await agent.scanPayments();
+const balance = await agent.getBalance();
+const convs = await agent.getConversations();
+const msgs = await agent.getMessages(convId);
+```
+
+## Limitations
+
+The transform does not cover:
+
+- **Dynamic property access** — `agent["sendMessage"]()` is not transformed. Update these manually.
+- **Destructured method references** — `const { sendMessage } = agent` is not transformed. Update these manually.
+- **Non-direct awaits** — if you stored the `getAgent` promise before awaiting it, the `await` is not removed:
+  ```typescript no-check
+  // NOT transformed — update manually
+  const p = wraith.getAgent(id);
+  const agent = await p;
+  ```
+- **Stellar SDK v13 changes** — `SorobanRpc` → `rpc`, `signAuthEntries` parameter rename, `Memo` validation, and `SentTransaction` constructor are not covered. See the [migration guide](/reference/migrating-to-v1) for those.
+
+## Verifying the Output
+
+After running the codemod, run TypeScript to catch any remaining issues:
+
+```bash
+npx tsc --noEmit
+```
+
+TypeScript will flag any `ChainEnum`, `WraithClientConfig`, or `CreateAgentOptions` references that the codemod missed (e.g., in string-typed JSDoc or dynamic access).

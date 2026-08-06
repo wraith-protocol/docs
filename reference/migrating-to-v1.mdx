@@ -1,0 +1,382 @@
+---
+title: "Migrating to SDK v1"
+description: "Complete rename table, removed exports, behavioral changes, and codemods for upgrading from @wraith-protocol/sdk ^0.x to ^1.0"
+---
+
+This guide covers every breaking change introduced in `@wraith-protocol/sdk` v1.0. It pairs with SDK issue #6 (API-stability sweep). If you are pinned to `^0.x`, work through each section in order.
+
+## Quick Summary
+
+| Category | Count |
+|---|---|
+| Renamed symbols | 10 |
+| Removed exports | 4 |
+| Behavioral changes (Wraith SDK) | 1 |
+| Behavioral changes (Stellar SDK v13) | 5 |
+
+---
+
+## 1. Update Dependencies
+
+```bash
+npm install @wraith-protocol/sdk@^1.0
+# If you use Stellar chain primitives or Soroban contract bindings, also upgrade:
+npm install @stellar/stellar-sdk@^13.0
+```
+
+---
+
+## 2. Symbol Rename Table
+
+Every public symbol that changed name. The old symbol is removed — importing it will throw at runtime or fail to compile.
+
+### Wraith SDK: Core Client
+
+| v0.x (old) | v1.x (new) | Notes |
+|---|---|---|
+| `ChainEnum` | `Chain` | Enum renamed for brevity |
+| `WraithClientConfig` | `WraithConfig` | Constructor config type |
+| `CreateAgentOptions` | `AgentConfig` | `createAgent()` param type |
+| `agent.sendMessage(msg)` | `agent.chat(msg)` | Primary chat method |
+| `wraith.getAgent(id)` | `wraith.agent(id)` | Now synchronous — no network call |
+| `agent.payments()` | `agent.scanPayments()` | Scan for incoming stealth payments |
+| `agent.balance()` | `agent.getBalance()` | Returns `Balance` object |
+| `agent.status()` | `agent.getStatus()` | Returns agent status object |
+| `agent.conversations()` | `agent.getConversations()` | List all conversations |
+| `agent.messages(convId)` | `agent.getMessages(convId)` | List messages in a conversation |
+
+### Stellar SDK v13: `@stellar/stellar-sdk`
+
+| v12 (old) | v13 (new) | Notes |
+|---|---|---|
+| `SorobanRpc` (named import) | `rpc` (named import) | Module alias renamed; `SorobanRpc` is fully removed |
+| `contract.AssembledTransaction#signAuthEntries(publicKey)` | `contract.AssembledTransaction#signAuthEntries(address)` | Parameter renamed from `publicKey` to `address` |
+| `new SentTransaction(ignored, realStuff)` | `new SentTransaction(realStuff)` | First argument removed (was already ignored) |
+| `simulateTransaction.cost` | _(removed)_ | Field no longer exists on simulation response |
+
+---
+
+## 3. Removed Exports
+
+These names are no longer exported from `@wraith-protocol/sdk`. Attempting to import them will produce a runtime error (`does not provide an export`) or a TypeScript type error.
+
+### `ChainEnum`
+
+**Removed.** Use `Chain`.
+
+```typescript
+// v0.x — broken
+import { ChainEnum } from "@wraith-protocol/sdk";
+const agent = await wraith.createAgent({ chain: ChainEnum.Stellar /* ... */ });
+
+// v1.x — correct
+import { Chain } from "@wraith-protocol/sdk";
+const agent = await wraith.createAgent({ chain: Chain.Stellar /* ... */ });
+```
+
+### `WraithClientConfig`
+
+**Removed.** Use `WraithConfig`.
+
+```typescript
+// v0.x — broken
+import type { WraithClientConfig } from "@wraith-protocol/sdk";
+const config: WraithClientConfig = { apiKey: "wraith_live_abc123" };
+
+// v1.x — correct
+import type { WraithConfig } from "@wraith-protocol/sdk";
+const config: WraithConfig = { apiKey: "wraith_live_abc123" };
+```
+
+### `CreateAgentOptions`
+
+**Removed.** Use `AgentConfig`.
+
+```typescript
+// v0.x — broken
+import type { CreateAgentOptions } from "@wraith-protocol/sdk";
+const opts: CreateAgentOptions = {
+  name: "alice",
+  chain: Chain.Horizen,
+  wallet: walletAddress,
+  signature: sig,
+};
+
+// v1.x — correct
+import type { AgentConfig } from "@wraith-protocol/sdk";
+const opts: AgentConfig = {
+  name: "alice",
+  chain: Chain.Horizen,
+  wallet: walletAddress,
+  signature: sig,
+};
+```
+
+### `SorobanRpc` (from `@stellar/stellar-sdk`)
+
+**Removed in Stellar SDK v13.** Use `rpc`.
+
+```typescript
+// v12 — broken in v13
+import { SorobanRpc } from "@stellar/stellar-sdk";
+const server = new SorobanRpc.Server("https://soroban-testnet.stellar.org");
+
+// v13 — correct
+import { rpc } from "@stellar/stellar-sdk";
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
+
+// Alternative: import directly from the rpc entrypoint
+import { Server } from "@stellar/stellar-sdk/rpc";
+const server = new Server("https://soroban-testnet.stellar.org");
+```
+
+---
+
+## 4. Method Signature Changes
+
+### `wraith.agent()` — now synchronous
+
+`wraith.getAgent(id)` made an HTTP request to validate the agent. `wraith.agent(id)` is synchronous and returns an agent handle immediately without a network round-trip. It does not validate whether the agent exists — the first method call on the returned handle will fail if the ID is invalid.
+
+```typescript
+// v0.x
+const agent = await wraith.getAgent("agent-uuid-here");
+
+// v1.x — no await needed
+const agent = wraith.agent("agent-uuid-here");
+```
+
+### `agent.chat()` replaces `agent.sendMessage()`
+
+The rename aligns with conversational AI conventions. The signature is identical.
+
+```typescript
+// v0.x
+const res = await agent.sendMessage("send 0.1 ETH to bob.wraith");
+
+// v1.x
+const res = await agent.chat("send 0.1 ETH to bob.wraith");
+```
+
+### Consistent `get*` prefix on query methods
+
+All methods that retrieve data now use the `get` prefix for consistency with JavaScript conventions.
+
+```typescript
+// v0.x
+const balance = await agent.balance();
+const status = await agent.getStatus();   // this one already had get*
+const payments = await agent.payments();
+const convs = await agent.conversations();
+const msgs = await agent.messages("conv-id");
+
+// v1.x
+const balance = await agent.getBalance();
+const status = await agent.getStatus();
+const payments = await agent.scanPayments();
+const convs = await agent.getConversations();
+const msgs = await agent.getMessages("conv-id");
+```
+
+> The `scanPayments` rename (not `getPayments`) is intentional: the method performs an active blockchain scan, not a simple data fetch.
+
+---
+
+## 5. New Values in v1
+
+### `Chain.All`
+
+Added in v1. Use it to create or refer to an agent that operates on all supported chains.
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+// Deploy on every supported chain in one call
+const agent = await wraith.createAgent({
+  name: "alice",
+  chain: Chain.All,
+  wallet: walletAddress,
+  signature: sig,
+});
+```
+
+Previously this required passing an array of every `Chain` value manually. `Chain.All` is the canonical replacement.
+
+---
+
+## 6. Stellar SDK v13 Behavioral Changes
+
+These changes affect any code that directly imports from `@stellar/stellar-sdk`. They do not affect code that only uses `@wraith-protocol/sdk`'s agent client — those details are handled inside the SDK.
+
+You are only affected if you use the `@wraith-protocol/sdk/chains/stellar` primitives or import from `@stellar/stellar-sdk` directly in your own code.
+
+### `Memo` is now fully immutable and throws on invalid input
+
+**Before (v12):** `Memo` constructors returned `null` for invalid input and tolerated some invalid types silently.
+
+**After (v13):** Invalid input throws immediately. `Memo.id()` rejects any string that contains non-digit characters.
+
+```typescript
+import { Memo } from "@stellar/stellar-sdk";
+
+// v12 — returned null on invalid type
+const m = Memo.id("not-a-number"); // returned null
+
+// v13 — throws TypeError
+// Memo.id("not-a-number"); // throws: "Memo.id() expects a plain integer string"
+
+// Safe pattern: validate before constructing
+function buildMemo(memoType: string, memoValue: string): Memo {
+  if (memoType === "id") {
+    if (!/^\d+$/.test(memoValue)) {
+      throw new Error(`Memo ID must contain only digits, got: ${memoValue}`);
+    }
+    return Memo.id(memoValue);
+  }
+  if (memoType === "text") {
+    return Memo.text(memoValue);
+  }
+  if (memoType === "hash") {
+    return Memo.hash(memoValue);
+  }
+  return Memo.none();
+}
+```
+
+**Impact for Wraith:** The `FederationRecord.memoValue` returned by `resolveStellarFederation()` may contain values like exchange deposit IDs. Always validate before passing to `Memo.id()`.
+
+### `contract.AssembledTransaction#signAuthEntries` takes `address`, not `publicKey`
+
+The parameter was renamed from `publicKey` to `address` to reflect that it accepts both account addresses and contract addresses.
+
+```typescript
+import { contract } from "@stellar/stellar-sdk";
+
+// v12
+await assembledTx.signAuthEntries({
+  publicKey: keypair.publicKey(),
+  sign: async (xdr) => keypair.sign(Buffer.from(xdr, "base64")).toString("base64"),
+});
+
+// v13
+await assembledTx.signAuthEntries({
+  address: keypair.publicKey(),
+  sign: async (xdr) => keypair.sign(Buffer.from(xdr, "base64")).toString("base64"),
+});
+```
+
+### `SentTransaction` takes one argument
+
+The first argument to `SentTransaction` had been deprecated and ignored since v12. It is now fully removed.
+
+```typescript
+// v12 (deprecated pattern)
+const sent = new SentTransaction(ignoredArg, options);
+
+// v13
+const sent = new SentTransaction(options);
+```
+
+Most code that uses the high-level `AssembledTransaction#signAndSend()` workflow does not construct `SentTransaction` directly and is unaffected.
+
+### `simulateTransaction.cost` field removed
+
+The `cost` field on `rpc.Api.SimulateTransactionSuccessResponse` has been removed. Use the `minResourceFee` field instead.
+
+```typescript
+import { rpc } from "@stellar/stellar-sdk";
+
+const sim = await server.simulateTransaction(tx);
+
+if (rpc.Api.isSimulationSuccess(sim)) {
+  // v12
+  // console.log(sim.cost.cpuInsns, sim.cost.memBytes); // removed
+
+  // v13 — use minResourceFee for fee estimation
+  console.log(sim.minResourceFee); // string, in stroops
+}
+```
+
+### `SorobanRpc` import removed
+
+See [Removed Exports → `SorobanRpc`](#sorobanrpc-from-stellarstellar-sdk) above.
+
+---
+
+## 7. Migration Checklist
+
+Work through these steps top to bottom. Each item is independent — you can apply them in any order, but completing all of them is required.
+
+### Wraith SDK changes
+
+- [ ] Replace all `ChainEnum` with `Chain`
+- [ ] Replace all `WraithClientConfig` with `WraithConfig`
+- [ ] Replace all `CreateAgentOptions` with `AgentConfig`
+- [ ] Replace all `agent.sendMessage(` with `agent.chat(`
+- [ ] Replace all `await wraith.getAgent(` with `wraith.agent(` (remove `await`)
+- [ ] Replace all `agent.payments(` with `agent.scanPayments(`
+- [ ] Replace all `agent.balance(` with `agent.getBalance(`
+- [ ] Replace all `agent.conversations(` with `agent.getConversations(`
+- [ ] Replace all `agent.messages(` with `agent.getMessages(`
+
+### Stellar SDK v13 changes (only if you use `@stellar/stellar-sdk` directly)
+
+- [ ] Replace `SorobanRpc` imports with `rpc`
+- [ ] Update `signAuthEntries({ publicKey })` calls to `signAuthEntries({ address })`
+- [ ] Update `new SentTransaction(x, y)` calls to `new SentTransaction(y)`
+- [ ] Remove any access to `simulateTransaction.cost` — switch to `minResourceFee`
+- [ ] Audit `Memo.id()` call sites to ensure the value is a plain integer string
+
+---
+
+## 8. Automated Codemods
+
+A set of jscodeshift transforms is available in [`reference/codemods/`](/reference/codemods/wraith-v1-codemod) to automate the Wraith SDK renames. The transforms handle the common cases but do not cover dynamic property access or runtime-computed names — review the output after running.
+
+### Install jscodeshift
+
+```bash
+npm install --save-dev jscodeshift
+```
+
+### Run all Wraith SDK renames
+
+```bash
+npx jscodeshift \
+  --transform reference/codemods/wraith-sdk-v0-to-v1.cjs \
+  --extensions ts,tsx,js,jsx \
+  src/
+```
+
+The transform handles:
+- `ChainEnum` → `Chain`
+- `WraithClientConfig` → `WraithConfig`
+- `CreateAgentOptions` → `AgentConfig`
+- `agent.sendMessage(` → `agent.chat(`
+- `wraith.getAgent(` → `wraith.agent(` (also removes `await` from the call expression)
+- `agent.payments(` → `agent.scanPayments(`
+- `agent.balance(` → `agent.getBalance(`
+- `agent.conversations(` → `agent.getConversations(`
+- `agent.messages(` → `agent.getMessages(`
+
+See [the codemod reference](/reference/codemods/wraith-v1-codemod) for details, edge cases, and how to run individual transforms.
+
+---
+
+## 9. Frequently Asked Questions
+
+**Do I need to upgrade `@stellar/stellar-sdk` at the same time?**
+
+Only if your code imports from `@stellar/stellar-sdk` directly (e.g., for Soroban contract bindings or low-level transaction building). If you only use `@wraith-protocol/sdk`, the Stellar SDK is an internal dependency and the v13 changes are handled for you.
+
+**Can I upgrade incrementally?**
+
+Yes. Each rename in section 2 is independent. The SDK does not ship compatibility shims for the old names, but you can apply renames file-by-file while keeping the same SDK version installed.
+
+**Will TypeScript catch everything?**
+
+TypeScript will catch all the type-level renames (`ChainEnum`, `WraithClientConfig`, `CreateAgentOptions`) and the `simulateTransaction.cost` removal. It will not catch method renames like `sendMessage` → `chat` at the call site unless you have strict typing on the agent variable. The codemod handles those.
+
+**Does `wraith.agent()` cache the result?**
+
+No. Each call to `wraith.agent(id)` returns a new `WraithAgent` instance that holds the agent ID. No network call is made until you call a method on the agent.

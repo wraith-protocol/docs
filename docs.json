@@ -93,8 +93,12 @@
           },
           {
             "group": "Reference",
-            "pages": ["reference/security-disclosure"]
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas", "reference/threat-model"]
+            "pages": [
+              "reference/security-disclosure",
+              "reference/threat-model",
+              "reference/migrating-to-v1",
+              "reference/codemods/wraith-v1-codemod"
+            ]
           }
         ]
       },
