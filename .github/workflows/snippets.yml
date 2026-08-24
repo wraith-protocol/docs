@@ -32,6 +32,9 @@ jobs:
       - name: Check snippets
         run: pnpm run check:snippets
 
+      - name: Check nav coverage
+        run: pnpm run check:nav-coverage
+
   stellar-testnet-snippets:
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest
