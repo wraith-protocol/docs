@@ -139,6 +139,7 @@
               "guides/stellar-mainnet-deployment",
               "guides/stellar-payment-links",
               "guides/stellar-multisig-withdrawal",
+              "guides/stellar/multisig-authority-rotation",
               "guides/stellar-offline-signing",
               "guides/stellar-tx-simulation",
               "guides/stellar-explorer-recipes",

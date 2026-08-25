@@ -1,0 +1,709 @@
+---
+title: "Multisig Authority Rotation on Stellar"
+description: "Zero-downtime staged rotation, emergency key replacement on suspected compromise, and the full auditor trail for a 2-of-3 to fresh 2-of-3 rotation on futurenet."
+keywords: "Stellar, soroban, multisig, key rotation, signer rotation, emergency, auditor trail, zero-downtime, authority, XLM"
+---
+
+The [Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) guide covers the normal withdrawal flow and three recovery scenarios: losing a signer when the threshold is still reachable, losing a signer when the threshold is no longer reachable, and changing a threshold value.
+
+This guide picks up where those recovery scenarios leave off and addresses the **operational** side of signer management:
+
+- **Staged rotation** — add the new signer before removing the old one so that the account is never authorization-locked mid-rotation (zero-downtime).
+- **Emergency rotation** — fastest safe path when a key is believed to be compromised.
+- **Auditor trail** — what a rotation looks like in the Wraith announcement stream, block-by-block, so compliance tooling can reconstruct the signer set at any past ledger.
+- **End-to-end scripted example** — rotating a 2-of-3 custodial account to a fresh 2-of-3 on futurenet with annotated output.
+
+<Note>
+  All account IDs and secret keys in code examples are illustrative. Replace them with your actual
+  futurenet values before running. Never use futurenet keys on mainnet.
+</Note>
+
+---
+
+## How Stellar Signer Changes Work
+
+Every `SetOptions` operation that adds, modifies, or removes a signer, or changes a threshold, requires meeting the **high threshold**. On a typical 2-of-3 account with weight 1 per signer and thresholds `low=1 / med=2 / high=3`, all three signers must participate in the rotation transaction.
+
+| Operation type | Threshold required |
+|---|---|
+| Add signer / change weight | High |
+| Remove signer (weight 0) | High |
+| Change low/med/high threshold | High |
+| Payment, manage offer, most others | Medium |
+
+<Warning>
+  Because signer changes require the high threshold, a rotation that removes a key before adding the
+  replacement can leave the account unable to authorize further rotations if the removal takes the
+  remaining set below the high threshold. Always add first, then remove.
+</Warning>
+
+---
+
+## Staged Rotation — Zero Downtime
+
+The safe rotation order is:
+
+1. **Add** the replacement signer (meets high threshold with the existing set).
+2. **Verify** the new signer can co-sign a test transaction.
+3. **Remove** the retiring signer (meets high threshold with new set that includes the replacement).
+
+This keeps the account continuously authorized. The window between steps 1 and 3 is the overlap period — both the old and new signers are active. On a 2-of-3 account this means there are temporarily 4 signers and the account could be signed by any 3 of them.
+
+### Step 1 — Add the replacement signer
+
+```typescript
+import { Keypair, Operation, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+async function addSigner(params: {
+  sourceAccountId: string;
+  newSignerPublicKey: string;
+  newSignerWeight: number;
+  // All signers whose combined weight meets the high threshold
+  authorizers: Keypair[];
+}) {
+  const { sourceAccountId, newSignerPublicKey, newSignerWeight, authorizers } = params;
+  const account = await server.getAccount(sourceAccountId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.setOptions({
+        signer: { ed25519PublicKey: newSignerPublicKey, weight: newSignerWeight },
+      })
+    )
+    .setTimeout(300)
+    .build();
+
+  for (const kp of authorizers) {
+    tx.sign(kp);
+  }
+  return server.sendTransaction(tx);
+}
+```
+
+### Step 2 — Verify the new signer is live
+
+Before removing the old signer, confirm the new one appears in the account's signer list with the expected weight.
+
+```typescript
+async function verifySignerWeight(accountId: string, signerPublicKey: string, expectedWeight: number) {
+  const account = await server.getAccount(accountId);
+  const entry = account.signers.find((s: { key: string; weight: number }) => s.key === signerPublicKey);
+
+  if (!entry) {
+    throw new Error(`Signer ${signerPublicKey} not found on account ${accountId}`);
+  }
+  if (entry.weight !== expectedWeight) {
+    throw new Error(
+      `Expected weight ${expectedWeight} for ${signerPublicKey}, got ${entry.weight}`
+    );
+  }
+  console.log(`Verified: ${signerPublicKey} active with weight ${entry.weight}`);
+}
+```
+
+### Step 3 — Remove the retiring signer
+
+```typescript
+async function removeSigner(params: {
+  sourceAccountId: string;
+  retiringSignerPublicKey: string;
+  // Must include the new signer to meet the high threshold
+  authorizers: Keypair[];
+}) {
+  const { sourceAccountId, retiringSignerPublicKey, authorizers } = params;
+  const account = await server.getAccount(sourceAccountId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(
+      // weight: 0 permanently removes the signer
+      Operation.setOptions({
+        signer: { ed25519PublicKey: retiringSignerPublicKey, weight: 0 },
+      })
+    )
+    .setTimeout(300)
+    .build();
+
+  for (const kp of authorizers) {
+    tx.sign(kp);
+  }
+  return server.sendTransaction(tx);
+}
+```
+
+<Note>
+  The remove transaction **must be signed by the new signer** (plus enough others to reach the high
+  threshold), because it executes after the add is confirmed. The retiring key's signature is
+  welcome but not required.
+</Note>
+
+---
+
+## Emergency Rotation on Suspected Compromise
+
+When a key is suspected to be compromised, speed matters more than elegance. The goal is to revoke the compromised key as fast as possible.
+
+### Decision tree
+
+```
+Is the remaining weight (without the compromised key) >= high threshold?
+├── Yes → Immediately submit a single SetOptions tx removing the key.
+│         Do NOT wait for the compromised keyholder to co-sign.
+└── No  → You need a break-glass signer (see below).
+          Submit add-break-glass + remove-compromised in one atomic tx.
+```
+
+### Fast revocation — remaining weight covers high threshold
+
+```typescript
+async function emergencyRevoke(params: {
+  sourceAccountId: string;
+  compromisedSignerPublicKey: string;
+  // Remaining good signers with combined weight >= high threshold
+  goodSigners: Keypair[];
+}) {
+  const { sourceAccountId, compromisedSignerPublicKey, goodSigners } = params;
+  const account = await server.getAccount(sourceAccountId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(
+      Operation.setOptions({
+        signer: { ed25519PublicKey: compromisedSignerPublicKey, weight: 0 },
+      })
+    )
+    .setTimeout(60) // Keep the TTL short — submit immediately
+    .build();
+
+  for (const kp of goodSigners) {
+    tx.sign(kp);
+  }
+
+  const result = await server.sendTransaction(tx);
+  console.log("Emergency revocation submitted:", result.hash);
+  return result;
+}
+```
+
+### Atomic add-then-remove — break-glass path
+
+If the remaining good signers cannot meet the high threshold on their own, use a pre-provisioned **break-glass keypair** with sufficient weight. Add the break-glass key and remove the compromised key in one atomic transaction.
+
+```typescript
+async function emergencyRevokeWithBreakGlass(params: {
+  sourceAccountId: string;
+  compromisedSignerPublicKey: string;
+  breakGlassKeypair: Keypair;
+  breakGlassWeight: number;
+  // Good signers + break-glass must reach high threshold together
+  goodSigners: Keypair[];
+}) {
+  const {
+    sourceAccountId,
+    compromisedSignerPublicKey,
+    breakGlassKeypair,
+    breakGlassWeight,
+    goodSigners,
+  } = params;
+  const account = await server.getAccount(sourceAccountId);
+
+  const tx = new TransactionBuilder(account, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    // Operation 1: add break-glass signer first
+    .addOperation(
+      Operation.setOptions({
+        signer: { ed25519PublicKey: breakGlassKeypair.publicKey(), weight: breakGlassWeight },
+      })
+    )
+    // Operation 2: revoke compromised key in same atomic transaction
+    .addOperation(
+      Operation.setOptions({
+        signer: { ed25519PublicKey: compromisedSignerPublicKey, weight: 0 },
+      })
+    )
+    .setTimeout(60)
+    .build();
+
+  for (const kp of [...goodSigners, breakGlassKeypair]) {
+    tx.sign(kp);
+  }
+
+  const result = await server.sendTransaction(tx);
+  console.log("Break-glass emergency rotation submitted:", result.hash);
+  return result;
+}
+```
+
+<Warning>
+  After an emergency rotation, immediately rotate any funds that may have been visible to the
+  compromised key. Even though the signer is revoked on-chain, an adversary holding the private key
+  can still scan announcement events from before the revocation ledger. Move funds to fresh stealth
+  addresses announced to new ephemeral keys.
+</Warning>
+
+---
+
+## Auditor Trail — Rotations in the Announcement Stream
+
+When a custodian rotates signers, it creates an on-chain record at two levels:
+
+1. **Stellar ledger** — each `SetOptions` operation is recorded in the account's transaction history with its ledger number, timestamp, and signer set delta.
+2. **Wraith announcement stream** — each stealth payment announced after the rotation carries the new signer epoch in its metadata, allowing auditors to correlate which signer set authorized each withdrawal.
+
+### What a rotation looks like in the Wraith stream
+
+The Wraith SDK emits `WRAITH_ANNOUNCEMENT` events (Stellar topic) for every stealth payment send and scan. Rotation operations themselves are Stellar-native `SetOptions` transactions and are **not** Wraith announcements — but they are adjacent in ledger time and can be correlated by ledger number.
+
+A compliance auditor reconstructing signer authority at any past ledger can:
+
+1. Query the account's transaction history filtered to `SetOptions` operations.
+2. For each ledger of interest, walk the signer-weight deltas forward from account creation to that ledger.
+3. Cross-reference any Wraith announcement at ledger L against the signer set active at ledger L.
+
+```typescript
+// Reconstruct the signer set at a target ledger using Horizon transaction history
+async function getSignerSetAtLedger(params: {
+  accountId: string;
+  targetLedger: number;
+  horizonUrl: string;
+}) {
+  const { accountId, targetLedger, horizonUrl } = params;
+  const url = `${horizonUrl}/accounts/${accountId}/transactions?order=asc&limit=200`;
+  const resp = await fetch(url);
+  const body = await resp.json() as {
+    _embedded: { records: Array<{
+      ledger: number;
+      operations_count: number;
+    }> };
+  };
+
+  // Collect SetOptions transactions at or before targetLedger
+  const rotationLedgers = body._embedded.records
+    .filter((tx) => tx.ledger <= targetLedger)
+    .filter((tx) => tx.operations_count > 0);
+
+  // NOTE: Full signer reconstruction requires fetching each tx's operations
+  // and replaying SetOptions signer deltas. This snippet shows the query pattern.
+  console.log(
+    `Found ${rotationLedgers.length} transactions at or before ledger ${targetLedger}`
+  );
+  return rotationLedgers;
+}
+```
+
+### Block-by-block rotation trail — annotated
+
+The table below shows what an auditor sees during a staged 2-of-3 rotation. Ledger numbers are illustrative.
+
+| Ledger | Event type | Detail | Signer set after |
+|---|---|---|---|
+| 8 294 100 | `SetOptions` | Add `G...NEW_C` (weight 1) | A, B, C_old, C_new — 4 signers, any 3 valid |
+| 8 294 101 | `WRAITH_ANNOUNCEMENT` | Stealth payment sent using new signer set | Attributed to ledger 8 294 101 signer set |
+| 8 294 210 | `SetOptions` | Remove `G...C_old` (weight 0) | A, B, C_new — rotation complete |
+| 8 294 300 | `WRAITH_ANNOUNCEMENT` | Withdrawal authorized by A + B + C_new | New signer set, clean attribution |
+
+<Note>
+  The overlap window (ledgers 8 294 100 to 8 294 210 in the example) is where both the old and new
+  signer could have co-signed transactions. Auditors should flag withdrawals in this window for
+  additional confirmation if the retiring signer is under investigation.
+</Note>
+
+### Fetching Wraith announcements around a rotation
+
+```typescript
+import {
+  fetchAnnouncements,
+  getDeployment,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const server = new SorobanRpc.Server("https://rpc-futurenet.stellar.org");
+
+async function getAnnouncementsAroundRotation(rotationLedger: number) {
+  const deployment = getDeployment("futurenet");
+  const all = await fetchAnnouncements(deployment, server);
+
+  // fetchAnnouncements returns canonical announcements ordered oldest-first.
+  // Filter to a ±50 ledger window around the rotation for audit review.
+  const window = all.filter((a) => {
+    const ledger = (a as unknown as { ledger?: number }).ledger;
+    if (typeof ledger !== "number") return false;
+    return ledger >= rotationLedger - 50 && ledger <= rotationLedger + 50;
+  });
+
+  console.log(
+    `Announcements within 50 ledgers of rotation at ${rotationLedger}:`,
+    window.length
+  );
+  return window;
+}
+```
+
+---
+
+## End-to-End: Rotating a 2-of-3 to a Fresh 2-of-3 on Futurenet
+
+This complete example rotates all three signers of a 2-of-3 custodial account to three brand-new keypairs, one at a time using the staged approach. After each rotation, it verifies the signer set before proceeding to the next.
+
+### Prerequisites
+
+Fund the source account and all six keypairs on futurenet:
+
+```bash
+# Replace G...SOURCE with your actual account ID
+curl "https://friendbot-futurenet.stellar.org/?addr=G...SOURCE"
+```
+
+### 1. Initial setup — configure the 2-of-3 account
+
+```typescript
+import { Keypair, Operation, TransactionBuilder, BASE_FEE, Asset } from "@stellar/stellar-sdk";
+import { SorobanRpc } from "@stellar/stellar-sdk";
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+// The account owner is sigA with master weight.
+// We'll set thresholds and add sigB + sigC.
+const sigA = Keypair.fromSecret("S...SECRET_A"); // existing account key
+const sigB = Keypair.random(); // old signer B
+const sigC = Keypair.random(); // old signer C
+
+// Fund sigB and sigC on futurenet before running this.
+// curl "https://friendbot-futurenet.stellar.org/?addr=<pubkey>"
+
+const sourceAccount = await server.getAccount(sigA.publicKey());
+
+const setupTx = new TransactionBuilder(sourceAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  // Set thresholds: low=1, med=2, high=3
+  // Each signer has weight 1, so 2-of-3 meets med; all-3 meets high
+  .addOperation(
+    Operation.setOptions({ lowThreshold: 1, medThreshold: 2, highThreshold: 3 })
+  )
+  // Add sigB with weight 1
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: sigB.publicKey(), weight: 1 } })
+  )
+  // Add sigC with weight 1
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: sigC.publicKey(), weight: 1 } })
+  )
+  .setTimeout(60)
+  .build();
+
+setupTx.sign(sigA);
+const setupResult = await server.sendTransaction(setupTx);
+console.log("Initial 2-of-3 configured. Tx hash:", setupResult.hash);
+// Signer set: A(weight 1), B(weight 1), C(weight 1) | med=2, high=3
+```
+
+### 2. Generate fresh replacement keypairs
+
+```typescript
+// Three brand-new keypairs — rotate to these
+const newA = Keypair.random();
+const newB = Keypair.random();
+const newC = Keypair.random();
+
+console.log("New signer A:", newA.publicKey());
+console.log("New signer B:", newB.publicKey());
+console.log("New signer C:", newC.publicKey());
+
+// Store secrets securely (HSM, sealed enclave, etc.)
+// For this futurenet demo only: console.log("newA secret:", newA.secret());
+```
+
+### 3. Helper: wait for transaction confirmation
+
+```typescript
+async function waitForConfirmation(hash: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const result = await server.getTransaction(hash);
+    if (result.status === "SUCCESS") {
+      console.log("  Confirmed in ledger", (result as unknown as { ledger: number }).ledger);
+      return;
+    }
+    if (result.status === "FAILED") {
+      throw new Error(`Transaction ${hash} failed: ${JSON.stringify(result)}`);
+    }
+    await new Promise(r => setTimeout(r, 3_000));
+  }
+  throw new Error(`Timed out waiting for ${hash}`);
+}
+```
+
+### 4. Rotate signer A → newA (staged: add newA, verify, remove A)
+
+```typescript
+// --- Phase 4a: Add newA ---
+// sigA + sigB + sigC all sign (we have all three, so high threshold = 3 is met)
+const accountForAddA = await server.getAccount(sigA.publicKey());
+
+const addNewATx = new TransactionBuilder(accountForAddA, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: newA.publicKey(), weight: 1 } })
+  )
+  .setTimeout(300)
+  .build();
+
+addNewATx.sign(sigA);
+addNewATx.sign(sigB);
+addNewATx.sign(sigC);
+
+const addAResult = await server.sendTransaction(addNewATx);
+console.log("Step 4a — Added newA. Hash:", addAResult.hash);
+await waitForConfirmation(addAResult.hash);
+// Signer set: A(1), B(1), C(1), newA(1) — 4 signers, any 3 valid for high threshold
+
+// --- Phase 4b: Verify newA is live ---
+const accountAfterAddA = await server.getAccount(sigA.publicKey());
+const newAEntry = accountAfterAddA.signers.find((s: { key: string }) => s.key === newA.publicKey());
+if (!newAEntry) throw new Error("newA not found in signer list — aborting rotation");
+console.log("Step 4b — Verified newA weight:", (newAEntry as { key: string; weight: number }).weight);
+
+// --- Phase 4c: Remove old sigA ---
+// Now authorize with newA + sigB + sigC (all weight 1 = sum 3 = high threshold)
+const accountForRemoveA = await server.getAccount(sigA.publicKey());
+
+const removeATx = new TransactionBuilder(accountForRemoveA, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    // weight: 0 removes sigA permanently
+    Operation.setOptions({ signer: { ed25519PublicKey: sigA.publicKey(), weight: 0 } })
+  )
+  .setTimeout(300)
+  .build();
+
+removeATx.sign(newA);
+removeATx.sign(sigB);
+removeATx.sign(sigC);
+
+const removeAResult = await server.sendTransaction(removeATx);
+console.log("Step 4c — Removed old sigA. Hash:", removeAResult.hash);
+await waitForConfirmation(removeAResult.hash);
+// Signer set: B(1), C(1), newA(1) — clean 3 signers, any 2 valid for med, all 3 for high
+```
+
+### 5. Rotate signer B → newB
+
+```typescript
+// --- Add newB (authorized by newA + B + C) ---
+const accountForAddB = await server.getAccount(newA.publicKey());
+
+const addNewBTx = new TransactionBuilder(accountForAddB, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: newB.publicKey(), weight: 1 } })
+  )
+  .setTimeout(300)
+  .build();
+
+addNewBTx.sign(newA);
+addNewBTx.sign(sigB);
+addNewBTx.sign(sigC);
+
+const addBResult = await server.sendTransaction(addNewBTx);
+console.log("Step 5a — Added newB. Hash:", addBResult.hash);
+await waitForConfirmation(addBResult.hash);
+// Signer set: B(1), C(1), newA(1), newB(1)
+
+// Verify newB
+const accountAfterAddB = await server.getAccount(newA.publicKey());
+const newBEntry = accountAfterAddB.signers.find((s: { key: string }) => s.key === newB.publicKey());
+if (!newBEntry) throw new Error("newB not found — aborting");
+console.log("Step 5b — Verified newB weight:", (newBEntry as { key: string; weight: number }).weight);
+
+// --- Remove old sigB (authorized by newA + newB + C) ---
+const accountForRemoveB = await server.getAccount(newA.publicKey());
+
+const removeBTx = new TransactionBuilder(accountForRemoveB, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: sigB.publicKey(), weight: 0 } })
+  )
+  .setTimeout(300)
+  .build();
+
+removeBTx.sign(newA);
+removeBTx.sign(newB);
+removeBTx.sign(sigC);
+
+const removeBResult = await server.sendTransaction(removeBTx);
+console.log("Step 5c — Removed old sigB. Hash:", removeBResult.hash);
+await waitForConfirmation(removeBResult.hash);
+// Signer set: C(1), newA(1), newB(1)
+```
+
+### 6. Rotate signer C → newC
+
+```typescript
+// --- Add newC (authorized by newA + newB + C) ---
+const accountForAddC = await server.getAccount(newA.publicKey());
+
+const addNewCTx = new TransactionBuilder(accountForAddC, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: newC.publicKey(), weight: 1 } })
+  )
+  .setTimeout(300)
+  .build();
+
+addNewCTx.sign(newA);
+addNewCTx.sign(newB);
+addNewCTx.sign(sigC);
+
+const addCResult = await server.sendTransaction(addNewCTx);
+console.log("Step 6a — Added newC. Hash:", addCResult.hash);
+await waitForConfirmation(addCResult.hash);
+// Signer set: C(1), newA(1), newB(1), newC(1)
+
+// Verify newC
+const accountAfterAddC = await server.getAccount(newA.publicKey());
+const newCEntry = accountAfterAddC.signers.find((s: { key: string }) => s.key === newC.publicKey());
+if (!newCEntry) throw new Error("newC not found — aborting");
+console.log("Step 6b — Verified newC weight:", (newCEntry as { key: string; weight: number }).weight);
+
+// --- Remove old sigC (authorized by newA + newB + newC) ---
+const accountForRemoveC = await server.getAccount(newA.publicKey());
+
+const removeCTx = new TransactionBuilder(accountForRemoveC, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  .addOperation(
+    Operation.setOptions({ signer: { ed25519PublicKey: sigC.publicKey(), weight: 0 } })
+  )
+  .setTimeout(300)
+  .build();
+
+removeCTx.sign(newA);
+removeCTx.sign(newB);
+removeCTx.sign(newC);
+
+const removeCResult = await server.sendTransaction(removeCTx);
+console.log("Step 6c — Removed old sigC. Hash:", removeCResult.hash);
+await waitForConfirmation(removeCResult.hash);
+// Signer set: newA(1), newB(1), newC(1) — rotation complete
+```
+
+### 7. Verify the final signer set
+
+```typescript
+const finalAccount = await server.getAccount(newA.publicKey());
+
+console.log("\nFinal signer set:");
+for (const s of finalAccount.signers as Array<{ key: string; weight: number }>) {
+  console.log(`  ${s.key}  weight=${s.weight}`);
+}
+console.log("Thresholds:", finalAccount.thresholds);
+
+// Expected output:
+//   <newA public key>  weight=1
+//   <newB public key>  weight=1
+//   <newC public key>  weight=1
+//   Thresholds: { low_threshold: 1, med_threshold: 2, high_threshold: 3 }
+
+const expectedKeys = new Set([newA.publicKey(), newB.publicKey(), newC.publicKey()]);
+const actualKeys = new Set((finalAccount.signers as Array<{ key: string }>).map(s => s.key));
+const unexpectedKeys = [...actualKeys].filter(k => !expectedKeys.has(k));
+if (unexpectedKeys.length > 0) {
+  throw new Error(`Unexpected signers still present: ${unexpectedKeys.join(", ")}`);
+}
+console.log("\nRotation complete — all old signers removed, all new signers confirmed.");
+```
+
+### Expected output
+
+```
+Step 4a — Added newA. Hash: a1b2c3...
+  Confirmed in ledger 8294100
+Step 4b — Verified newA weight: 1
+Step 4c — Removed old sigA. Hash: d4e5f6...
+  Confirmed in ledger 8294210
+Step 5a — Added newB. Hash: 789abc...
+  Confirmed in ledger 8294320
+Step 5b — Verified newB weight: 1
+Step 5c — Removed old sigB. Hash: def012...
+  Confirmed in ledger 8294430
+Step 6a — Added newC. Hash: 345678...
+  Confirmed in ledger 8294540
+Step 6b — Verified newC weight: 1
+Step 6c — Removed old sigC. Hash: 9abcde...
+  Confirmed in ledger 8294650
+
+Final signer set:
+  G...NEW_A  weight=1
+  G...NEW_B  weight=1
+  G...NEW_C  weight=1
+Thresholds: { low_threshold: 1, med_threshold: 2, high_threshold: 3 }
+
+Rotation complete — all old signers removed, all new signers confirmed.
+```
+
+---
+
+## Rotation Runbook Summary
+
+| Phase | Signers needed | Who signs | High-threshold met? |
+|---|---|---|---|
+| Add newA | old A + B + C | All three old signers | ✓ (3 × 1 = 3) |
+| Remove old A | newA + B + C | 2 old + 1 new | ✓ (3 × 1 = 3) |
+| Add newB | newA + B + C | 1 new + 2 old | ✓ |
+| Remove old B | newA + newB + C | 2 new + 1 old | ✓ |
+| Add newC | newA + newB + C | 2 new + 1 old | ✓ |
+| Remove old C | newA + newB + newC | All three new | ✓ |
+
+Each rotation step is an independent on-chain transaction. There is no time pressure between steps — the overlap window is safe to leave open for hours or days if co-signers are in different time zones.
+
+---
+
+## Operational Checklist
+
+Before starting any rotation:
+
+- [ ] All replacement keypairs generated and stored in HSM/enclave.
+- [ ] Replacement public keys reviewed and confirmed by a second operator (anti-clipboard-hijack).
+- [ ] Current high threshold verified — know exactly which co-signers you need.
+- [ ] Test transaction signed by each replacement keypair on testnet before mainnet use.
+- [ ] Horizon or Stellar Expert monitoring open so you can watch each `SetOptions` land.
+- [ ] Post-rotation verification step scripted (check all expected keys present, no unexpected keys remain).
+
+---
+
+## See Also
+
+- [Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) — the full withdrawal flow and recovery scenarios that precede this guide
+- [Stellar Primitives](/sdk/chains/stellar) — `signWithScalar`, `deriveStealthKeys`, full SDK reference
+- [Cross-Chain Announcement Format](/architecture/announcement-format) — `WRAITH_ANNOUNCEMENT` Stellar event schema
+- [Privacy Best Practices](/guides/privacy-best-practices) — move funds to fresh stealth addresses after any key compromise
+- [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment) — production RPC setup and monitoring

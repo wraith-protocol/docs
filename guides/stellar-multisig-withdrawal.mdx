@@ -265,6 +265,12 @@ console.log("Funds detected at:", matched.map(m => m.stealthAddress));
 
 ## Recovery Scenarios
 
+<Note>
+  These scenarios cover emergency recovery when a key is already lost. For the **operational
+  runbook** — zero-downtime staged rotation, emergency revocation on suspected compromise, and the
+  full auditor trail — see [Multisig Authority Rotation](/guides/stellar/multisig-authority-rotation).
+</Note>
+
 ### Lost signer — threshold still reachable
 
 If you lose one signer but remaining signers still meet the medium threshold, remove the lost signer immediately.
