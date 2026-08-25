@@ -1,0 +1,150 @@
+---
+title: "Error Code Reference"
+description: "Normative tables for every error emitted by Wraith contracts, the SDK, the CLI, and the Soroban RPC indexer"
+keywords: "error codes, soroban, SDK errors, CLI errors, stealth, wraith-names, stealth-registry, stealth-sender, indexer"
+---
+
+Normative error-code tables for every discrete failure surface in the Wraith stack. Each row is linkable — paste the anchor to Discord or a support ticket instead of re-typing the same explanation.
+
+For narrative context, cause analysis, and code examples for Stellar / Soroban specific failures, see the [Stellar Troubleshooting Guide](/guides/stellar-troubleshooting). Cross-links between sections are marked in the **Guide** column.
+
+---
+
+## Soroban Contract Errors
+
+Contract errors surface as `HostError: Error(Contract, #N)` in Soroban RPC responses and `stellar-cli` output. Match the `#N` code to the table for the contract you invoked.
+
+### `stealth-registry`
+
+| Code | Symbolic Name | Meaning | Common Cause | Fix |
+|---|---|---|---|---|
+| `#1` | `InvalidMetaAddressLength` | The meta-address payload is not exactly 64 bytes | Passing the human-readable `st:xlm:` prefix to `register_keys` instead of the raw 64-byte key material | Decode first: `decodeStealthMetaAddress("st:xlm:...")` returns raw bytes; pass those |
+| `#2` | `Unauthorized` | Caller is not the registered `registrant` | Invoking `register_keys` from a different keypair than the one in the auth envelope | Sign the transaction with the same keypair that you intend to register |
+
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hostError-contract-trapped) in the troubleshooting guide.
+
+---
+
+### `stealth-sender`
+
+| Code | Symbolic Name | Meaning | Common Cause | Fix |
+|---|---|---|---|---|
+| `#1` | `NotInitialized` | `send()` or `batch_send()` called before `init()` | Deploying a fresh sender contract without running the `init` call that wires it to the announcer | Call `init(admin, announcer_contract_id)` once after deployment |
+| `#2` | `Unauthorized` | Caller is not the stored admin | Calling `init` from a different account than the deployer, or after the contract is already initialized | Use the deployer keypair for `init`; it can only be called once |
+| `#3` | `ArityMismatch` | `batch_send` vectors have different lengths | Passing `stealth_addresses`, `amounts`, `ephemeral_pub_keys`, or `metadatas` arrays of unequal length | Ensure all four arrays are the same length before building the invocation |
+| `#4` | `ZeroAmount` | `amount == 0` | Passing `0` as the SAC token amount (e.g. wrong decimal scaling for USDC) | USDC uses 7 decimals: 1 USDC = `10_000_000` in the `i128`; verify your scaling |
+
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hostError-contract-trapped) and [`op_no_trust`](/guides/stellar-troubleshooting#18-op_no_trust--missing-trustline).
+
+---
+
+### `wraith-names`
+
+| Code | Symbolic Name | Meaning | Common Cause | Fix |
+|---|---|---|---|---|
+| `#1` | `NameTooShort` | Name is fewer than 3 characters | Attempting to register a 1- or 2-character name | Use a name with at least 3 characters |
+| `#2` | `NameTooLong` | Name exceeds 32 characters | Name string longer than 32 bytes after UTF-8 encoding | Truncate or choose a shorter name |
+| `#3` | `InvalidCharacters` | Name contains characters other than lowercase `a–z` or `0–9` | Uppercase letters, hyphens, underscores, or Unicode in the name | Normalize to lowercase alphanumeric before calling `register` |
+| `#4` | `InvalidMetaAddressLength` | The meta-address payload is not exactly 64 bytes | Same as `stealth-registry#1` — passing the `st:xlm:` prefix instead of raw bytes | Call `decodeStealthMetaAddress` and pass the returned `Uint8Array` |
+| `#5` | `NameNotFound` | Calling `resolve`, `update`, or `release` on a name that is not registered | Typo in the name, or attempting to resolve before registration | Verify the name is registered; use `resolve` to check before `update` |
+| `#6` | `Unauthorized` | Caller is not the registered owner of the name | Attempting to `update` or `release` a name from a different keypair | Sign with the same keypair used during `register` |
+| `#7` | `NameAlreadyRegistered` | Calling `register` on a name that already exists | Race condition, or forgetting a previous registration | Call `resolve` first; if it returns data the name is taken |
+
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hostError-contract-trapped) in the troubleshooting guide.
+
+---
+
+## SDK Errors — Agent Client
+
+These errors are thrown as plain `Error` objects from `@wraith-protocol/sdk` root import methods (`Wraith`, `WraithAgent`). Match `err.message` to the **Message pattern** column.
+
+| Message pattern | Thrown by | Meaning | Common Cause | Fix |
+|---|---|---|---|---|
+| `Insufficient balance` | `agent.chat()` | The agent's on-chain balance is below the amount required for the requested action | Sending more than the agent holds; not accounting for fees and base reserve | Check `await agent.getBalance()` before issuing payment instructions |
+| `API key invalid` / `Unauthorized` | Any method | The platform rejected the API key (HTTP 401) | Wrong key, revoked key, or key belonging to a different environment (live vs. test) | Verify `WRAITH_API_KEY` matches the key shown in your dashboard |
+| `Agent not found` | `wraith.agent()`, `wraith.getAgentByWallet()`, `wraith.getAgentByName()` | No agent with the given ID, wallet, or name exists on the platform | Stale ID, wrong network, or agent was deleted | List agents with `wraith.listAgents()` to confirm the correct identifier |
+| `Rate limit exceeded` | Any method | HTTP 429 from the platform API | Too many requests per second from the same API key | Add exponential back-off; contact support if limits are unexpectedly low |
+| `Export failed: signature mismatch` | `agent.exportKey()` | The freshness signature provided does not match what the TEE expects | Re-using a signature from a previous export attempt, or signing the wrong message | Generate a new signature using exactly `"Export private key for agent " + agent.info.id` |
+
+---
+
+## SDK Errors — Stellar Chain Primitives
+
+These errors are thrown from `@wraith-protocol/sdk/chains/stellar`. They indicate problems with raw key material or cryptographic inputs, not platform connectivity.
+
+| Message pattern | Thrown by | Meaning | Common Cause | Fix | Guide |
+|---|---|---|---|---|---|
+| `Invalid meta-address: expected 64 bytes, got N` | `decodeStealthMetaAddress()` | The hex payload decoded from the meta-address is not 64 bytes | Truncated string, double-encoding, or a meta-address from a different chain (e.g. `st:eth:` passed to Stellar decoder) | Verify the full `st:xlm:…` string is copied intact; ensure it is not URL-encoded | [Stealth-Specific §13–16](/guides/stellar-troubleshooting#stealth-specific-errors) |
+| `Invalid meta-address prefix: expected st:xlm:` | `decodeStealthMetaAddress()` | Prefix does not start with `st:xlm:` | Passing an EVM meta-address (`st:eth:`) or a raw Stellar `G…` address | Use the Stellar meta-address from `encodeStealthMetaAddress(spendingPubKey, viewingPubKey)` | [Stealth-Specific §13–16](/guides/stellar-troubleshooting#stealth-specific-errors) |
+| `Signature must be 64 bytes` | `deriveStealthKeys()` | The ed25519 signature passed for key derivation is not 64 bytes | Passing a hex string instead of a `Uint8Array`, or truncating the signature | Sign `STEALTH_SIGNING_MESSAGE` with `stellarKeypair.sign()` and pass the raw `Buffer`/`Uint8Array` — do not hex-encode it | [Signing §9–12](/guides/stellar-troubleshooting#signing-errors) |
+| `Invalid ephemeral public key` | `checkStealthAddress()`, `scanAnnouncements()` | The ephemeral public key from an announcement is not a valid ed25519 point | Malformed announcement event, wrong field extracted from XDR, or hex/bytes confusion | Decode the raw 32-byte field from the Soroban event; do not pass the hex string directly | [Stealth-Specific §13–16](/guides/stellar-troubleshooting#stealth-specific-errors) |
+| `Point at infinity` | `generateStealthAddress()`, `checkStealthAddress()` | ECDH produced the identity point — a degenerate result | Ephemeral private key is zero or the order of the curve; theoretically possible but astronomically unlikely with secure randomness | Regenerate with fresh randomness; ensure `crypto.getRandomValues` or `node:crypto` is available in your runtime | [Stealth-Specific §13–16](/guides/stellar-troubleshooting#stealth-specific-errors) |
+
+---
+
+## CLI Errors
+
+These error codes are written to stderr by the `wraith` CLI and are also surfaced as the process exit reason.
+
+| Code | Meaning | Common Cause | Fix |
+|---|---|---|---|
+| `WRAITH_NO_API_KEY` | `WRAITH_API_KEY` environment variable is not set | Running `wraith` commands without exporting the key, or a shell profile that doesn't set it for non-interactive sessions | `export WRAITH_API_KEY=wraith_live_…` in your shell profile or CI secrets |
+| `WRAITH_AGENT_NOT_FOUND` | The agent name or ID supplied does not exist | Typo in the name, wrong environment (testnet vs. mainnet), or agent was deleted | Run `wraith agents list` to see valid names and IDs |
+| `WRAITH_CHAIN_UNSUPPORTED` | The chain argument is not in the `Chain` enum | Passing a raw string like `"stellar"` instead of using the enum, or a chain that has not been enabled for your plan | Use a value from `Chain` enum: `stellar`, `ethereum`, `solana`, `ckb`, `base`, `polygon`, `horizen` |
+| `WRAITH_AUTH_FAILED` | Signature verification failed during agent creation | Wrong wallet connected, or the signature was generated from a different message than what the CLI expects | Re-run `wraith agents create` and sign the exact challenge message printed by the CLI |
+| `WRAITH_EXPORT_FORBIDDEN` | Key export attempted without a fresh signature | Reusing an old export signature, or calling export without the `--sign` flag | Run `wraith agents export --sign` to generate and submit a fresh signature in one step |
+
+---
+
+## Soroban RPC / Indexer Errors
+
+These errors come from the Soroban JSON-RPC layer when calling `getEvents`, `getLedgerEntries`, or related methods. They are not Wraith-specific — they reflect node state and retention policy.
+
+| Code | Meaning | Common Cause | Fix | Guide |
+|---|---|---|---|---|
+| `retention_window_exceeded` | The requested start ledger is older than the node's configured retention window | Scanning from a ledger that is too far in the past on a standard public RPC endpoint | Use an archiver node or a data indexer (e.g. Hubble, StellarExpert) for historical queries; store `lastProcessedLedger` locally | [Network §7](/guides/stellar-troubleshooting#7-soroban-rpc-retention-window-exceeded) |
+| `start_ledger_too_old` | Same root cause as `retention_window_exceeded` — different formulation used by some RPC versions | Same as above | Same as above | [Network §7](/guides/stellar-troubleshooting#7-soroban-rpc-retention-window-exceeded) |
+| `invalid_cursor` | The `cursor` parameter in a paginated `getEvents` call is malformed | Cursor string was truncated, URL-decoded incorrectly, or constructed manually rather than taken from the previous page's response | Always pass the `cursor` value verbatim from the previous `getEvents` response; do not modify it | — |
+| `contract_not_found` | The contract ID in the filter does not exist on the queried network | Using a testnet contract ID against mainnet (or vice versa), or contract was not deployed | Confirm the network in `getDeployment("stellar")` matches your RPC URL; redeploy if necessary | — |
+| `ledger_not_found` | A specific ledger hash requested does not exist on the node | Node synced from a checkpoint after that ledger, or wrong network | Query by ledger sequence instead of hash; verify you are on the correct network | — |
+
+---
+
+## Quick-Reference: Troubleshooting Guide Cross-Index
+
+The table below maps each numbered entry in [stellar-troubleshooting.mdx](/guides/stellar-troubleshooting) to the canonical code in this reference.
+
+| # | Troubleshooting entry | Canonical code / section |
+|---|---|---|
+| 1 | `tx_bad_seq` | Stellar protocol error — see Horizon docs |
+| 2 | `op_underfunded` | Stellar protocol error — see Horizon docs |
+| 3 | `op_low_reserve` | Stellar protocol error — see Horizon docs |
+| 4 | `op_no_destination` | Stellar protocol error — see Horizon docs |
+| 5 | `429 Too Many Requests` | Network / rate limiting |
+| 6 | `502 / 504 Gateway` | Network / node availability |
+| 7 | `retention window exceeded` | [`retention_window_exceeded`](#retention_window_exceeded) |
+| 8 | `tx_too_late` | Stellar protocol error — see Horizon docs |
+| 9 | `Freighter not installed` | Browser / wallet environment |
+| 10 | `Network mismatch` | Browser / wallet environment |
+| 11 | `User rejected signature` | Browser / wallet UX |
+| 12 | `tx_bad_auth` / `op_bad_auth` | Stellar protocol error — see Horizon docs |
+| 13 | `Derived address matches recipient` | [`Point at infinity`](#point-at-infinity) |
+| 14 | `Zero-balance scan returning matches` | Scan logic / stale ledger state |
+| 15 | `Name resolution null` | Federation / DNS availability |
+| 16 | `Stealth payload too large for memo` | Stellar memo size constraint (32 bytes) |
+| 17 | `HostError: Error(Contract, #N)` | See [stealth-registry](#stealth-registry), [stealth-sender](#stealth-sender), [wraith-names](#wraith-names) tables |
+| 18 | `op_no_trust` | Stellar protocol error — see Horizon docs |
+| 19 | `Expired auth` / `auth_invalid` | Soroban auth expiry — regenerate with fresh `validUntilLedger` |
+| 20 | `Replay rejection` / `nonce_already_used` | Soroban nonce — always fetch latest nonce before signing |
+
+---
+
+## Auto-Generation Note
+
+The Soroban contract error tables above are derived from the `#[contracterror]` enums in the Rust source. To keep them in sync automatically:
+
+1. Add a `generate:error-codes` script to `package.json` (similar to `generate:stellar-reference`).
+2. Source the enum variants from the TypeScript bindings generated by `stellar contract bindings typescript`.
+3. Use the same `STELLAR_BINDINGS_DIR` / `STELLAR_CONTRACT_IDS` env-var convention already established in [`scripts/generate-stellar-reference.ts`](/scripts/generate-stellar-reference.ts).
+
+Until that script exists, update this file manually whenever a contract error enum changes. The `scripts/generate-stellar-reference.ts` script is the reference implementation for how to read the bindings directory and render MDX tables.
