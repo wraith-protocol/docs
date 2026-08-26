@@ -171,7 +171,8 @@
               "guides/stellar/stellar-quickstart",
               "guides/stellar/wraith-names-lifecycle",
               "guides/wraith-names-stellar",
-              "guides/ops/self-hosted-deployment"
+              "guides/ops/self-hosted-deployment",
+              "guides/ops/monitoring-and-on-call"
             ]
           }
         ]
