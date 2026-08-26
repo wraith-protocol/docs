@@ -152,6 +152,7 @@
               "guides/integrations/blend",
               "guides/integrations/fxdao",
               "guides/integrations/nuxt",
+              "guides/integrations/phoenix",
               "guides/integrations/react-native",
               "guides/integrations/reflector",
               "guides/integrations/soroswap"

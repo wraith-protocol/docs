@@ -1,0 +1,767 @@
+---
+title: "Phoenix DEX: Multi-hop Swap + Stealth Announce"
+description: "Quote a multi-hop route on Phoenix DEX, execute the swap, and announce the output to a stealth address — all in a single fee-bumped transaction on Stellar."
+keywords: "Stellar, soroban, phoenix, DEX, AMM, multi-hop, router, PHO, swap, USDC, XLM, stealth, stealth address, slippage, deadline, fee bump"
+---
+
+[Phoenix](https://phoenix-hub.org) is a multi-hop AMM built natively on Soroban. Unlike single-pool aggregators, the Phoenix Router discovers the optimal execution path across all Phoenix liquidity pools — including PHO-incentivized pairs — in a single on-chain call. This guide shows you how to combine Phoenix quoting and swapping with Wraith stealth addresses so a sender can swap any asset into whatever the recipient prefers, deliver it to an unlinkable one-time address, and wrap the entire batch in a single fee-bumped transaction.
+
+**The pattern in one sentence:** quote a multi-hop route from token A → token B via the Phoenix Router, build a single transaction containing both the Phoenix `swap` call and the Wraith `announce` call, sign it, wrap it in a fee-bump envelope, and submit.
+
+---
+
+## How it works
+
+```
+Sender holds XLM                          Recipient wants USDC
+         │                                        │
+         ▼                                        ▼
+  [1] Fetch meta-address             [publish on website / .wraith name]
+         │
+         ▼
+  [2] Derive stealth address
+         │
+         ▼
+  [3] Quote route   XLM → PHO → USDC  (Phoenix Router)
+         │
+         ▼
+  [4] Build inner tx
+        ├─ op 1: Phoenix swap  → to: stealthAddress
+        └─ op 2: Wraith announce → ephemeralPubKey + viewTag
+         │
+         ▼
+  [5] Simulate → assemble footprint
+         │
+         ▼
+  [6] Sign inner tx
+         │
+         ▼
+  [7] Wrap in fee-bump tx  (sponsor pays fees)
+         │
+         ▼
+  [8] Submit fee-bump tx
+         │
+         ▼
+  Recipient scans announcements, detects payment, spends USDC
+```
+
+The key difference from the [Soroswap flow](/guides/integrations/soroswap) is that quoting, swapping, and announcing all happen on-chain through Soroban contract calls — no off-chain API is required. The Phoenix Router returns a quote via a free read-only simulation, and the swap executes atomically in the same transaction as the announcement.
+
+<Info>
+  **Phoenix vs. Soroswap at a glance**
+
+  | | Phoenix | Soroswap |
+  |---|---|---|
+  | **Routing model** | On-chain multi-hop router discovers optimal path across all Phoenix pools | Off-chain aggregator API returns best route across multiple protocols |
+  | **Multi-hop** | Dynamic — router finds intermediate hops (e.g. XLM → PHO → USDC) automatically | Explicit — aggregator returns a fixed `path` array |
+  | **Fee tiers** | Per-pool configurable (0.05 %, 0.30 %, 1.00 %) set at pool creation | Single protocol-wide fee model per AMM version |
+  | **Liquidity incentives** | PHO token rewards for LPs in incentivized pairs | None native — relies on external incentivization |
+  | **Quote mechanism** | Soroban `simulateTransaction` (free, on-chain) | REST API `/quote` endpoint (free, off-chain) |
+  | **Trust model** | Fully on-chain — no off-chain API dependency | API returns unsigned XDR that you verify before signing |
+</Info>
+
+---
+
+## Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+A funded Futurenet account is required. Fund one via the Futurenet Friendbot:
+
+```bash
+curl "https://friendbot-futurenet.stellar.org/?addr=GYOUR_FUTURENET_ADDRESS"
+```
+
+---
+
+## Futurenet contract addresses
+
+All examples below target **Futurenet**. Swap these for mainnet values when you go live.
+
+| Contract / Asset | Futurenet ID |
+|---|---|
+| Phoenix Router | `CBRD4L2KK56EUQM7TA6KRUVWTBGZR4O26ZB4LQZ6PHO7HDOVLZSCJNNL` |
+| PHO Token | `CCXK4UA3W7VJHCTDLQKHW3U3DQTFK4LZ6H2S3BPHEONIZXT5NV5LM2TB` |
+| XLM (wrapped SAC) | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+| USDC | `CBBHRKEP5M3NUDRISGLJKGHDHX3DA2CN2AZBQY6WLVUJ7VNLGSKBDUCM` |
+
+Phoenix amounts use **7 decimal places**: `1 XLM = 10_000_000` stroops.
+
+<Note>
+  Phoenix pool fee tiers are encoded in the pool contract, not the router. The router automatically selects the pool with the best effective price when multiple fee tiers exist for the same pair. You do not need to specify a fee tier when quoting.
+</Note>
+
+---
+
+## Step 1 — Set up the Phoenix Router client
+
+The Phoenix Router is a Soroban contract. Quotes are read-only simulations that cost nothing. Swaps are `invokeContractFunction` operations submitted as part of a transaction.
+
+```typescript
+// phoenix-client.ts
+import {
+  Address,
+  BASE_FEE,
+  Contract,
+  Networks,
+  SorobanRpc,
+  TransactionBuilder,
+  nativeToScVal,
+  scValToNative,
+  xdr,
+} from "@stellar/stellar-sdk";
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+
+const PHOENIX_ROUTER = "CBRD4L2KK56EUQM7TA6KRUVWTBGZR4O26ZB4LQZ6PHO7HDOVLZSCJNNL";
+
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+interface PhoenixQuote {
+  amountOut: bigint;     // expected output amount (7 decimals)
+  path: string[];        // optimal token path, e.g. [XLM, PHO, USDC]
+  feeBps: number;        // total fee across all hops, in basis points
+}
+
+// ─── Read-only simulation helper ──────────────────────────────────────────────
+
+async function simulateContractCall(
+  contractId: string,
+  method: string,
+  args: xdr.ScVal[],
+  sourcePublicKey: string,
+): Promise<xdr.ScVal> {
+  const sourceAccount = await server.getAccount(sourcePublicKey);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(contract.call(method, ...args))
+    .setTimeout(30)
+    .build();
+
+  const result = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(result)) {
+    throw new Error(`Simulation failed for ${method}: ${result.error}`);
+  }
+
+  return result.result!.retval;
+}
+```
+
+> [!NOTE]
+> The `sourcePublicKey` for a simulation can be any funded Futurenet account — its balance is not deducted for read-only calls.
+
+---
+
+## Step 2 — Derive the recipient's stealth address
+
+```typescript
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// Recipient published this meta-address (e.g. via .wraith name or website).
+const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(
+  "st:xlm:abc123def456..." // replace with the real meta-address
+);
+
+// Generate a fresh one-time address for this payment.
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// stealth.stealthAddress  → "G..." — swap output lands here
+// stealth.ephemeralPubKey → Uint8Array — needed for the announcement
+// stealth.viewTag         → 0-255     — needed for the announcement
+```
+
+---
+
+## Step 3 — Quote a multi-hop route
+
+The Phoenix Router's `quote` function takes the input token, output token, and input amount. It returns the expected output, the optimal multi-hop path, and the aggregate fee.
+
+```typescript
+const SENDER_PUBLIC_KEY = "GABC...your-futurenet-address"; // replace
+
+const XLM_CONTRACT  = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const USDC_CONTRACT = "CBBHRKEP5M3NUDRISGLJKGHDHX3DA2CN2AZBQY6WLVUJ7VNLGSKBDUCM";
+const PHO_CONTRACT  = "CCXK4UA3W7VJHCTDLQKHW3U3DQTFK4LZ6H2S3BPHEONIZXT5NV5LM2TB";
+
+const amountIn = BigInt(10_000_000); // 1 XLM (7 decimal places)
+
+// Call the Phoenix Router's read-only quote function.
+// The router discovers the optimal path — which may route through PHO
+// as an intermediate hop if that yields a better effective price.
+const quoteScVal = await simulateContractCall(
+  PHOENIX_ROUTER,
+  "quote",
+  [
+    new Address(XLM_CONTRACT).toScVal(),   // token_in
+    new Address(USDC_CONTRACT).toScVal(),  // token_out
+    xdr.ScVal.scvI128(                     // amount_in (i128)
+      new xdr.Int128Parts({ hi: BigInt(0), lo: amountIn }),
+    ),
+  ],
+  SENDER_PUBLIC_KEY,
+);
+
+const quoteResult = scValToNative(quoteScVal) as {
+  amount_out: bigint;
+  path: string[];
+  fee_bps: number;
+};
+
+const quote: PhoenixQuote = {
+  amountOut: quoteResult.amount_out,
+  path: quoteResult.path,
+  feeBps: quoteResult.fee_bps,
+};
+
+console.log("Expected USDC out:", Number(quote.amountOut) / 1e7);
+console.log("Route:", quote.path.join(" → "));
+console.log("Aggregate fee:", quote.feeBps, "bps");
+```
+
+<Note>
+  Phoenix may route through PHO even when a direct XLM/USDC pool exists, because the PHO intermediate pair can offer deeper liquidity and lower overall price impact. The router evaluates all possible 1-hop, 2-hop, and 3-hop paths and returns the one with the highest `amount_out`.
+</Note>
+
+### Route freshness
+
+| Factor | Guidance |
+|---|---|
+| Quote TTL | On-chain quotes reflect current pool reserves at simulation time. Re-simulate immediately before building the swap — do not cache across user interactions. |
+| Pool reserve shifts | Active markets can move reserves within seconds. A quote older than ~10 seconds may no longer be accurate. |
+| `feeBps` changes | Fee tiers are set at pool creation and do not change between quotes. The aggregate `feeBps` varies only when the optimal route changes. |
+
+> [!WARNING]
+> Do not cache Phoenix quotes across user interactions. A stale quote that falls outside your slippage tolerance will cause the on-chain swap to revert, wasting the fee-bump sponsor's XLM.
+
+---
+
+## Step 4 — Slippage & deadline construction
+
+The Phoenix Router's `swap` function enforces two protective parameters on-chain:
+
+- **`min_amount_out`** — the minimum acceptable output. If the actual output falls below this, the transaction reverts. Derived from the quote and your slippage tolerance.
+- **`deadline`** — a Unix timestamp (seconds). If the transaction is included after this time, it reverts. Prevents miners or relayers from holding a stale transaction and executing it later at a worse price.
+
+```typescript
+// ─── Slippage tolerance ───────────────────────────────────────────────────────
+
+const SLIPPAGE_BPS = 50; // 0.5 %
+
+// min_amount_out = amountOut * (1 - slippageBps / 10_000)
+const minAmountOut =
+  (quote.amountOut * BigInt(10_000 - SLIPPAGE_BPS)) / BigInt(10_000);
+
+console.log("Expected USDC out:", Number(quote.amountOut) / 1e7);
+console.log("Minimum USDC out:", Number(minAmountOut) / 1e7, `(at ${SLIPPAGE_BPS} bps slippage)`);
+
+// ─── Deadline ─────────────────────────────────────────────────────────────────
+
+// Set the deadline to 5 minutes (300 seconds) from now.
+// The transaction must be included in a ledger whose close time is ≤ this value.
+const DEADLINE_SECONDS = 300;
+const deadline = BigInt(Math.floor(Date.now() / 1000) + DEADLINE_SECONDS);
+```
+
+### Parameter reference
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `min_amount_out` | `i128` | Floor on acceptable swap output. Transaction reverts if actual output is lower. |
+| `deadline` | `u64` | Unix timestamp (seconds). Transaction reverts if ledger close time exceeds this. |
+| `slippageBps` | `number` | Your tolerance in basis points. `50` = 0.5 %, `100` = 1.0 %. Used to derive `min_amount_out` off-chain. |
+
+> [!NOTE]
+> The `slippageBps` value is not passed on-chain — only `min_amount_out` is. The Phoenix Router does not know your tolerance; it simply enforces the floor you computed. This is the same pattern used by Uniswap V2-style routers.
+
+---
+
+## Step 5 — Build the combined swap + announce transaction
+
+Both the Phoenix `swap` and the Wraith `announce` are `invokeContractFunction` operations. Placing them in the same transaction makes them **atomic**: either both succeed or both revert. This guarantees the recipient can always detect a successful swap — there is no window where funds land without an announcement.
+
+```typescript
+import {
+  getDeployment,
+  bytesToHex,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Keypair } from "@stellar/stellar-sdk";
+
+const senderKeypair = Keypair.fromSecret(process.env.SENDER_SECRET!);
+const senderAddress = senderKeypair.publicKey();
+
+// Load deployment config for Futurenet Wraith contracts.
+const deployment = getDeployment("futurenet");
+const announcer = new Contract(deployment.contracts.announcer);
+const phoenixRouter = new Contract(PHOENIX_ROUTER);
+
+// ─── Prepare ScVal arguments ──────────────────────────────────────────────────
+
+// Phoenix swap args: path, amount_in, min_amount_out, deadline, to
+const pathScVal = xdr.ScVal.scvVec(
+  quote.path.map((addr) => new Address(addr).toScVal()),
+);
+const amountInScVal = xdr.ScVal.scvI128(
+  new xdr.Int128Parts({ hi: BigInt(0), lo: amountIn }),
+);
+const minOutScVal = xdr.ScVal.scvI128(
+  new xdr.Int128Parts({ hi: BigInt(0), lo: minAmountOut }),
+);
+const deadlineScVal = nativeToScVal(deadline, { type: "u64" });
+const toScVal = new Address(stealth.stealthAddress).toScVal();
+
+// Wraith announce args: schemeId, stealthAddress, ephemeralPubKey, metadata
+const schemeIdScVal = nativeToScVal(1, { type: "u32" }); // Wraith ed25519 scheme
+const stealthAddrScVal = new Address(stealth.stealthAddress).toScVal();
+const ephemeralBytes = Buffer.from(stealth.ephemeralPubKey);
+const metadataBytes = Buffer.from([stealth.viewTag]);
+
+// ─── Build inner transaction ─────────────────────────────────────────────────
+
+const sourceAccount = await server.getAccount(senderAddress);
+
+const innerTx = new TransactionBuilder(sourceAccount, {
+  fee: BASE_FEE,
+  networkPassphrase: FUTURENET_PASSPHRASE,
+})
+  // Operation 1: Phoenix Router swap — output goes to the stealth address.
+  .addOperation(
+    phoenixRouter.call(
+      "swap",
+      pathScVal,        // optimal multi-hop path
+      amountInScVal,    // exact input amount
+      minOutScVal,      // minimum acceptable output
+      deadlineScVal,    // expiry timestamp
+      toScVal,          // recipient = stealth address
+    ),
+  )
+  // Operation 2: Wraith announcer — publish ephemeral key + view tag.
+  .addOperation(
+    announcer.call(
+      "announce",
+      schemeIdScVal,      // schemeId = 1
+      stealthAddrScVal,    // stealth address
+      xdr.ScVal.scvBytes(ephemeralBytes),  // ephemeral public key
+      xdr.ScVal.scvBytes(metadataBytes),    // metadata (view tag)
+    ),
+  )
+  .setTimeout(30)
+  .build();
+```
+
+<Info>
+  Combining both operations in a single transaction is more than convenience — it is a **privacy guarantee**. If they were separate transactions, an observer could see the swap output land at an address with no prior history, then see an announcement shortly after, and correlate them by timing. In a single atomic transaction, the swap and announcement are indistinguishable from the announcer's perspective.
+</Info>
+
+---
+
+## Step 6 — Simulate, sign, and fee-bump the transaction
+
+Soroban transactions need a resource footprint (CPU instructions, memory, read/write keys) attached before submission. `simulateTransaction` computes this, and `assembleTransaction` bakes it into the transaction.
+
+After the inner transaction is signed, it is wrapped in a **fee-bump transaction**. The fee-bump sponsor pays all fees (inclusion + Soroban resource), allowing the sender to use a minimally funded account or enabling a relayer to subsidize the swap flow.
+
+```typescript
+// ─── Simulate to get the resource footprint ─────────────────────────────────
+
+const simResult = await server.simulateTransaction(innerTx);
+if (SorobanRpc.Api.isSimulationError(simResult)) {
+  throw new Error(`Simulation failed: ${simResult.error}`);
+}
+
+// Assemble the footprint into the transaction.
+const assembledTx = SorobanRpc.assembleTransaction(innerTx, simResult).build();
+
+// ─── Sign the inner transaction ───────────────────────────────────────────────
+
+assembledTx.sign(senderKeypair);
+
+// ─── Wrap in a fee-bump transaction ──────────────────────────────────────────
+//
+// The fee-bump sponsor is a separate keypair that pays all fees.
+// This is useful when:
+//   - The sender's account has minimal XLM and should not pay Soroban resource fees.
+//   - A relayer service subsidizes swaps for UX reasons.
+//   - You want to prioritize inclusion by bidding a higher per-operation fee.
+
+const feeSponsorKeypair = Keypair.fromSecret(process.env.FEE_SPONSOR_SECRET!);
+const FEE_BUMP_PER_OP = "100000"; // 0.01 XLM per operation — higher = faster inclusion
+
+const feeBumpTx = TransactionBuilder.buildFeeBumpTransaction(
+  feeSponsorKeypair.publicKey(),  // fee-paying account
+  FEE_BUMP_PER_OP,                 // base fee per operation
+  assembledTx,                     // signed inner transaction
+  FUTURENET_PASSPHRASE,            // network passphrase
+);
+
+// Sign the fee-bump envelope with the sponsor's key.
+feeBumpTx.sign(feeSponsorKeypair);
+
+// ─── Submit ──────────────────────────────────────────────────────────────────
+
+const submitResult = await server.sendTransaction(feeBumpTx);
+
+if (submitResult.status === "ERROR") {
+  throw new Error(`Transaction failed: ${submitResult.errorResult?.resultXdr}`);
+}
+
+console.log("Fee-bumped tx submitted:", submitResult.hash);
+// https://futurenet.stellar.expert/explorer/futurenet/tx/<hash>
+```
+
+> [!WARNING]
+> The fee-bump sponsor must have sufficient XLM to cover the total fee (`fee_per_operation × number_of_operations + Soroban resource fees`). With 2 operations at 100 000 stroops each, the inclusion fee alone is 200 000 stroops (0.02 XLM). Soroban resource fees for the swap + announce are typically 30 000–80 000 stroops additional.
+
+---
+
+## End-to-end Futurenet example
+
+The following is a complete, self-contained function combining all the steps above. It runs on **Stellar Futurenet** and swaps XLM → USDC via the Phoenix Router (potentially through a PHO intermediate hop), then announces the output to a stealth address in a single fee-bumped transaction.
+
+```typescript
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+  getDeployment,
+  bytesToHex,
+} from "@wraith-protocol/sdk/chains/stellar";
+import {
+  Address,
+  BASE_FEE,
+  Contract,
+  Keypair,
+  Networks,
+  SorobanRpc,
+  TransactionBuilder,
+  nativeToScVal,
+  scValToNative,
+  xdr,
+} from "@stellar/stellar-sdk";
+
+// ─── Config ──────────────────────────────────────────────────────────────────
+
+const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+
+const PHOENIX_ROUTER = "CBRD4L2KK56EUQM7TA6KRUVWTBGZR4O26ZB4LQZ6PHO7HDOVLZSCJNNL";
+const XLM_CONTRACT  = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC";
+const USDC_CONTRACT = "CBBHRKEP5M3NUDRISGLJKGHDHX3DA2CN2AZBQY6WLVUJ7VNLGSKBDUCM";
+
+const server = new SorobanRpc.Server(FUTURENET_RPC);
+
+// ─── Simulation helper ─────────────────────────────────────────────────────────
+
+async function simulateContractCall(
+  contractId: string,
+  method: string,
+  args: xdr.ScVal[],
+  sourcePublicKey: string,
+): Promise<xdr.ScVal> {
+  const sourceAccount = await server.getAccount(sourcePublicKey);
+  const contract = new Contract(contractId);
+
+  const tx = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(contract.call(method, ...args))
+    .setTimeout(30)
+    .build();
+
+  const result = await server.simulateTransaction(tx);
+  if (SorobanRpc.Api.isSimulationError(result)) {
+    throw new Error(`Simulation failed for ${method}: ${result.error}`);
+  }
+
+  return result.result!.retval;
+}
+
+// ─── Main flow ───────────────────────────────────────────────────────────────
+
+async function phoenixSwapAndStealthAnnounce(opts: {
+  recipientMetaAddress: string;  // "st:xlm:..."
+  xlmAmountRaw: bigint;          // e.g. 10_000_000n for 1 XLM
+  slippageBps: number;           // e.g. 50 = 0.5 %
+  senderKeypair: Keypair;
+  feeSponsorKeypair: Keypair;
+}) {
+  const {
+    recipientMetaAddress,
+    xlmAmountRaw,
+    slippageBps,
+    senderKeypair,
+    feeSponsorKeypair,
+  } = opts;
+
+  const senderAddress = senderKeypair.publicKey();
+
+  // 1. Derive one-time stealth address from the recipient's meta-address.
+  const { spendingPubKey, viewingPubKey } =
+    decodeStealthMetaAddress(recipientMetaAddress);
+  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+  console.log("Stealth address:", stealth.stealthAddress);
+
+  // 2. Quote: XLM → USDC via Phoenix Router (may route through PHO).
+  //    Fetch immediately before building — never cache quotes.
+  const quoteScVal = await simulateContractCall(
+    PHOENIX_ROUTER,
+    "quote",
+    [
+      new Address(XLM_CONTRACT).toScVal(),
+      new Address(USDC_CONTRACT).toScVal(),
+      xdr.ScVal.scvI128(
+        new xdr.Int128Parts({ hi: BigInt(0), lo: xlmAmountRaw }),
+      ),
+    ],
+    senderAddress,
+  );
+
+  const quoteResult = scValToNative(quoteScVal) as {
+    amount_out: bigint;
+    path: string[];
+    fee_bps: number;
+  };
+
+  const amountOut = quoteResult.amount_out;
+  const path = quoteResult.path;
+  const feeBps = quoteResult.fee_bps;
+
+  console.log(
+    `Quoted: ${Number(xlmAmountRaw) / 1e7} XLM → ` +
+    `~${Number(amountOut) / 1e7} USDC ` +
+    `(route: ${path.join(" → ")}, fee: ${feeBps} bps)`,
+  );
+
+  // 3. Construct slippage and deadline parameters.
+  const minAmountOut =
+    (amountOut * BigInt(10_000 - slippageBps)) / BigInt(10_000);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 300); // 5 min
+
+  console.log(
+    `Min USDC out: ${Number(minAmountOut) / 1e7} (at ${slippageBps} bps slippage)`,
+  );
+
+  // 4. Build the combined swap + announce transaction.
+  const deployment = getDeployment("futurenet");
+  const phoenixRouter = new Contract(PHOENIX_ROUTER);
+  const announcer = new Contract(deployment.contracts.announcer);
+
+  const pathScVal = xdr.ScVal.scvVec(
+    path.map((addr) => new Address(addr).toScVal()),
+  );
+  const amountInScVal = xdr.ScVal.scvI128(
+    new xdr.Int128Parts({ hi: BigInt(0), lo: xlmAmountRaw }),
+  );
+  const minOutScVal = xdr.ScVal.scvI128(
+    new xdr.Int128Parts({ hi: BigInt(0), lo: minAmountOut }),
+  );
+  const deadlineScVal = nativeToScVal(deadline, { type: "u64" });
+  const toScVal = new Address(stealth.stealthAddress).toScVal();
+
+  const ephemeralBytes = Buffer.from(stealth.ephemeralPubKey);
+  const metadataBytes = Buffer.from([stealth.viewTag]);
+
+  const sourceAccount = await server.getAccount(senderAddress);
+
+  const innerTx = new TransactionBuilder(sourceAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+  })
+    .addOperation(
+      phoenixRouter.call(
+        "swap",
+        pathScVal,
+        amountInScVal,
+        minOutScVal,
+        deadlineScVal,
+        toScVal,
+      ),
+    )
+    .addOperation(
+      announcer.call(
+        "announce",
+        nativeToScVal(1, { type: "u32" }),            // schemeId
+        new Address(stealth.stealthAddress).toScVal(),  // stealthAddress
+        xdr.ScVal.scvBytes(ephemeralBytes),             // ephemeralPubKey
+        xdr.ScVal.scvBytes(metadataBytes),               // metadata (view tag)
+      ),
+    )
+    .setTimeout(30)
+    .build();
+
+  // 5. Simulate to get the resource footprint.
+  const simResult = await server.simulateTransaction(innerTx);
+  if (SorobanRpc.Api.isSimulationError(simResult)) {
+    throw new Error(`Simulation failed: ${simResult.error}`);
+  }
+
+  const assembledTx = SorobanRpc.assembleTransaction(
+    innerTx,
+    simResult,
+  ).build();
+
+  // 6. Sign the inner transaction.
+  assembledTx.sign(senderKeypair);
+
+  // 7. Wrap in a fee-bump transaction.
+  const FEE_BUMP_PER_OP = "100000"; // 0.01 XLM per operation
+
+  const feeBumpTx = TransactionBuilder.buildFeeBumpTransaction(
+    feeSponsorKeypair.publicKey(),
+    FEE_BUMP_PER_OP,
+    assembledTx,
+    FUTURENET_PASSPHRASE,
+  );
+
+  feeBumpTx.sign(feeSponsorKeypair);
+
+  // 8. Submit the fee-bumped transaction.
+  const submitResult = await server.sendTransaction(feeBumpTx);
+
+  if (submitResult.status === "ERROR") {
+    throw new Error(`Transaction failed: ${submitResult.errorResult?.resultXdr}`);
+  }
+
+  console.log("Fee-bumped tx hash:", submitResult.hash);
+  // https://futurenet.stellar.expert/explorer/futurenet/tx/<hash>
+
+  return {
+    txHash: submitResult.hash,
+    stealthAddress: stealth.stealthAddress,
+    amountOut,
+    minAmountOut,
+    route: path,
+  };
+}
+```
+
+<Note>
+  The fee-bump sponsor keypair and the sender keypair must be different accounts. The sponsor pays fees; the sender authorizes the swap and announcement. If you do not need fee sponsorship, sign and submit `assembledTx` directly instead of wrapping it.
+</Note>
+
+---
+
+## Recipient: scan and detect the payment
+
+Scanning works the same as any Wraith payment — the only difference is the swapped asset ends up in the stealth account instead of XLM.
+
+```typescript
+import {
+  deriveStealthKeys,
+  scanAnnouncements,
+  fetchAnnouncements,
+  STEALTH_SIGNING_MESSAGE,
+} from "@wraith-protocol/sdk/chains/stellar";
+import { Keypair } from "@stellar/stellar-sdk";
+
+// 1. Derive keys from wallet signature (done once; store viewing key securely).
+const recipientKeypair = Keypair.fromSecret(process.env.RECIPIENT_SECRET!);
+const sig = recipientKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
+const keys = deriveStealthKeys(sig);
+
+// 2. Fetch all announcements from the Soroban announcer contract.
+const announcements = await fetchAnnouncements("futurenet");
+
+// 3. Scan — returns only the announcements that belong to this recipient.
+const matched = scanAnnouncements(
+  announcements,
+  keys.viewingKey,
+  keys.spendingPubKey,
+  keys.spendingScalar,
+);
+
+for (const m of matched) {
+  console.log("Received payment at stealth address:", m.stealthAddress);
+  // m.stealthPrivateScalar is the raw ed25519 scalar to spend from m.stealthAddress
+}
+```
+
+Spending (signing a transaction from the stealth address) is covered in [Stellar Primitives — signStellarTransaction](/sdk/chains/stellar#signstellartransaction).
+
+---
+
+## Error handling and retries
+
+| Error | Cause | Fix |
+|---|---|---|
+| `Simulation failed: contract error #1` | Insufficient liquidity for the input amount | Reduce `amountIn` or try a different token pair |
+| Transaction reverts with `BelowMinOut` | Price moved beyond `min_amount_out` between simulation and inclusion | Re-quote and rebuild; increase `slippageBps` |
+| Transaction reverts with `Expired` | Ledger close time exceeded `deadline` | Rebuild with a fresh `deadline`; ensure the fee-bump fee is high enough for prompt inclusion |
+| `tx_bad_seq` | Account sequence mismatch (stale `sourceAccount`) | Re-fetch `server.getAccount()` before building |
+| `insufficient_fee` | Fee-bump fee too low for Soroban resource consumption | Increase `FEE_BUMP_PER_OP`; check the simulation result for the required resource fee |
+| `FeeBumpInnerFailed` | One of the inner operations (swap or announce) failed | Check the inner transaction's result codes; re-quote and rebuild |
+
+```typescript
+async function phoenixSwapWithRetry(opts: {
+  recipientMetaAddress: string;
+  xlmAmountRaw: bigint;
+  slippageBps: number;
+  senderKeypair: Keypair;
+  feeSponsorKeypair: Keypair;
+  maxAttempts?: number;
+}) {
+  const maxAttempts = opts.maxAttempts ?? 3;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await phoenixSwapAndStealthAnnounce(opts);
+    } catch (err: unknown) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+
+      // Retry on slippage / expiry / sequence errors; bail on auth errors.
+      const retriable =
+        msg.includes("BelowMinOut") ||
+        msg.includes("Expired") ||
+        msg.includes("tx_bad_seq");
+
+      if (!retriable) throw err;
+
+      const delay = 1000 * attempt;
+      console.warn(
+        `Attempt ${attempt} failed, retrying in ${delay}ms: ${msg}`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+```
+
+---
+
+## Production checklist
+
+- Keep `slippageBps` between 30–100 for liquid pairs (XLM/USDC, XLM/PHO). Wider tolerances expose the recipient to worse fills.
+- Always re-quote within a few seconds of building the transaction. Phoenix on-chain quotes reflect real-time pool reserves.
+- Keep your `SENDER_SECRET` and `FEE_SPONSOR_SECRET` server-side. Neither must appear in browser JavaScript.
+- Use a dedicated fee-sponsor account that is not linked to the sender or recipient. If the sponsor is the same as the sender, the privacy benefit of the fee-bump is lost.
+- Set `deadline` to 300 seconds (5 minutes) for interactive flows. For automated relayer flows, use 60 seconds to prevent stale execution.
+- The fee-bump sponsor must have sufficient XLM to cover the total fee. Monitor the sponsor's balance and top up before it falls below the reserve threshold.
+- Announcing in the same transaction as the swap is a privacy guarantee — do not split them into separate transactions.
+- On mainnet, verify all contract IDs against the Phoenix Protocol deployment manifest before using them.
+
+---
+
+## See also
+
+- [Soroswap: Swap-then-Stealth](/guides/integrations/soroswap) — the off-chain aggregator approach to the same swap-and-announce pattern
+- [Aquarius LP Incentivization](/guides/integrations/aquarius) — claim LP rewards into a stealth address
+- [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — inclusion fees, Soroban resource fees, and fee-bump transaction mechanics
+- [Stellar Custom Assets (USDC)](/guides/stellar-custom-assets) — SAC mechanics, trustline handling, and the SAC compatibility matrix
+- [Stellar Primitives](/sdk/chains/stellar) — `generateStealthAddress`, `scanAnnouncements`, `signStellarTransaction`, and all low-level functions
+- [Stellar Transaction Simulation](/guides/stellar-tx-simulation) — pre-flight both the swap and announce calls before submitting
+- [Wraith Names on Stellar](/guides/wraith-names-stellar) — resolve `.wraith` names to meta-addresses
+- [Self-Hosted Deployment](/guides/ops/self-hosted-deployment) — deploy Wraith contracts to your own Futurenet instance
