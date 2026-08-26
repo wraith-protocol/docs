@@ -97,6 +97,7 @@
             "group": "Reference",
             "pages": [
               "reference/audits",
+              "reference/auditor-guide",
               "reference/security-disclosure",
               "reference/stellar-networks",
               "reference/threat-model"
