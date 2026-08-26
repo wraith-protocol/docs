@@ -1,0 +1,152 @@
+---
+title: "Auditor Guide"
+description: "Start here to file a security finding against Wraith Protocol — severity matrix, reward posture, PoC template, and response SLA"
+---
+
+This is the on-ramp for security researchers who want to actually file a finding against Wraith Protocol. It assumes you can read TypeScript and are comfortable with smart-contract or TEE threat modeling, but it does **not** assume you have read everything else first.
+
+If you just want to report a bug, jump to [Submitting a Report](#submitting-a-report). If you want to reproduce something first, start with the [PoC Template](#poc-repository-template).
+
+<Note>
+  This guide is the companion to the [Security Disclosure Policy](/reference/security-disclosure) and the [Threat Model](/reference/threat-model). Read those two before submitting a formal report — they define scope, safe harbor, and the full STRIDE analysis that your finding should map onto.
+</Note>
+
+## 1. Orient yourself
+
+Wraith Protocol ships the same privacy guarantees across four chains, each with its own contract set:
+
+| Chain | Contracts / scripts |
+|---|---|
+| EVM | `ERC5564Announcer`, `ERC6538Registry`, `WraithSender`, `WraithNames`, `WraithWithdrawer` |
+| Stellar | `stealth-announcer`, `stealth-registry`, `stealth-sender`, `wraith-names` |
+| Solana | `wraith-announcer`, `wraith-sender`, `wraith-names` |
+| CKB | `wraith-stealth-lock`, `wraith-names-type` |
+
+Out of scope for the contracts threat model (analyzed separately): the off-chain TEE server, the SDK client, indexers, and relayers. Those are still in scope for the **bounty** if a real user-risk path exists — see [Scope](/reference/security-disclosure#scope).
+
+The fastest way to find a relevant prior analysis is to grep the [Threat Model](/reference/threat-model) for the contract you are reviewing. Every threat there carries an ID (`E-07`, `S-11`, `L-05`, `C-04`, `R-01`, …) that you should cite in your report.
+
+## 2. Set up a reproduction environment
+
+Clone the SDK and point it at a testnet. You do not need a TEE to reproduce most contract or SDK findings — testnet funds and a local script are enough.
+
+```ts
+import { Wraith, Chain } from "@wraith-protocol/sdk";
+
+const wraith = new Wraith({
+  chain: Chain.Stellar,
+  network: "testnet",
+  apiKey: process.env.WRAITH_API_KEY,
+});
+
+const { metaAddress } = await wraith.generateStealthKeys();
+const { stealthAddress, ephemeralPubKey } =
+  await wraith.generateStealthAddress(metaAddress);
+
+console.log("stealthAddress", stealthAddress);
+console.log("ephemeralPubKey", ephemeralPubKey);
+```
+
+<Note>
+  Never run a proof of concept against wallets or agents you do not own. Use
+  testnet environments wherever possible, and do not exfiltrate user funds or
+  keys from production. See the safe-harbor constraints in the
+  [Security Disclosure Policy](/reference/security-disclosure#safe-harbor).
+</Note>
+
+## 3. Severity matrix
+
+We use a four-level scale aligned with CVSS v3. The definitions mirror [Security Disclosure Policy → Severity Definitions](/reference/security-disclosure#severity-definitions); the right-hand column gives a concrete, Wraith-shaped example you can map a finding onto.
+
+| Severity | Definition | Wraith-shaped example |
+|---|---|---|
+| **Critical** | Remote key exfiltration, arbitrary fund theft, TEE bypass, complete loss of privacy across all users | `E-20` / `E-23` — `WraithNames` signature forgery or a `_decompressPoint` bug that lets an attacker hijack a name or register a key they don't control. `E-28` — `WraithWithdrawer` that can drain a stealth address without its key. `C-04` — wrong `blake160` personalization in `wraith-stealth-lock` that breaks all stealth derivation. `R-01` — ephemeral key reuse linking every payment from a sender; `R-06` — malformed CKB `lockArgs` permanently locking capacity. |
+| **High** | Partial key leakage, targeted fund theft, stealth-address deanonymization for a specific user | `E-07` — replayed `registerKeysOnBehalf` signature. `E-14` — arbitrary `token` address in `WraithSender` enabling a malicious-token re-entry. `E-15` — `msg.value` not validated against `sum(amounts)` in `batchSendETH`. `S-11` — `stealth-sender` `init` callable more than once (admin takeover). `R-02` — viewing-key exposure; `R-08` — unburned upgrade authority on Solana/Stellar contracts. |
+| **Medium** | Limited information disclosure, integrity violation without direct fund loss, privacy degradation requiring unusual conditions | `E-08` / `E-09` — EIP-712 domain separation or meta-address overwrite race in `ERC6538Registry`. `E-17` — `gasTip` forwarded to an attacker-controlled contract. `S-15` — Stellar SAC `AUTH_REQUIRED` / `AUTH_CLAWBACK_ENABLED` interaction. `R-03` — stealth-address dust attacks; `R-04` — withdrawal timing/amount correlation. |
+| **Low** | Minor information leakage, requires physical access or an already-compromised machine, no realistic path to fund loss | `E-02` — malformed announcer event causing scan misses (no fund loss). `E-05` — announcement log flooding raising scan cost. `E-10` — missing meta-address length check in the EVM registry. `C-16` — brute-forceable short name hashes (no privacy reliance). |
+
+If your finding does not fit cleanly, pick the row whose *impact* matches best and justify it in the report. Severity drives both the fix SLA and the reward range.
+
+## 4. Reward posture
+
+Wraith Protocol operates a **discretionary USDC bug bounty**. Rewards are paid in USDC on the chain of your choice. The program is discretionary: it is not a binding obligation, and we may modify ranges or discontinue it with reasonable notice.
+
+| Severity | Reward range |
+|---|---|
+| Critical | $5,000 – $20,000 |
+| High | $1,000 – $5,000 |
+| Medium | $250 – $1,000 |
+| Low | $0 – $250 |
+
+Awards within each range depend on report quality, novelty, clarity of the proof of concept, and user impact. Reports with a working exploit and clear remediation advice receive higher awards. The **first** reporter of a given vulnerability receives the reward; duplicates and out-of-scope or policy-violating reports are not eligible.
+
+We also provide **public credit** (with your permission) in advisories and the fix changelog. Anonymous disclosure is respected.
+
+<Note>
+  Full eligibility, safe-harbor, and coordinated-disclosure terms are in the
+  [Security Disclosure Policy → Recognition and Rewards](/reference/security-disclosure#recognition-and-rewards).
+</Note>
+
+## 5. PoC repository template
+
+A finding is far more likely to be triaged quickly if it ships with a reproducible proof of concept. Use the template repository as a starting point:
+
+**Template:** [wraith-protocol/security-poc-template](https://github.com/wraith-protocol/docs/tree/develop/reference/auditor-poc-template)
+
+The repository has a fixed, minimal structure. Keep your repro self-contained — a reviewer should be able to clone, install, and run it without Wraith-specific setup beyond an API key and testnet funds.
+
+```
+security-poc-template/
+├── README.md          # One-page summary: affected component, environment, how to run
+├── repro.ts           # Minimal, self-contained reproduction script
+├── EXPECTED_OUTPUT.md # What a successful reproduction prints or which on-chain state proves impact
+└── (optional)         # Foundry / Anchor / Soroban harness if the finding is contract-level
+```
+
+| File | What it must contain |
+|---|---|
+| `README.md` | Title, affected component + version/commit, environment (chain, network, SDK version), step-by-step run instructions, and a one-line impact statement. |
+| `repro.ts` | The smallest script that demonstrates the bug. Prefer the SDK entry points; avoid unrelated logic that could mask the issue. |
+| `EXPECTED_OUTPUT.md` | The exact console output, transaction hash, or on-chain state that proves the vulnerability fired. Screenshots are acceptable but text is preferred. |
+
+If your finding is contract-level (EVM/Solana/Stellar/CKB), include the deployment or invocation harness as an optional file so the reviewer can replay it against a testnet or local validator.
+
+## 6. Response SLA
+
+From the moment your email arrives, these are our commitments. If we cannot meet a deadline we will tell you proactively and explain why. For issues under active exploitation we move faster.
+
+| Stage | Target |
+|---|---|
+| Acknowledgment | 1 business day |
+| Initial triage & severity assessment | 3 business days |
+| Fix timeline communicated to reporter | 7 business days |
+| Patch shipped — critical / high | 14 days |
+| Patch shipped — medium | 45 days |
+| Patch shipped — low | 90 days |
+| Coordinated disclosure window | 90 days from a confirmed, complete, reproducible report |
+
+After a patch ships we coordinate the public disclosure date with you. If 90 days pass without a patch for reasons outside your control, you may disclose; we will not pursue legal or reputational action against you.
+
+## 7. Submitting a report
+
+Email **security@usewraith.xyz**. Do not open a public GitHub issue or post publicly until a fix ships and coordinated disclosure is agreed. Use PGP for sensitive PoC material — the public key is at [https://usewraith.xyz/.well-known/security.txt](https://usewraith.xyz/.well-known/security.txt).
+
+Include:
+
+- A clear title and one-line summary.
+- The affected component(s) and version or commit hash.
+- The threat-model ID(s) your finding relates to (e.g. `E-15`, `R-01`).
+- Steps to reproduce, as minimal as possible.
+- Your proof of concept (link the repo from [Section 5](#poc-repository-template)).
+- Your severity assessment and why.
+- Suggested fix or mitigation, if you have one.
+- Whether you want public credit, and what name to use.
+
+See the full [Security Disclosure Policy → What to Include in a Report](/reference/security-disclosure#what-to-include-in-a-report) for the complete checklist.
+
+## See also
+
+- [Security Disclosure Policy](/reference/security-disclosure) — scope, safe harbor, rewards, and report checklist
+- [Threat Model](/reference/threat-model) — full STRIDE analysis and residual risks (`R-01` … `R-08`)
+- [Audits](/reference/audits) — summaries of completed reviews and raw reports
+- [TEE Security](/architecture/tee) — key derivation, attestation, and the privacy model
