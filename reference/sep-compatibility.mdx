@@ -1,0 +1,53 @@
+---
+title: "Stellar SEP Compatibility"
+description: "Which Stellar Ecosystem Proposals (SEPs) Wraith Protocol supports, partially supports, or does not implement — with links to relevant SDK code and guides"
+keywords: "Stellar, SEP, SEP-1, SEP-2, SEP-6, SEP-10, SEP-12, SEP-24, SEP-31, SEP-41, federation, anchor, SAC, compatibility"
+---
+
+This page answers a single question: **which Stellar Ecosystem Proposals (SEPs) does Wraith Protocol implement?** It is intended for custodians, anchors, and on-ramps evaluating integration feasibility.
+
+## What "supported" means
+
+| Status | Meaning |
+|---|---|
+| **Supported** | Wraith Protocol ships SDK code or contracts that implement the SEP. Integrators can rely on it today. |
+| **Partial** | Wraith consumes the SEP's output (reads data produced by a compliant server) but does not provide tooling to author or host the required server-side component. |
+| **n/a** | Wraith Protocol does not implement this SEP and has no immediate plans to. The absence is intentional — stealth address flows do not require it. |
+
+Statuses are derived from the codebase as of the version in `package.json`. A partial or n/a status is not a bug: Wraith is a stealth address protocol, not a full anchor platform.
+
+---
+
+## Compatibility matrix
+
+| SEP | Name | Status | Where the code lives | Further reading |
+|---|---|---|---|---|
+| [SEP-1](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0001.md) | Stellar Info File (`stellar.toml`) | **Partial** | `resolveStellarFederation()` in `@wraith-protocol/sdk/chains/stellar` fetches and parses `stellar.toml` to locate a domain's `FEDERATION_SERVER`. The SDK does not provide tooling to author or host a `stellar.toml`. | [Stellar Federation guide](/guides/stellar-federation) — the "Setting Up Federation for Your Domain" section shows a minimal `stellar.toml` you can write by hand |
+| [SEP-2](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0002.md) | Federation Protocol | **Supported** | `resolveStellarFederation()` in `@wraith-protocol/sdk/chains/stellar` — full two-step resolution (stellar.toml fetch → federation GET), pluggable cache, normalised error codes, and TypeScript types | [Stellar Federation Addresses](/guides/stellar-federation) — complete reference: protocol walkthrough, SDK helper API, caching, failure modes, and UX patterns |
+| [SEP-6](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0006.md) | Deposit and Withdrawal API | **n/a** | Not implemented. Wraith does not operate an anchor and does not expose the SEP-6 HTTP API. | — |
+| [SEP-10](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0010.md) | Stellar Authentication | **n/a** | Not implemented. Wraith agent authentication uses Wraith API keys, not SEP-10 JWTs. | — |
+| [SEP-12](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0012.md) | KYC API | **n/a** | Not implemented. Wraith is a privacy protocol; it does not collect or forward KYC data. | — |
+| [SEP-24](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0024.md) | Hosted Deposit and Withdrawal | **n/a** | Not implemented. Wraith does not operate an interactive anchor UI. | — |
+| [SEP-31](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0031.md) | Cross-Border Payments | **n/a** | Not implemented. Wraith does not act as a sending or receiving anchor for cross-border corridors. | — |
+| [SEP-41](https://developers.stellar.org/docs/tokens/token-interface) | Token Interface (Soroban) | **Supported** | `stealth-sender` v1.2 interacts with any Soroban contract implementing the SEP-41 interface (including all Stellar Asset Contracts). Transfers, trustline creation via `trust()`, and compatibility checks for `AUTH_REQUIRED` / `AUTH_CLAWBACK_ENABLED` flags are all handled. | [Stellar Custom Assets guide](/guides/stellar-custom-assets) — full reference: SAC overview, USDC issuer addresses, trustline handling, fee estimates, and the June 2026 SAC compatibility audit |
+
+---
+
+## Notes for anchors and custodians
+
+**Sending to a Wraith agent via federation (SEP-2):** If you operate a federation server, Wraith agents expose their stealth meta-address through the Wraith API and can register a federation address on any domain. When a sender's federation lookup returns a `st:xlm:...` stealth meta-address in `account_id`, the Wraith SDK detects the prefix and routes the payment through the stealth address flow automatically. See the [Stellar Federation guide](/guides/stellar-federation) for the complete integration pattern.
+
+**SEP-41 asset support:** USDC (Circle) and EURC carry no restrictive flags and are fully compatible with `stealth-sender`. Assets with `AUTH_REQUIRED` are incompatible with stealth flows (the issuer cannot pre-authorize freshly generated one-time addresses without breaking the privacy model). Assets with `AUTH_CLAWBACK_ENABLED` work at the protocol level but allow the issuer to reclaim balances; the SDK surfaces a warning before such a payment is sent. See the [June 2026 SAC compatibility audit](/reference/audits) for the full findings.
+
+**SEP-6 / SEP-24 / SEP-31 workflows:** These standards describe anchor-operated HTTP APIs for fiat on/off-ramp flows. Wraith does not implement any of them and does not need to — integrations that connect a Wraith agent to a SEP-6 or SEP-24 anchor should use the anchor's SDK on the application layer, resolve the final Stellar address (or stealth meta-address) from the anchor, and then hand it to the Wraith agent as a destination.
+
+**SEP-10 authentication:** Wraith uses its own API-key scheme for agent authentication. If your platform requires SEP-10 JWT verification on incoming payment requests, implement it in your own middleware before forwarding to the Wraith API — the Wraith SDK does not issue or validate SEP-10 tokens.
+
+---
+
+## Related
+
+- [Stellar Federation Addresses](/guides/stellar-federation) — SEP-2 implementation deep-dive
+- [Stellar Custom Assets](/guides/stellar-custom-assets) — SEP-41 / SAC compatibility and USDC stealth payments
+- [Stellar Primitives SDK](/sdk/chains/stellar) — full export reference for `@wraith-protocol/sdk/chains/stellar`
+- [Audits](/reference/audits) — SAC compatibility audit (June 2026) covering SEP-41 asset flag interactions

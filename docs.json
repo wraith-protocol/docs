@@ -99,6 +99,7 @@
               "reference/audits",
               "reference/auditor-guide",
               "reference/security-disclosure",
+              "reference/sep-compatibility",
               "reference/stellar-networks",
               "reference/threat-model"
             ]
