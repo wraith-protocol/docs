@@ -41,3 +41,5 @@ We operate a discretionary USDC bug bounty:
 Complete details — scope, severity definitions, coordinated disclosure terms, safe-harbor language, reward criteria, and what to include in a report — are in our security disclosure policy:
 
 **https://docs.usewraith.xyz/reference/security-disclosure**
+
+Researchers who want to file a finding should also read the **[Auditor Guide](https://docs.usewraith.xyz/reference/auditor-guide)** — it includes the severity matrix with Wraith-specific examples, the reward ranges, a proof-of-concept template, and our response SLA.
