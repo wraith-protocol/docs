@@ -1,0 +1,824 @@
+---
+title: "Sponsored Batch Send: Paymaster Covers Reserves"
+description: "Use BeginSponsoringFutureReserves with Wraith batch send so a single paymaster account pays the 1 XLM minimum reserve for every new stealth recipient — ideal for airdrops and payroll."
+keywords: "Stellar, soroban, sponsored reserves, BeginSponsoringFutureReserves, EndSponsoringFutureReserves, batch send, airdrop, payroll, stealth address, paymaster, XLM reserve"
+---
+
+When you send tokens to a brand-new stealth address on Stellar, the recipient account must be
+activated with a **1 XLM minimum base reserve**. For a single payment this is a minor inconvenience.
+For an airdrop to 100 recipients it becomes a coordination problem: who carries those 100 XLM, and
+how is the cost tracked and recovered?
+
+Stellar's **sponsored reserves** feature solves this cleanly. A paymaster account wraps the entire
+batch in `BeginSponsoringFutureReserves` / `EndSponsoringFutureReserves` operations, taking
+responsibility for every new account's reserve in a single atomic transaction. The paymaster can
+recoup the cost later or absorb it as an operational expense — either way, recipients need zero XLM
+to start spending.
+
+> **Prerequisite reading:** Understand how stealth addresses, batch send, and fee-bump transactions
+> work before continuing.
+> - [Stellar Quickstart](/guides/stellar/stellar-quickstart) — stealth keys, meta-addresses, scanning
+> - [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — fee-bump sponsorship and cost model
+
+---
+
+## How Stellar Sponsored Reserves Work
+
+Every Stellar account requires a minimum XLM balance — **1 XLM base reserve** — before it can hold
+any balance. Normally the sender pays this by funding the account with `createAccount`. With sponsored
+reserves the paymaster pays instead:
+
+```
+BeginSponsoringFutureReserves(sponsored = recipient_address)
+  └─ CreateAccount(destination = recipient_address, startingBalance = "0")
+EndSponsoringFutureReserves(sponsored = recipient_address)
+```
+
+The `BeginSponsoringFutureReserves` operation designates a sponsor for any ledger entries created
+between it and the matching `EndSponsoringFutureReserves`. The `CreateAccount` with
+`startingBalance = "0"` activates the account while the sponsor covers the 1 XLM reserve obligation.
+
+### Reserve vs. Fee — What the Paymaster Actually Pays
+
+| Cost | Who pays | When refunded |
+|---|---|---|
+| **1 XLM base reserve** per new account | Sponsor (paymaster) | When the sponsored account is merged with `AccountMerge` |
+| **Trustline reserve** (0.5 XLM per non-native asset) | Sponsor or recipient, depending on who calls `ChangeTrust` under sponsorship | Same: on trustline removal |
+| **Transaction inclusion fee** | Transaction source account (or fee-bump payer) | Never — burned by network |
+| **Soroban resource fee** | Transaction source account (or fee-bump payer) | Never — burned by network |
+
+Key insight: **reserves are a loan, not a burn.** The paymaster's 100 XLM for 100 accounts is locked
+on-chain but returned in full when every sponsored account is eventually merged. Fees, by contrast,
+are gone permanently.
+
+### When Sponsorship Is Refunded
+
+A sponsor recovers its locked XLM when the sponsored account calls `AccountMerge` and designates a
+merge destination. The `AccountMerge` operation transfers the account's balance to the destination
+and unlinks all sponsored ledger entries, returning the reserve obligation to the sponsor's available
+balance.
+
+Recipients can do this after spending stealth funds: sweep the token balance out, then merge the
+empty stealth account, returning the 1 XLM reserve to the paymaster.
+
+---
+
+## Transaction Structure for a Sponsored Batch
+
+Each recipient in the batch requires a sponsor triplet: begin-sponsoring → create-account →
+end-sponsoring. These are interleaved with the stealth payment and announcement operations.
+
+For N recipients the operation sequence inside one transaction is:
+
+```
+[For each recipient i = 1..N]
+  BeginSponsoringFutureReserves(sponsored = stealth_address_i)
+  CreateAccount(destination = stealth_address_i, startingBalance = "0")
+  EndSponsoringFutureReserves(sponsored = stealth_address_i)
+  Payment(destination = stealth_address_i, asset = TOKEN, amount = amount_i)
+
+[Once, after all recipients]
+  InvokeContractFunction(stealth-sender::batch_send, announcements[])
+```
+
+Stellar allows up to **100 operations per transaction**, so the practical limit per transaction is:
+- 3 sponsor operations × N recipients + N payment operations + 1 batch announce = 4N + 1 operations
+- Solving for the max: `4N + 1 ≤ 100` → **N ≤ 24 recipients per transaction**
+
+For larger batches (e.g. 100 recipients) split into chunks of 24 and submit multiple transactions,
+each wrapped in its own fee-bump if desired.
+
+<Note>
+  If recipients already have funded accounts (returning airdrop participants, payroll employees with
+  existing wallets) you can skip the sponsorship triplet for those addresses. Check existence with
+  `server.loadAccount()` before building the transaction and only add sponsorship for new accounts.
+</Note>
+
+---
+
+## Prerequisites
+
+```bash
+npm install @wraith-protocol/sdk @stellar/stellar-sdk
+```
+
+Environment variables used in the examples below:
+
+```bash
+SPONSOR_SECRET=S...          # Paymaster secret key — must hold enough XLM for reserves
+SENDER_SECRET=S...           # Token sender secret key — holds the tokens to distribute
+STELLAR_RPC_URL=https://soroban-testnet.stellar.org
+STELLAR_HORIZON_URL=https://horizon-testnet.stellar.org
+```
+
+The sponsor and sender can be the **same account** for simplicity, or separate accounts for cleaner
+accounting. The examples keep them separate so each role is explicit.
+
+---
+
+## Step 1 — Derive Stealth Addresses for All Recipients
+
+Before building the transaction you need a stealth address and ephemeral key for each recipient.
+
+```typescript
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// One meta-address per recipient (loaded from your recipients list)
+const recipientMetaAddresses: string[] = [
+  "st:xlm:aabbcc...001122...", // recipient 1
+  "st:xlm:ddeeff...334455...", // recipient 2
+  // ...up to 24 per transaction chunk
+];
+
+interface StealthRecipient {
+  stealthAddress: string;
+  ephemeralPubKey: Uint8Array;
+  viewTag: number;
+}
+
+function deriveRecipients(metaAddresses: string[]): StealthRecipient[] {
+  return metaAddresses.map((meta) => {
+    const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(meta);
+    const { stealthAddress, ephemeralPubKey, viewTag } = generateStealthAddress(
+      spendingPubKey,
+      viewingPubKey,
+    );
+    return { stealthAddress, ephemeralPubKey, viewTag };
+  });
+}
+```
+
+---
+
+## Step 2 — Check Which Accounts Already Exist
+
+Skip sponsorship for accounts that are already funded to avoid wasting operations.
+
+```typescript
+import { Horizon } from "@stellar/stellar-sdk";
+
+const horizon = new Horizon.Server(
+  process.env.STELLAR_HORIZON_URL ?? "https://horizon-testnet.stellar.org",
+);
+
+async function filterNewAccounts(
+  recipients: StealthRecipient[],
+): Promise<Set<string>> {
+  const newAccounts = new Set<string>();
+
+  await Promise.all(
+    recipients.map(async ({ stealthAddress }) => {
+      try {
+        await horizon.loadAccount(stealthAddress);
+        // Account exists — no sponsorship needed
+      } catch {
+        // loadAccount throws when the account is not found
+        newAccounts.add(stealthAddress);
+      }
+    }),
+  );
+
+  return newAccounts;
+}
+```
+
+---
+
+## Step 3 — Build the Sponsored Batch Transaction
+
+This is the core of the pattern. For each new account we sandwich a `createAccount` between
+`BeginSponsoringFutureReserves` and `EndSponsoringFutureReserves`, then add a payment, and finally
+invoke `batch_send` once for all the announcements.
+
+```typescript
+import {
+  Keypair,
+  Networks,
+  Operation,
+  TransactionBuilder,
+  Asset,
+} from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc, xdr, Address, nativeToScVal } from "@stellar/stellar-sdk";
+import {
+  getDeployment,
+  createAnnounceOperation,
+  bytesToHex,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+const NETWORK_PASSPHRASE = Networks.TESTNET;
+const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const SEND_AMOUNT = "10"; // Each recipient gets 10 USDC
+
+async function buildSponsoredBatch(
+  recipients: StealthRecipient[],
+  newAccounts: Set<string>,
+): Promise<ReturnType<TransactionBuilder["build"]>> {
+  const sponsorKeypair = Keypair.fromSecret(process.env.SPONSOR_SECRET!);
+  const senderKeypair = Keypair.fromSecret(process.env.SENDER_SECRET!);
+
+  // Load sponsor account for sequence number (sponsor is the transaction source)
+  const sponsorAccount = await horizon.loadAccount(sponsorKeypair.publicKey());
+
+  const deployment = getDeployment("stellar");
+  const usdcAsset = new Asset("USDC", USDC_ISSUER);
+
+  const builder = new TransactionBuilder(sponsorAccount, {
+    fee: "1000000", // High fee ceiling — prepareTransaction will tighten this
+    networkPassphrase: NETWORK_PASSPHRASE,
+  });
+
+  // ── Sponsor + payment operations for each recipient ──────────────────────
+  for (const { stealthAddress } of recipients) {
+    if (newAccounts.has(stealthAddress)) {
+      // 1. Tell the network this account's reserves will be sponsored
+      builder.addOperation(
+        Operation.beginSponsoringFutureReserves({
+          sponsoredId: stealthAddress,
+          source: sponsorKeypair.publicKey(),
+        }),
+      );
+
+      // 2. Activate the account — startingBalance "0" is valid because the
+      //    sponsor covers the 1 XLM reserve obligation
+      builder.addOperation(
+        Operation.createAccount({
+          destination: stealthAddress,
+          startingBalance: "0",
+          source: sponsorKeypair.publicKey(),
+        }),
+      );
+
+      // 3. End the sponsorship window for this specific account.
+      //    The `source` here must be the sponsored account itself.
+      builder.addOperation(
+        Operation.endSponsoringFutureReserves({
+          source: stealthAddress,
+        }),
+      );
+    }
+
+    // 4. Send USDC to the stealth address (from the sender account, not the sponsor)
+    builder.addOperation(
+      Operation.payment({
+        destination: stealthAddress,
+        asset: usdcAsset,
+        amount: SEND_AMOUNT,
+        source: senderKeypair.publicKey(),
+      }),
+    );
+  }
+
+  // ── Single batch announce operation for all recipients ───────────────────
+  const announceOp = createAnnounceOperation({
+    contractId: deployment.contracts.announcer,
+    announcements: recipients.map(({ stealthAddress, ephemeralPubKey, viewTag }) => ({
+      stealthAddress,
+      ephemeralPubKey,
+      viewTag,
+      asset: "USDC",
+      amount: SEND_AMOUNT,
+    })),
+    source: senderKeypair.publicKey(),
+  });
+
+  builder.addOperation(announceOp);
+
+  return builder.setTimeout(120).build();
+}
+```
+
+---
+
+## Step 4 — Simulate, Sign, and Submit
+
+Because the transaction includes a Soroban invocation the fees must be calculated via simulation
+before signing. `prepareTransaction` from the Soroban RPC handles this.
+
+```typescript
+import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+
+const soroban = new SorobanRpc.Server(
+  process.env.STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org",
+);
+
+async function submitSponsoredBatch(
+  recipients: StealthRecipient[],
+  newAccounts: Set<string>,
+): Promise<string> {
+  const sponsorKeypair = Keypair.fromSecret(process.env.SPONSOR_SECRET!);
+  const senderKeypair = Keypair.fromSecret(process.env.SENDER_SECRET!);
+
+  // 1. Build the unsigned transaction
+  const tx = await buildSponsoredBatch(recipients, newAccounts);
+
+  // 2. Simulate to calculate Soroban resource fees
+  const preparedTx = await soroban.prepareTransaction(tx);
+
+  // 3. Sign with BOTH the sponsor (transaction source) and the sender
+  //    (source of payment and announce operations).
+  //    Each new stealth address must also authorize EndSponsoringFutureReserves —
+  //    but since the stealth address key is controlled by the sender SDK
+  //    (it was just derived), we can sign on its behalf here.
+  preparedTx.sign(sponsorKeypair);
+  preparedTx.sign(senderKeypair);
+
+  // Sign each new stealth address key for EndSponsoringFutureReserves
+  for (const { stealthAddress } of recipients) {
+    if (newAccounts.has(stealthAddress)) {
+      // In a real airdrop the stealth private key is derived from the ephemeral scalar.
+      // Here we illustrate that the sender SDK controls these keys at send time.
+      // See deriveStealthPrivateScalar in @wraith-protocol/sdk/chains/stellar.
+      const stealthKeypair = Keypair.fromPublicKey(stealthAddress);
+      // NOTE: sign with the actual derived scalar — shown in the full example below
+      void stealthKeypair; // placeholder — see Step 5 for the full signing loop
+    }
+  }
+
+  // 4. Submit
+  const result = await soroban.sendTransaction(preparedTx);
+
+  if (result.status === "ERROR") {
+    throw new Error(`Transaction failed: ${JSON.stringify(result.errorResult)}`);
+  }
+
+  // 5. Poll for confirmation
+  let getResult = await soroban.getTransaction(result.hash);
+  while (
+    getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    getResult = await soroban.getTransaction(result.hash);
+  }
+
+  if (getResult.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+    throw new Error(`Transaction finalized with FAILED status: ${result.hash}`);
+  }
+
+  console.log("Batch confirmed:", result.hash);
+  return result.hash;
+}
+```
+
+---
+
+## Step 5 — Full Airdrop Example (100 Recipients)
+
+This self-contained example ties everything together. It processes 100 recipients in chunks of 24,
+derives stealth addresses, checks for existing accounts, builds the sponsored batch, signs
+`EndSponsoringFutureReserves` with derived stealth scalars, and submits each chunk.
+
+```typescript
+import {
+  Keypair,
+  Networks,
+  Operation,
+  TransactionBuilder,
+  Asset,
+} from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc, Horizon } from "@stellar/stellar-sdk";
+import {
+  decodeStealthMetaAddress,
+  generateStealthAddress,
+  deriveStealthPrivateScalar,
+  getDeployment,
+  createAnnounceOperation,
+} from "@wraith-protocol/sdk/chains/stellar";
+
+// ── Configuration ─────────────────────────────────────────────────────────────
+
+const HORIZON_URL = "https://horizon-testnet.stellar.org";
+const RPC_URL     = "https://soroban-testnet.stellar.org";
+const PASSPHRASE  = Networks.TESTNET;
+
+// NOTE: swap these for mainnet when ready:
+// const HORIZON_URL = "https://horizon.stellar.org";
+// const RPC_URL     = "https://rpc.mainnet.stellar.org"; // your provider
+// const PASSPHRASE  = Networks.PUBLIC;
+
+const USDC_ISSUER  = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const SEND_AMOUNT  = "10";    // USDC per recipient
+const CHUNK_SIZE   = 24;      // max recipients per transaction (4N+1 ≤ 100 ops)
+
+const horizon = new Horizon.Server(HORIZON_URL);
+const soroban = new SorobanRpc.Server(RPC_URL);
+const deployment = getDeployment("stellar");
+const usdcAsset   = new Asset("USDC", USDC_ISSUER);
+
+// ── Keypairs ──────────────────────────────────────────────────────────────────
+
+const sponsorKeypair = Keypair.fromSecret(process.env.SPONSOR_SECRET!);
+const senderKeypair  = Keypair.fromSecret(process.env.SENDER_SECRET!);
+
+// ── Recipient list (100 meta-addresses loaded from your data source) ──────────
+
+const ALL_META_ADDRESSES: string[] = Array.from(
+  { length: 100 },
+  (_, i) => `st:xlm:placeholder${i.toString().padStart(3, "0")}`, // replace with real meta-addresses
+);
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function accountExists(address: string): Promise<boolean> {
+  try {
+    await horizon.loadAccount(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// ── Per-chunk transaction builder ─────────────────────────────────────────────
+
+interface ChunkRecipient {
+  metaAddress: string;
+  stealthAddress: string;
+  ephemeralPubKey: Uint8Array;
+  ephemeralPrivKey: Uint8Array; // needed to sign EndSponsoringFutureReserves
+  viewTag: number;
+  isNew: boolean;
+}
+
+async function prepareChunk(metaAddresses: string[]): Promise<ChunkRecipient[]> {
+  return Promise.all(
+    metaAddresses.map(async (meta) => {
+      const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(meta);
+      const { stealthAddress, ephemeralPubKey, ephemeralPrivKey, viewTag } =
+        generateStealthAddress(spendingPubKey, viewingPubKey);
+      const isNew = !(await accountExists(stealthAddress));
+      return { metaAddress: meta, stealthAddress, ephemeralPubKey, ephemeralPrivKey, viewTag, isNew };
+    }),
+  );
+}
+
+async function processChunk(chunk: string[], chunkIndex: number): Promise<string> {
+  console.log(`\nChunk ${chunkIndex + 1}: processing ${chunk.length} recipients…`);
+
+  // 1. Derive stealth addresses and check existence in parallel
+  const recipients = await prepareChunk(chunk);
+  const newCount = recipients.filter((r) => r.isNew).length;
+  console.log(`  ${newCount} new accounts need sponsorship, ${chunk.length - newCount} existing`);
+
+  // 2. Load sponsor account for sequence number
+  const sponsorAccount = await horizon.loadAccount(sponsorKeypair.publicKey());
+
+  const builder = new TransactionBuilder(sponsorAccount, {
+    fee: "1000000",
+    networkPassphrase: PASSPHRASE,
+  });
+
+  // 3. Add sponsor + payment ops for each recipient
+  for (const r of recipients) {
+    if (r.isNew) {
+      builder.addOperation(
+        Operation.beginSponsoringFutureReserves({
+          sponsoredId: r.stealthAddress,
+          source: sponsorKeypair.publicKey(),
+        }),
+      );
+      builder.addOperation(
+        Operation.createAccount({
+          destination: r.stealthAddress,
+          startingBalance: "0",        // sponsor covers the 1 XLM reserve
+          source: sponsorKeypair.publicKey(),
+        }),
+      );
+      builder.addOperation(
+        Operation.endSponsoringFutureReserves({
+          source: r.stealthAddress,    // must be signed by the sponsored account
+        }),
+      );
+    }
+
+    builder.addOperation(
+      Operation.payment({
+        destination: r.stealthAddress,
+        asset: usdcAsset,
+        amount: SEND_AMOUNT,
+        source: senderKeypair.publicKey(),
+      }),
+    );
+  }
+
+  // 4. Single batch announce for all announcements in this chunk
+  builder.addOperation(
+    createAnnounceOperation({
+      contractId: deployment.contracts.announcer,
+      announcements: recipients.map((r) => ({
+        stealthAddress: r.stealthAddress,
+        ephemeralPubKey: r.ephemeralPubKey,
+        viewTag: r.viewTag,
+        asset: "USDC",
+        amount: SEND_AMOUNT,
+      })),
+      source: senderKeypair.publicKey(),
+    }),
+  );
+
+  const tx = builder.setTimeout(180).build();
+
+  // 5. Simulate and prepare Soroban fees
+  const preparedTx = await soroban.prepareTransaction(tx);
+
+  // 6. Sign: sponsor + sender + each new stealth address
+  //    (EndSponsoringFutureReserves requires a signature from the sponsored account)
+  preparedTx.sign(sponsorKeypair);
+  preparedTx.sign(senderKeypair);
+
+  for (const r of recipients) {
+    if (r.isNew) {
+      // The ephemeral private key controls the stealth address at send time.
+      // We derive the stealth Keypair from the scalar to sign EndSponsoringFutureReserves.
+      const stealthScalar = deriveStealthPrivateScalar(
+        r.ephemeralPrivKey,
+        r.ephemeralPubKey,
+        r.viewTag,
+      );
+      // Convert scalar to a Stellar Keypair via raw seed bytes
+      const stealthKeypair = Keypair.fromRawEd25519Seed(
+        Buffer.from(stealthScalar.toString(16).padStart(64, "0"), "hex"),
+      );
+      preparedTx.sign(stealthKeypair);
+    }
+  }
+
+  // 7. Submit and poll
+  const sendResult = await soroban.sendTransaction(preparedTx);
+  if (sendResult.status === "ERROR") {
+    throw new Error(
+      `Chunk ${chunkIndex + 1} submission error: ${JSON.stringify(sendResult.errorResult)}`,
+    );
+  }
+
+  let pollResult = await soroban.getTransaction(sendResult.hash);
+  while (pollResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
+    await new Promise((r) => setTimeout(r, 2000));
+    pollResult = await soroban.getTransaction(sendResult.hash);
+  }
+
+  if (pollResult.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+    throw new Error(`Chunk ${chunkIndex + 1} failed on-chain: ${sendResult.hash}`);
+  }
+
+  console.log(`  ✓ Chunk ${chunkIndex + 1} confirmed: ${sendResult.hash}`);
+  return sendResult.hash;
+}
+
+// ── Main entry point ──────────────────────────────────────────────────────────
+
+async function runAirdrop(): Promise<void> {
+  const chunks = chunkArray(ALL_META_ADDRESSES, CHUNK_SIZE);
+  console.log(
+    `Starting airdrop: ${ALL_META_ADDRESSES.length} recipients → ${chunks.length} transactions`,
+  );
+
+  const hashes: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const hash = await processChunk(chunks[i]!, i);
+    hashes.push(hash);
+  }
+
+  console.log(`\nAirdrop complete. Transaction hashes:\n${hashes.join("\n")}`);
+}
+
+runAirdrop().catch((err) => {
+  console.error("Airdrop failed:", err);
+  process.exit(1);
+});
+```
+
+---
+
+## Cost Model for 100 Recipients
+
+Assuming all 100 accounts are new (worst case):
+
+| Line item | Calculation | Total (stroops) | Total (XLM) |
+|---|---|---:|---:|
+| Sponsor reserves | 100 × 1 XLM (locked, refundable) | — | **100 XLM locked** |
+| Inclusion fee (per chunk, 5 chunks of 20) | 5 × (4×20+1) × 100 | 40,500 | ~0.00405 XLM |
+| Soroban resource fee (batch announce ×5) | 5 × ~110,000 | 550,000 | ~0.055 XLM |
+| **Total burned (non-refundable)** | | **590,500** | **~0.059 XLM** |
+| **Total locked (refundable on merge)** | | — | **100 XLM** |
+
+Compare with the naive approach (100 separate `createAccount` + `send` transactions): the
+non-refundable fee cost is roughly the same, but sponsorship consolidates accounting and removes
+the requirement for each recipient to hold XLM before spending.
+
+See [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) for per-operation baselines and
+Soroban resource fee formulas.
+
+---
+
+## Failure Modes
+
+### Sponsor Account Authorization Revocation (`op_not_authorized`)
+
+**Cause:** The sponsor's account has had its signing authority changed (e.g. via `SetOptions` with a
+new signer or threshold change) between building and submitting the transaction, or the sponsor
+account itself has been flagged by an asset issuer.
+
+**Detection:** The transaction result will show `op_not_authorized` on one of the
+`BeginSponsoringFutureReserves` operations.
+
+**Recovery:**
+
+```typescript
+// Before building the batch, verify the sponsor account is in good standing
+async function verifySponsor(sponsorAddress: string): Promise<void> {
+  const account = await horizon.loadAccount(sponsorAddress);
+
+  // Check the account is not flagged
+  if ((account.flags as { auth_revocable?: boolean }).auth_revocable) {
+    throw new Error("Sponsor account has auth_revocable set — reserved entries may be revoked.");
+  }
+
+  // Verify available balance covers reserves
+  const xlmBalance = account.balances.find((b) => b.asset_type === "native");
+  if (!xlmBalance) throw new Error("Sponsor has no XLM balance entry.");
+
+  const available = parseFloat(xlmBalance.balance) - parseFloat((account as unknown as { min_balance: string }).min_balance ?? "0");
+  const reservesNeeded = 100; // 1 XLM × 100 recipients
+  if (available < reservesNeeded) {
+    throw new Error(
+      `Sponsor has ${available} XLM available but needs ${reservesNeeded} XLM for reserves.`,
+    );
+  }
+
+  console.log(`Sponsor verified. Available: ${available} XLM`);
+}
+```
+
+### Insufficient Sponsor Reserves (`op_low_reserve`)
+
+**Cause:** The sponsor account's available balance (total balance minus its own minimum reserve) is
+less than 1 XLM × number of new accounts being sponsored in the transaction.
+
+**Calculation:** The sponsor needs:
+
+```
+available_xlm ≥ (new_accounts_in_chunk × 1 XLM) + own_base_reserve (1 XLM) + fee_buffer (1 XLM)
+```
+
+**Recovery:** Fund the sponsor account before the batch run. A sponsor for 100 recipients should
+hold at least 103 XLM (100 reserves + 1 base reserve + 2 XLM fee buffer).
+
+```typescript
+async function checkSponsorCapacity(
+  sponsorAddress: string,
+  newAccountCount: number,
+): Promise<void> {
+  const account = await horizon.loadAccount(sponsorAddress);
+  const xlmEntry = account.balances.find((b) => b.asset_type === "native");
+  if (!xlmEntry) throw new Error("No XLM balance.");
+
+  const totalBalance = parseFloat(xlmEntry.balance);
+  // Base reserve = 1 XLM + 0.5 XLM per existing sub-entry
+  const subEntries = (account as unknown as { subentry_count: number }).subentry_count ?? 0;
+  const ownReserve = 1 + subEntries * 0.5;
+  const feeBuffer = 2;
+  const reservesRequired = newAccountCount * 1;
+  const required = ownReserve + feeBuffer + reservesRequired;
+
+  if (totalBalance < required) {
+    throw new Error(
+      `Sponsor needs ${required} XLM but only has ${totalBalance} XLM. ` +
+        `Fund with at least ${(required - totalBalance).toFixed(2)} more XLM.`,
+    );
+  }
+
+  console.log(
+    `Sponsor capacity OK: ${totalBalance} XLM available, ${required} XLM required.`,
+  );
+}
+```
+
+### `EndSponsoringFutureReserves` Signature Missing (`tx_bad_auth`)
+
+**Cause:** `EndSponsoringFutureReserves` must be signed by the sponsored account (the new stealth
+address). If the signing loop is missing or uses the wrong key, the transaction fails auth checks.
+
+**Fix:** Ensure every new stealth address signs the transaction. The stealth address private key
+is derived from `deriveStealthPrivateScalar` using the ephemeral key generated at send time.
+
+### Token Transfer Fails After Successful Account Creation (`op_no_trust`)
+
+**Cause:** When sending non-native assets (USDC, etc.) to a brand-new stealth account, the account
+needs a trustline for the asset before it can receive it. `CreateAccount` alone does not establish
+trustlines.
+
+**Fix:** Add a `ChangeTrust` operation inside the sponsorship window so the trustline reserve is
+also sponsored:
+
+```typescript
+// Add after CreateAccount, before EndSponsoringFutureReserves
+builder.addOperation(
+  Operation.changeTrust({
+    asset: usdcAsset,
+    limit: "1000000",
+    source: stealthAddress,   // the new account establishes its own trustline
+  }),
+);
+// EndSponsoringFutureReserves will cover the 0.5 XLM trustline reserve too
+```
+
+This increases the sponsor's reserve obligation per account from **1 XLM to 1.5 XLM**.
+
+---
+
+## Recovering Sponsored Reserves
+
+When a stealth address holder has spent their tokens and wants to release the paymaster's locked XLM,
+they call `AccountMerge`:
+
+```typescript
+import { Keypair, Operation, TransactionBuilder, Networks } from "@stellar/stellar-sdk";
+import { deriveStealthPrivateScalar } from "@wraith-protocol/sdk/chains/stellar";
+
+async function mergeStealthAccount(
+  stealthPrivScalar: bigint,
+  mergeDestination: string, // typically the paymaster or recipient's main wallet
+): Promise<string> {
+  const stealthKeypair = Keypair.fromRawEd25519Seed(
+    Buffer.from(stealthPrivScalar.toString(16).padStart(64, "0"), "hex"),
+  );
+
+  const stealthAccount = await horizon.loadAccount(stealthKeypair.publicKey());
+
+  const tx = new TransactionBuilder(stealthAccount, {
+    fee: "100",
+    networkPassphrase: Networks.TESTNET,
+  })
+    .addOperation(
+      Operation.accountMerge({
+        destination: mergeDestination,
+      }),
+    )
+    .setTimeout(60)
+    .build();
+
+  tx.sign(stealthKeypair);
+
+  const result = await horizon.submitTransaction(tx);
+  console.log("Account merged, reserves returned. Hash:", result.hash);
+  return result.hash;
+}
+```
+
+After the merge, the 1 XLM (or 1.5 XLM with trustline) reserved by the paymaster is credited back
+to the paymaster's spendable balance.
+
+---
+
+## Futurenet Testing
+
+Futurenet runs the latest Soroban preview protocol. Wraith contracts are not deployed there, but
+you can test the sponsorship and account-creation mechanics in isolation:
+
+```typescript
+import { Networks } from "@stellar/stellar-sdk";
+import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+
+const FUTURENET_RPC        = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = Networks.FUTURENET;   // "Test SDF Future Network ; October 2022"
+const FUTURENET_FRIENDBOT  = "https://friendbot-futurenet.stellar.org";
+
+// Fund sponsor on Futurenet
+async function fundOnFuturenet(address: string): Promise<void> {
+  const res = await fetch(`${FUTURENET_FRIENDBOT}?addr=${address}`);
+  if (!res.ok) throw new Error(`Friendbot failed: ${res.status}`);
+  console.log("Funded on Futurenet:", address);
+}
+
+// Swap these into any of the examples above to target Futurenet:
+// const horizon = new Horizon.Server("https://horizon-futurenet.stellar.org"); // if available
+const futurenetSoroban = new SorobanRpc.Server(FUTURENET_RPC);
+void futurenetSoroban; // ready for use with FUTURENET_PASSPHRASE
+```
+
+<Warning>
+  Futurenet resets without notice and runs pre-release protocol versions. Use it to
+  validate sponsorship mechanics against upcoming Stellar upgrades, not for integration testing.
+  For full end-to-end airdrop testing with Wraith contracts, use **testnet**.
+  See [Stellar Networks](/reference/stellar-networks) for a full comparison.
+</Warning>
+
+---
+
+## See Also
+
+- [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — fee-bump sponsorship, Soroban resource fees, batch send cost baselines
+- [Stellar Quickstart](/guides/stellar/stellar-quickstart) — stealth keys, meta-addresses, scanning
+- [Stellar Path Payments](/guides/stellar/stellar-path-payment) — pay in any asset, receive target token at stealth address
+- [Stellar Networks](/reference/stellar-networks) — testnet, Futurenet, and mainnet endpoints and contract IDs
+- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — common transaction error codes and fixes
