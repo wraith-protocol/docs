@@ -171,3 +171,11 @@ Both ESM and CJS formats are supported. TypeScript declarations are included.
 - [Stellar Crypto Primitives](chains/stellar) — low-level stealth address functions for Stellar
 - [Solana Crypto Primitives](chains/solana) — low-level stealth address functions for Solana
 - [CKB Crypto Primitives](chains/ckb) — low-level stealth address functions for Nervos CKB
+
+## Using Wraith from Python
+
+If your backend runs Python rather than Node.js, the TypeScript SDK is not required.
+The [Python Quickstart](/guides/quickstarts/python) shows how to derive stealth keys,
+fetch announcements from the Soroban RPC, scan for owned payments, and send a stealth
+transfer — all with `stellar-sdk` and a small inline crypto utility, no TypeScript
+toolchain needed.
