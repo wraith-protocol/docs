@@ -147,6 +147,7 @@
             "pages": [
               "guides/integrations/aquarius",
               "guides/integrations/blend",
+              "guides/integrations/fxdao",
               "guides/integrations/nuxt",
               "guides/integrations/react-native",
               "guides/integrations/reflector",

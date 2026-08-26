@@ -1,0 +1,75 @@
+---
+title: "Fxdao CDP Integration"
+description: "Borrow and forget: Mint USDx against XLM/BLND collateral and route to a stealth address."
+---
+
+# Fxdao CDP Integration
+
+Fxdao is Stellar's leading collateralized-debt platform (CDP), allowing you to mint USDx against XLM or BLND collateral. While [Blend](./blend.mdx) covers general lending, Fxdao enables the missing DeFi flow: borrowing-against-collateral directly to a stealth address. This guide details how to build "borrow-and-forget" recipes on Stellar.
+
+## Concept: One-Step Borrow and Route
+
+The core integration flow is as follows:
+1. **Open Vault**: Create a CDP vault with your specified collateral.
+2. **Mint USDx**: Generate USDx against the collateral.
+3. **Send to Stealth**: Route the minted USDx directly to a stealth address in a single atomic flow.
+
+This allows users to collateralize their assets and receive a stablecoin (USDx) privately, without the destination address being linkable to the CDP vault.
+
+## Collateral Management from a Stealth Address
+
+Managing collateral (adding more or withdrawing) from a stealth address requires careful handling of transaction submissions.
+Since the stealth address is the ultimate owner of the assets, any interactions to manage the vault must originate from or be authorized by the stealth keys. 
+When building your integration, ensure that collateral management transactions use the proper signatures derived from the user's stealth meta-address.
+
+## Liquidation Risk and Health-Factor
+
+<Warning>
+**Liquidation Risk**
+When minting USDx against volatile collateral like XLM or BLND, your vault is subject to liquidation if the collateral value drops below the required threshold.
+</Warning>
+
+<Info>
+**Health-Factor Monitoring**
+Always implement robust health-factor monitoring for your vaults. Since the minted USDx is routed to a stealth address, users might "borrow-and-forget." Your application should notify users or automatically manage collateral if the health factor approaches liquidation levels.
+</Info>
+
+## End-to-End Futurenet Example
+
+Here is a complete example of the integration running on Stellar Futurenet:
+
+```typescript
+import { FxdaoClient } from '@fxdao/sdk';
+import { StealthClient } from '@wraith-protocol/sdk';
+
+async function borrowAndRoute(
+  collateralAmount: string, 
+  mintAmount: string, 
+  stealthMetaAddress: string
+) {
+  // Initialize clients for Futurenet
+  const fxdao = new FxdaoClient({ network: 'futurenet' });
+  const stealth = new StealthClient({ network: 'futurenet' });
+
+  // 1. Generate stealth address for the destination
+  const { stealthAddress } = await stealth.generateAddress(stealthMetaAddress);
+
+  // 2. Open vault and mint USDx
+  // Note: In a real-world scenario, this should be an atomic transaction
+  const vault = await fxdao.openVault({
+    collateralAsset: 'XLM',
+    collateralAmount,
+  });
+
+  const mintTx = await fxdao.mintUSDx({
+    vaultId: vault.id,
+    amount: mintAmount,
+    destination: stealthAddress, // Route directly to stealth address
+  });
+
+  console.log(`Successfully minted ${mintAmount} USDx to stealth address ${stealthAddress}`);
+  console.log(`Vault ID: ${vault.id} | Health Factor: ${vault.healthFactor}`);
+}
+```
+
+For more lending integrations, check out the [Blend Lending Guide](./blend.mdx).
