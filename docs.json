@@ -121,6 +121,10 @@
         "tab": "Guides",
         "groups": [
           {
+            "group": "Quickstarts",
+            "pages": ["guides/quickstarts/rust"]
+          },
+          {
             "group": "Guides",
             "pages": [
               "guides/stealth-payments",
