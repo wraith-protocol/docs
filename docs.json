@@ -82,6 +82,7 @@
             "group": "Architecture",
             "pages": [
               "architecture/overview",
+              "architecture/announcement-format",
               "architecture/chain-connectors",
               "architecture/tee",
               "architecture/stellar-cryptography",
@@ -90,11 +91,18 @@
           },
           {
             "group": "Contracts",
-            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb", "reference/stellar-event-schemas"]
+            "pages": ["contracts/evm", "contracts/stellar", "contracts/solana", "contracts/ckb"]
           },
           {
             "group": "Reference",
-            "pages": ["reference/security-disclosure", "reference/threat-model", "reference/audits"]
+            "pages": [
+              "reference/audits",
+              "reference/auditor-guide",
+              "reference/security-disclosure",
+              "reference/sep-compatibility",
+              "reference/stellar-networks",
+              "reference/threat-model"
+            ]
           }
         ]
       },
@@ -119,24 +127,33 @@
             "pages": [
               "guides/quickstarts/python"
             ]
+            "pages": ["guides/quickstarts/rust"]
           },
           {
             "group": "Guides",
             "pages": [
               "guides/stealth-payments",
+              "guides/stellar-quickstart",
+              "guides/stellar-quickstart.es",
               "guides/single-chain-agent",
               "guides/multichain-agent",
               "guides/bring-your-own-model",
               "guides/privacy-best-practices",
               "guides/stellar-fees",
               "guides/stellar-troubleshooting",
-              "guides/spectre-stellar-cookbook"
+              "guides/spectre-stellar-cookbook",
+              "guides/stellar-wallet-integration"
             ]
           },
           {
             "group": "Integrations",
             "pages": [
-              "guides/integrations/aquarius"
+              "guides/integrations/aquarius",
+              "guides/integrations/blend",
+              "guides/integrations/nuxt",
+              "guides/integrations/react-native",
+              "guides/integrations/reflector",
+              "guides/integrations/soroswap"
             ]
           },
           {
@@ -145,6 +162,7 @@
               "guides/stellar-mainnet-deployment",
               "guides/stellar-payment-links",
               "guides/stellar-multisig-withdrawal",
+              "guides/stellar/multisig-authority-rotation",
               "guides/stellar-offline-signing",
               "guides/stellar-tx-simulation",
               "guides/stellar-explorer-recipes",
@@ -153,13 +171,12 @@
               "guides/stellar/stellar-liquidity-pool-swap",
               "guides/stellar/stellar-path-payment",
               "guides/stellar/sponsored-batch-send",
+              "guides/stellar/passkey-signing",
+              "guides/stellar/stellar-quickstart",
+              "guides/stellar/wraith-names-lifecycle",
               "guides/wraith-names-stellar",
               "guides/ops/self-hosted-deployment"
             ]
-          },
-          {
-            "group": "Integrations",
-            "pages": ["guides/integrations/nuxt"]
           }
         ]
       },
@@ -171,6 +188,7 @@
             "pages": [
               "api-reference/endpoints",
               "api-reference/fetch-announcements-stream",
+              "api-reference/stealth-keys",
               "api-reference/types"
             ]
           }

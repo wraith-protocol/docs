@@ -4,12 +4,13 @@
   "type": "module",
   "scripts": {
     "check:snippets": "tsx scripts/check-snippets.ts",
+    "check:nav-coverage": "node scripts/check-nav-coverage.mjs",
     "check:stellar-testnet": "tsx scripts/check-stellar-testnet-snippets.ts",
     "generate:stellar-reference": "tsx scripts/generate-stellar-reference.ts",
     "check:stellar-reference": "tsx scripts/generate-stellar-reference.ts --check --allow-missing",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
-    "test": "npm run check:snippets"
+    "test": "npm run check:snippets && npm run check:nav-coverage"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0",
