@@ -1,0 +1,693 @@
+---
+title: 'Monitoring, Alerting, and On‑Call Runbook'
+sidebarTitle: 'Monitoring & On‑Call'
+description: 'Production runbook for Wraith Protocol: metrics, dashboards, alerts, incident playbooks, and tabletop exercises'
+---
+
+This guide provides a complete operational runbook for teams running self-hosted Wraith Protocol instances in production. It covers healthy metric baselines, Grafana dashboards, Prometheus alerting rules, incident response playbooks, and a quarterly tabletop exercise.
+
+<Note>
+  This guide assumes you have already deployed Wraith Protocol using the [Self-Hosted Deployment](/guides/ops/self-hosted-deployment) guide. If not, complete that first.
+</Note>
+
+## Overview
+
+Production Wraith deployments require monitoring across four domains:
+
+| Domain | Key Components | Primary Risk |
+|---|---|---|
+| **RPC Layer** | Stellar Horizon RPC, Soroban RPC | Transaction submission failures, ledger query timeouts |
+| **Indexer** | Announcement scanner, event log sync | Missed announcements, backlog buildup |
+| **Contracts** | `stealth-announcer`, `stealth-sender`, `wraith-names` | Contract invocation errors, unauthorized access |
+| **Watcher** | Event drop detection, view-tag scanning | Dropped events, privacy leakage via missed scans |
+
+This runbook is structured around these four domains. Each section defines healthy baselines, provides ready-to-import Grafana dashboards, and links to incident playbooks.
+
+---
+
+## Key Metrics
+
+### RPC Metrics
+
+Monitor these metrics to ensure reliable access to the Stellar network:
+
+| Metric | Description | Healthy Baseline | Alert Threshold |
+|---|---|---|---|
+| `wraith_rpc_latency_seconds` | P95 latency for Horizon/Soroban RPC calls | < 500ms | > 2s for 5min |
+| `wraith_rpc_error_rate` | Percentage of RPC calls returning 5xx or network errors | < 0.5% | > 5% for 2min |
+| `wraith_horizon_backpressure` | Rate-limit 429 responses from Horizon | 0/min | > 10/min |
+| `wraith_soroban_invocation_failures` | Failed contract invocations due to RPC issues | < 1/hour | > 5/hour |
+
+**Collection**: Instrument your SDK or middleware layer with Prometheus client libraries. Example Node.js middleware:
+
+```typescript
+import promClient from 'prom-client';
+
+const rpcLatency = new promClient.Histogram({
+  name: 'wraith_rpc_latency_seconds',
+  help: 'RPC call latency in seconds',
+  labelNames: ['method', 'network'],
+  buckets: [0.1, 0.5, 1, 2, 5],
+});
+
+const rpcErrors = new promClient.Counter({
+  name: 'wraith_rpc_error_rate',
+  help: 'RPC error count',
+  labelNames: ['method', 'status'],
+});
+```
+
+### Indexer Metrics
+
+Track announcement scanning and event synchronization health:
+
+| Metric | Description | Healthy Baseline | Alert Threshold |
+|---|---|---|---|
+| `wraith_announcement_lag_seconds` | Time between announcement emission and indexer ingestion | < 30s | > 300s for 5min |
+| `wraith_indexer_backlog_count` | Number of unprocessed announcements | < 100 | > 1000 |
+| `wraith_scan_miss_rate` | Announcements scanned but not matched (view-tag misses) | < 0.1% | > 5% for 10min |
+| `wraith_indexer_sync_height` | Current ledger height being indexed vs. network tip | lag < 10 ledgers | lag > 50 ledgers |
+
+**Collection**: Expose metrics from your indexer service. Example Rust Prometheus exporter:
+
+```rust
+use prometheus::{Histogram, IntGauge, register_histogram, register_int_gauge};
+
+lazy_static! {
+    static ref ANNOUNCEMENT_LAG: Histogram = register_histogram!(
+        "wraith_announcement_lag_seconds",
+        "Lag between announcement emission and ingestion"
+    ).unwrap();
+
+    static ref INDEXER_BACKLOG: IntGauge = register_int_gauge!(
+        "wraith_indexer_backlog_count",
+        "Count of unprocessed announcements"
+    ).unwrap();
+}
+```
+
+### Contract Metrics
+
+Monitor on-chain contract health and error rates:
+
+| Metric | Description | Healthy Baseline | Alert Threshold |
+|---|---|---|---|
+| `wraith_contract_error_rate` | Failed contract invocations (all contracts) | < 0.1% | > 1% for 5min |
+| `wraith_sender_invocation_latency` | Time from transaction submission to ledger inclusion | < 5s | > 20s for 5min |
+| `wraith_names_registration_failures` | Failed `wraith-names` registrations | 0/hour | > 3/hour |
+| `wraith_unauthorized_access_attempts` | Contract calls with invalid authorization | 0/day | > 1/day |
+
+**Collection**: Parse Soroban contract events and transaction results. Example:
+
+```javascript
+const contractErrors = new promClient.Counter({
+  name: 'wraith_contract_error_rate',
+  help: 'Contract invocation errors',
+  labelNames: ['contract', 'method'],
+});
+
+sorobanClient.on('transactionFailed', (tx) => {
+  contractErrors.inc({ contract: tx.contract, method: tx.method });
+});
+```
+
+### Watcher Metrics
+
+Track event drop detection and view-tag scanning performance:
+
+| Metric | Description | Healthy Baseline | Alert Threshold |
+|---|---|---|---|
+| `wraith_watcher_event_drop_rate` | Events detected as dropped by the watcher | 0/hour | > 5/hour |
+| `wraith_view_tag_scan_duration_seconds` | Time to scan view tags for a single announcement | < 10ms | > 100ms |
+| `wraith_view_tag_false_positive_rate` | View-tag matches that fail full ECDH check | < 1% | > 10% |
+
+**Collection**: Instrument your watcher/scanner service:
+
+```python
+from prometheus_client import Counter, Histogram
+
+event_drops = Counter('wraith_watcher_event_drop_rate', 'Dropped event count')
+scan_duration = Histogram('wraith_view_tag_scan_duration_seconds', 'View tag scan time')
+
+def scan_announcement(announcement):
+    with scan_duration.time():
+        # scanning logic
+        pass
+```
+
+---
+
+## Grafana Dashboards
+
+Import these dashboards into your Grafana instance to visualize Wraith metrics. All dashboards are in the `guides/ops/dashboards/` directory.
+
+### Dashboard 1: RPC Health
+
+**File**: `guides/ops/dashboards/rpc-health.json`
+
+**Panels**:
+- RPC P95 Latency (time series)
+- RPC Error Rate (gauge)
+- Horizon Backpressure (429 responses over time)
+- Soroban Invocation Failures (counter)
+
+**Import**:
+```bash
+curl -X POST http://localhost:3000/api/dashboards/db \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_GRAFANA_API_KEY" \
+  -d @guides/ops/dashboards/rpc-health.json
+```
+
+### Dashboard 2: Indexer Performance
+
+**File**: `guides/ops/dashboards/indexer-performance.json`
+
+**Panels**:
+- Announcement Lag (time series)
+- Indexer Backlog Count (gauge)
+- Scan Miss Rate (percentage over time)
+- Sync Height Lag (ledger difference graph)
+
+### Dashboard 3: Contract Monitoring
+
+**File**: `guides/ops/dashboards/contract-monitoring.json`
+
+**Panels**:
+- Contract Error Rate by Contract (heatmap)
+- Sender Invocation Latency (histogram)
+- Names Registration Failures (counter)
+- Unauthorized Access Attempts (alert panel)
+
+**Cross-Reference**: See [Stellar Cryptography](/architecture/stellar-cryptography) for contract architecture details.
+
+---
+
+## Prometheus Alerting Rules
+
+Import these alerting rules into your Prometheus configuration. The rules file is at `guides/ops/alerts/wraith-alerts.yml`.
+
+### Alerting Philosophy
+
+Each alert includes:
+- **Severity**: Maps to the [Auditor Guide Severity Matrix](/reference/auditor-guide#severity-matrix)
+- **Rationale**: Why this threshold triggers an alert
+- **Playbook**: Link to the incident response playbook
+
+### Rules File: `wraith-alerts.yml`
+
+```yaml
+groups:
+  - name: wraith_rpc_alerts
+    interval: 30s
+    rules:
+      - alert: HighRPCLatency
+        expr: histogram_quantile(0.95, wraith_rpc_latency_seconds) > 2
+        for: 5m
+        labels:
+          severity: high
+          component: rpc
+        annotations:
+          summary: "RPC P95 latency > 2s for 5 minutes"
+          description: "{{ $labels.method }} RPC calls are experiencing high latency. Check Horizon/Soroban RPC health."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-1-rpc-outage"
+
+      - alert: HorizonBackpressure
+        expr: rate(wraith_horizon_backpressure[1m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: rpc
+        annotations:
+          summary: "Horizon rate-limiting detected (> 10 429s/min)"
+          description: "Application is being rate-limited by Horizon. Immediate intervention required."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-2-horizon-backpressure"
+
+  - name: wraith_indexer_alerts
+    interval: 1m
+    rules:
+      - alert: IndexerBacklogBuildup
+        expr: wraith_indexer_backlog_count > 1000
+        for: 5m
+        labels:
+          severity: high
+          component: indexer
+        annotations:
+          summary: "Indexer backlog > 1000 announcements"
+          description: "Indexer is falling behind. Check database performance and announcement rate."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall"
+
+      - alert: AnnouncementLagHigh
+        expr: wraith_announcement_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: medium
+          component: indexer
+        annotations:
+          summary: "Announcement lag > 5 minutes"
+          description: "Users may experience delays seeing incoming stealth payments."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall"
+
+  - name: wraith_contract_alerts
+    interval: 1m
+    rules:
+      - alert: ContractErrorRateHigh
+        expr: rate(wraith_contract_error_rate[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: contracts
+        annotations:
+          summary: "Contract error rate > 1%"
+          description: "Contract invocations are failing at an elevated rate. Check contract state and RPC health."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-4-contract-mispublish"
+
+      - alert: UnauthorizedAccessAttempt
+        expr: wraith_unauthorized_access_attempts > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: contracts
+        annotations:
+          summary: "Unauthorized contract access detected"
+          description: "A contract received a call with invalid authorization. Potential security incident."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-6-key-rotation-incident"
+
+  - name: wraith_watcher_alerts
+    interval: 1m
+    rules:
+      - alert: WatcherEventDropSpike
+        expr: rate(wraith_watcher_event_drop_rate[5m]) > 5
+        for: 2m
+        labels:
+          severity: high
+          component: watcher
+        annotations:
+          summary: "Watcher event drop rate > 5/hour"
+          description: "Events are being dropped. Users may miss stealth payments."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-5-watcher-drop-spike"
+```
+
+**Validation**:
+```bash
+promtool check rules guides/ops/alerts/wraith-alerts.yml
+```
+
+Expected output:
+```
+Checking guides/ops/alerts/wraith-alerts.yml
+  SUCCESS: 8 rules found
+```
+
+---
+
+## Incident Playbooks
+
+Each playbook follows a standard structure: **Symptoms → Diagnosis → Immediate Actions → Long-term Fix → Post-Incident Review**.
+
+### Playbook 1: RPC Outage
+
+**Severity**: Critical ([Auditor Guide Sev 1](/reference/auditor-guide#severity-matrix))  
+**Response SLA**: 15 minutes to acknowledge, 1 hour to mitigation
+
+#### Symptoms
+- `HighRPCLatency` alert firing
+- Users reporting "transaction not found" errors
+- Dashboard shows RPC error rate > 10%
+
+#### Diagnosis
+1. Check Horizon/Soroban RPC status:
+   ```bash
+   curl https://horizon-futurenet.stellar.org/
+   curl https://soroban-testnet.stellar.org/health
+   ```
+2. Verify network connectivity:
+   ```bash
+   traceroute horizon-futurenet.stellar.org
+   ```
+3. Check application logs for RPC timeout patterns:
+   ```bash
+   grep "RPC timeout" /var/log/wraith-app.log | tail -50
+   ```
+
+#### Immediate Actions
+1. **Switch to backup RPC endpoint** (if configured):
+   ```typescript
+   const wraith = new Wraith({
+     rpcUrl: process.env.BACKUP_RPC_URL,
+   });
+   ```
+2. **Enable RPC request queueing** to prevent overwhelming the endpoint:
+   ```typescript
+   const rpcQueue = new PQueue({ concurrency: 10, interval: 1000, intervalCap: 10 });
+   ```
+3. **Post status update** to users via status page or Twitter.
+
+#### Long-term Fix
+- Set up RPC load balancing with multiple Horizon instances
+- Implement exponential backoff for RPC retries
+- Add RPC health checks to pre-deployment tests
+
+#### Post-Incident Review
+- Document RPC failure patterns
+- Update runbook with new diagnostic steps
+- Review RPC provider SLA and consider alternatives
+
+---
+
+### Playbook 2: Horizon Backpressure
+
+**Severity**: Critical ([Auditor Guide Sev 1](/reference/auditor-guide#severity-matrix))  
+**Response SLA**: 15 minutes to acknowledge, 30 minutes to mitigation
+
+#### Symptoms
+- `HorizonBackpressure` alert firing
+- HTTP 429 "Rate Limit Exceeded" responses from Horizon
+- Transaction submission queue building up
+
+#### Diagnosis
+1. Check current rate limit status:
+   ```bash
+   curl -I https://horizon-futurenet.stellar.org/ | grep X-RateLimit
+   ```
+2. Identify which service is generating excessive requests:
+   ```bash
+   grep "429" /var/log/wraith-app.log | cut -d' ' -f1 | sort | uniq -c
+   ```
+
+#### Immediate Actions
+1. **Implement request throttling immediately**:
+   ```typescript
+   import Bottleneck from 'bottleneck';
+   const limiter = new Bottleneck({
+     minTime: 200, // 5 requests/second max
+     maxConcurrent: 1,
+   });
+   ```
+2. **Disable non-critical polling loops** (e.g., balance checks, ledger monitoring).
+3. **Cache RPC responses** for frequently accessed data (account balances, contract state).
+
+#### Long-term Fix
+- Upgrade to a dedicated Horizon instance (not public)
+- Implement intelligent request batching
+- Add rate-limit monitoring to CI/CD pipeline
+
+#### Post-Incident Review
+- Audit all RPC call sites for unnecessary requests
+- Set up proactive rate-limit monitoring (alert at 80% of limit)
+
+---
+
+### Playbook 3: Indexer Stall
+
+**Severity**: High ([Auditor Guide Sev 2](/reference/auditor-guide#severity-matrix))  
+**Response SLA**: 1 hour to acknowledge, 4 hours to mitigation
+
+#### Symptoms
+- `IndexerBacklogBuildup` or `AnnouncementLagHigh` alert firing
+- Users report delayed stealth payment notifications
+- Indexer sync height lagging network tip by > 50 ledgers
+
+#### Diagnosis
+1. Check indexer process health:
+   ```bash
+   systemctl status wraith-indexer
+   journalctl -u wraith-indexer -n 100
+   ```
+2. Check database query performance:
+   ```sql
+   SELECT query, mean_exec_time, calls FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 10;
+   ```
+3. Verify disk I/O isn't saturated:
+   ```bash
+   iostat -x 5 3
+   ```
+
+#### Immediate Actions
+1. **Restart the indexer** if it's stuck:
+   ```bash
+   systemctl restart wraith-indexer
+   ```
+2. **Increase indexer concurrency** temporarily:
+   ```bash
+   export INDEXER_WORKERS=8  # default is 4
+   systemctl restart wraith-indexer
+   ```
+3. **Prioritize recent announcements** by adjusting sync strategy:
+   ```typescript
+   await indexer.syncFrom({ ledger: currentLedger - 100 });
+   ```
+
+#### Long-term Fix
+- Add database indexes on announcement query columns
+- Implement announcement batching (process 100 at a time instead of 1)
+- Scale indexer horizontally with ledger range sharding
+
+#### Post-Incident Review
+- Benchmark indexer throughput under load
+- Add capacity planning metrics (CPU, memory, disk I/O)
+
+---
+
+### Playbook 4: Contract Mispublish
+
+**Severity**: Critical ([Auditor Guide Sev 1](/reference/auditor-guide#severity-matrix))  
+**Response SLA**: 15 minutes to acknowledge, 2 hours to mitigation
+
+#### Symptoms
+- `ContractErrorRateHigh` alert firing
+- Users unable to register names or send stealth payments
+- Soroban RPC returns `contract not found` or `invalid wasm`
+
+#### Diagnosis
+1. Verify deployed contract IDs match expected values:
+   ```bash
+   cat stellar/deployments/futurenet.json | jq '.contracts'
+   ```
+2. Query contract state on-chain:
+   ```bash
+   stellar contract invoke --id <CONTRACT_ID> --network futurenet -- --help
+   ```
+3. Check deployment logs for errors:
+   ```bash
+   grep "deploy failed" /var/log/deploy.log
+   ```
+
+#### Immediate Actions
+1. **Roll back to last known-good contract** (if available):
+   ```bash
+   stellar contract deploy --wasm stealth-sender-v1.2.wasm --network futurenet
+   ```
+2. **Update frontend to point to backup contract** (if multi-contract setup):
+   ```typescript
+   const SENDER_ID = process.env.BACKUP_SENDER_CONTRACT_ID;
+   ```
+3. **Disable contract-dependent features** in the UI to prevent user errors.
+
+#### Long-term Fix
+- Implement blue-green deployments for contracts
+- Add contract state verification to deployment scripts
+- Set up contract upgrade simulations in staging
+
+#### Post-Incident Review
+- Document contract deployment checklist
+- Add contract state smoke tests to CI
+- Review contract upgrade governance process
+
+---
+
+### Playbook 5: Watcher Drop Spike
+
+**Severity**: High ([Auditor Guide Sev 2](/reference/auditor-guide#severity-matrix))  
+**Response SLA**: 1 hour to acknowledge, 4 hours to mitigation
+
+#### Symptoms
+- `WatcherEventDropSpike` alert firing
+- Users report missing stealth payments
+- View-tag scan logs show high false-positive rates
+
+#### Diagnosis
+1. Check watcher process logs:
+   ```bash
+   journalctl -u wraith-watcher -n 200 | grep "drop"
+   ```
+2. Verify event subscription is active:
+   ```typescript
+   const isConnected = await eventStream.isConnected();
+   console.log('Event stream connected:', isConnected);
+   ```
+3. Check for network partitions or RPC instability.
+
+#### Immediate Actions
+1. **Restart the watcher service**:
+   ```bash
+   systemctl restart wraith-watcher
+   ```
+2. **Re-scan recent ledgers** to catch missed events:
+   ```bash
+   wraith-watcher rescan --from-ledger <LAST_GOOD_LEDGER>
+   ```
+3. **Notify users** to check for missing payments manually via explorer.
+
+#### Long-term Fix
+- Implement event stream redundancy (subscribe to multiple RPC endpoints)
+- Add automatic gap detection and backfill
+- Set up watcher health checks with auto-restart
+
+#### Post-Incident Review
+- Analyze root cause of event drops (network, RPC, bug)
+- Add integration tests for event stream resilience
+
+---
+
+### Playbook 6: Key Rotation Incident
+
+**Severity**: Critical ([Auditor Guide Sev 1](/reference/auditor-guide#severity-matrix))  
+**Response SLA**: 15 minutes to acknowledge, immediate mitigation
+
+#### Symptoms
+- `UnauthorizedAccessAttempt` alert firing
+- Contract admin key compromised or needs rotation
+- Suspicious transactions targeting Wraith contracts
+
+#### Diagnosis
+1. Identify unauthorized transactions:
+   ```bash
+   stellar account transactions <DEPLOYER_ADDRESS> --network futurenet | grep "failed"
+   ```
+2. Check contract authorization settings:
+   ```bash
+   stellar contract invoke --id <CONTRACT_ID> --network futurenet -- get_admin
+   ```
+3. Review audit logs for anomalous access patterns.
+
+#### Immediate Actions
+1. **Rotate admin keys immediately** (see [Multisig Authority Rotation](/guides/stellar/multisig-authority-rotation)):
+   ```bash
+   stellar contract invoke --id <CONTRACT_ID> --source new-admin --network futurenet -- set_admin --new_admin <NEW_ADMIN_ADDRESS>
+   ```
+2. **Pause affected contracts** if available:
+   ```bash
+   stellar contract invoke --id <CONTRACT_ID> --source admin --network futurenet -- pause
+   ```
+3. **Notify security team** and begin incident response process.
+
+#### Long-term Fix
+- Implement multisig admin controls for all contracts
+- Add hardware wallet support for admin operations
+- Set up automated key rotation schedule (quarterly)
+
+#### Post-Incident Review
+- Conduct full security audit of contract access patterns
+- Update [Security Disclosure Policy](/reference/security-disclosure) if needed
+- File internal postmortem with root cause analysis
+
+---
+
+## Severity Matrix and Response SLA
+
+This table maps incident types to response SLAs, aligned with the [Auditor Guide Severity Matrix](/reference/auditor-guide#severity-matrix).
+
+| Incident Type | Severity | User Impact | Response SLA | Fix SLA |
+|---|---|---|---|---|
+| **RPC Outage** | Critical | No transactions can be submitted | 15min | 1 hour |
+| **Horizon Backpressure** | Critical | Service degradation, failed submissions | 15min | 30min |
+| **Indexer Stall** | High | Delayed payment notifications | 1 hour | 4 hours |
+| **Contract Mispublish** | Critical | Core functionality unavailable | 15min | 2 hours |
+| **Watcher Drop Spike** | High | Missed stealth payments | 1 hour | 4 hours |
+| **Key Rotation Incident** | Critical | Potential unauthorized access | 15min | Immediate |
+
+**Response SLA**: Time from alert firing to on-call engineer acknowledging and beginning diagnosis.  
+**Fix SLA**: Time from acknowledgment to incident resolved or mitigated.
+
+### Severity Definitions
+
+These align with the [Auditor Guide](/reference/auditor-guide#severity-matrix):
+
+- **Critical**: Complete loss of functionality, security breach, or privacy violation affecting all users.
+- **High**: Partial functionality loss or degradation affecting a subset of users.
+- **Medium**: Limited impact requiring unusual conditions, no direct fund loss.
+- **Low**: Minor issues with no realistic path to user harm.
+
+---
+
+## Tabletop Exercise Script
+
+Run this quarterly drill to validate your team's incident response readiness. The exercise takes 90 minutes and requires:
+- 3-5 participants (on-call engineers, product lead, security contact)
+- Access to a staging environment
+- This runbook and all playbooks printed or open
+
+### Exercise Structure
+
+**Duration**: 90 minutes  
+**Facilitator**: Rotating role (different person each quarter)  
+**Participants**: On-call engineers, product manager, security lead
+
+#### Phase 1: Scenario Briefing (15 minutes)
+
+**Facilitator reads**:  
+> "It's 2 AM on a Saturday. The on-call pager fires: `HorizonBackpressure` alert is critical. Users are reporting failed stealth payments on Twitter. Your staging environment is configured identically to production. You have 60 minutes to resolve the incident."
+
+**Distribute roles**:
+- **Incident Commander**: Coordinates response, makes decisions
+- **Diagnostics Lead**: Runs diagnostic commands, interprets metrics
+- **Comms Lead**: Drafts user-facing status updates
+- **Scribe**: Documents all actions taken for post-incident review
+
+#### Phase 2: Incident Response (45 minutes)
+
+Participants work through [Playbook 2: Horizon Backpressure](#playbook-2-horizon-backpressure) on staging:
+
+1. **Diagnosis** (15 min): Run diagnostic commands, identify root cause
+2. **Mitigation** (20 min): Implement rate limiting, disable non-critical services
+3. **Validation** (10 min): Verify alerts clear, test transaction submission
+
+**Facilitator injects complications**:
+- At T+15min: "The backup RPC endpoint is also returning 429s. What now?"
+- At T+30min: "Marketing is asking for an ETA to post on Twitter. What do you tell them?"
+
+#### Phase 3: Post-Incident Review (30 minutes)
+
+**Discussion prompts**:
+1. What went well? What slowed you down?
+2. Were the diagnostic steps clear? What was missing?
+3. Did you have the access and tools you needed?
+4. What would you change in the playbook?
+5. What should we add to the runbook?
+
+**Action items**:
+- Update playbooks based on learnings
+- Add missing diagnostic tools to on-call toolkit
+- Schedule follow-up training for gaps identified
+
+### Quarterly Rotation
+
+Run different scenarios each quarter:
+
+- **Q1**: Horizon Backpressure (Playbook 2)
+- **Q2**: Indexer Stall (Playbook 3)
+- **Q3**: Key Rotation Incident (Playbook 6)
+- **Q4**: Multi-incident cascade (RPC + Watcher drop)
+
+---
+
+## Cross-References
+
+- [Self-Hosted Deployment](/guides/ops/self-hosted-deployment) — prerequisite deployment guide
+- [Auditor Guide Severity Matrix](/reference/auditor-guide#severity-matrix) — severity definitions and response SLAs
+- [Multisig Authority Rotation](/guides/stellar/multisig-authority-rotation) — key rotation procedures
+- [Stellar Cryptography](/architecture/stellar-cryptography) — contract architecture for debugging
+- [Security Disclosure Policy](/reference/security-disclosure) — incident reporting and safe harbor
+
+---
+
+## Next Steps
+
+1. **Import dashboards**: Load all three Grafana dashboards into your instance.
+2. **Validate alerts**: Run `promtool check rules` on `wraith-alerts.yml`.
+3. **Schedule tabletop**: Put the quarterly drill on the calendar.
+4. **Assign on-call rotation**: Define primary and secondary on-call engineers.
+5. **Test a playbook**: Walk through Playbook 1 (RPC Outage) on staging to validate all commands work.
+
+For operational questions, see the [Self-Hosted Deployment guide](/guides/ops/self-hosted-deployment) or reach out in the Wraith Protocol community Discord.

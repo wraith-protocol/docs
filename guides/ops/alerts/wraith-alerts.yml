@@ -1,0 +1,274 @@
+groups:
+  - name: wraith_rpc_alerts
+    interval: 30s
+    rules:
+      - alert: HighRPCLatency
+        expr: histogram_quantile(0.95, sum(rate(wraith_rpc_latency_seconds_bucket[5m])) by (le, method)) > 2
+        for: 5m
+        labels:
+          severity: high
+          component: rpc
+          team: platform
+        annotations:
+          summary: "RPC P95 latency > 2s for 5 minutes"
+          description: "{{ $labels.method }} RPC calls are experiencing high latency ({{ $value }}s). Check Horizon/Soroban RPC health and network connectivity."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-1-rpc-outage"
+          dashboard: "https://grafana.example.com/d/wraith-rpc-health"
+          runbook_steps: |
+            1. Check RPC endpoint status
+            2. Verify network connectivity
+            3. Switch to backup RPC if available
+            4. Enable request queueing
+
+      - alert: HighRPCErrorRate
+        expr: sum(rate(wraith_rpc_error_rate[5m])) / sum(rate(wraith_rpc_latency_seconds_count[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          component: rpc
+          team: platform
+        annotations:
+          summary: "RPC error rate > 5%"
+          description: "{{ $value | humanizePercentage }} of RPC calls are failing. Immediate investigation required."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-1-rpc-outage"
+
+      - alert: HorizonBackpressure
+        expr: rate(wraith_horizon_backpressure[1m]) > 10
+        for: 2m
+        labels:
+          severity: critical
+          component: rpc
+          team: platform
+          page: "true"
+        annotations:
+          summary: "Horizon rate-limiting detected (> 10 429s/min)"
+          description: "Application is being rate-limited by Horizon at {{ $value }} 429 responses/min. Immediate intervention required to prevent service disruption."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-2-horizon-backpressure"
+          impact: "Users cannot submit transactions. Service degraded."
+
+      - alert: SorobanInvocationFailures
+        expr: rate(wraith_soroban_invocation_failures[1h]) > 5
+        for: 5m
+        labels:
+          severity: high
+          component: rpc
+          team: platform
+        annotations:
+          summary: "Soroban invocation failure rate high"
+          description: "{{ $value }} Soroban invocations failed in the last hour due to RPC issues."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-1-rpc-outage"
+
+  - name: wraith_indexer_alerts
+    interval: 1m
+    rules:
+      - alert: IndexerBacklogBuildup
+        expr: wraith_indexer_backlog_count > 1000
+        for: 5m
+        labels:
+          severity: high
+          component: indexer
+          team: data
+        annotations:
+          summary: "Indexer backlog > 1000 announcements"
+          description: "Indexer is falling behind with {{ $value }} unprocessed announcements. Check database performance and announcement ingestion rate."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall"
+          dashboard: "https://grafana.example.com/d/wraith-indexer-performance"
+          impact: "Users may experience delayed stealth payment notifications."
+
+      - alert: AnnouncementLagHigh
+        expr: wraith_announcement_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: medium
+          component: indexer
+          team: data
+        annotations:
+          summary: "Announcement lag > 5 minutes"
+          description: "Time between announcement emission and indexing is {{ $value }}s. Users may experience delays seeing incoming stealth payments."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall"
+
+      - alert: IndexerSyncHeightLagging
+        expr: (stellar_network_ledger_height - wraith_indexer_sync_height) > 50
+        for: 10m
+        labels:
+          severity: high
+          component: indexer
+          team: data
+        annotations:
+          summary: "Indexer sync height lagging by > 50 ledgers"
+          description: "Indexer is {{ $value }} ledgers behind the network tip. Risk of announcement processing delays."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall"
+
+      - alert: ScanMissRateHigh
+        expr: rate(wraith_scan_miss_rate[10m]) > 0.05
+        for: 10m
+        labels:
+          severity: medium
+          component: indexer
+          team: data
+        annotations:
+          summary: "View-tag scan miss rate > 5%"
+          description: "{{ $value | humanizePercentage }} of scanned announcements are not matching. Check view-tag scanner configuration."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall"
+
+  - name: wraith_contract_alerts
+    interval: 1m
+    rules:
+      - alert: ContractErrorRateHigh
+        expr: sum(rate(wraith_contract_error_rate[5m])) by (contract) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: contracts
+          team: blockchain
+          page: "true"
+        annotations:
+          summary: "Contract {{ $labels.contract }} error rate > 1%"
+          description: "Contract {{ $labels.contract }} invocations are failing at {{ $value | humanizePercentage }}. Check contract state, RPC health, and recent deployments."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-4-contract-mispublish"
+          dashboard: "https://grafana.example.com/d/wraith-contract-monitoring"
+          impact: "Core Wraith functionality may be unavailable to users."
+
+      - alert: SenderInvocationLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(wraith_sender_invocation_latency_seconds_bucket[5m])) by (le)) > 20
+        for: 5m
+        labels:
+          severity: high
+          component: contracts
+          team: blockchain
+        annotations:
+          summary: "Sender invocation P95 latency > 20s"
+          description: "Stealth payment submissions are taking {{ $value }}s at P95. Check RPC performance and network congestion."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-4-contract-mispublish"
+
+      - alert: NamesRegistrationFailures
+        expr: increase(wraith_names_registration_failures[1h]) > 3
+        for: 5m
+        labels:
+          severity: high
+          component: contracts
+          team: blockchain
+        annotations:
+          summary: "Wraith Names registrations failing"
+          description: "{{ $value }} wraith-names registration attempts failed in the last hour. Check contract admin authorization and state."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-4-contract-mispublish"
+
+      - alert: UnauthorizedAccessAttempt
+        expr: increase(wraith_unauthorized_access_attempts[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          component: contracts
+          team: security
+          page: "true"
+        annotations:
+          summary: "SECURITY: Unauthorized contract access detected"
+          description: "{{ $value }} unauthorized access attempt(s) detected on Wraith contracts. Potential security incident - investigate immediately."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-6-key-rotation-incident"
+          impact: "Potential security breach. Admin keys may be compromised."
+          action_required: "1. Verify contract admin keys. 2. Check transaction history. 3. Initiate key rotation if needed. 4. Notify security team."
+
+  - name: wraith_watcher_alerts
+    interval: 1m
+    rules:
+      - alert: WatcherEventDropSpike
+        expr: rate(wraith_watcher_event_drop_rate[5m]) > 5
+        for: 2m
+        labels:
+          severity: high
+          component: watcher
+          team: platform
+        annotations:
+          summary: "Watcher event drop rate > 5/hour"
+          description: "Events are being dropped at {{ $value }}/hour. Users may miss stealth payment notifications."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-5-watcher-drop-spike"
+          impact: "Users may not see incoming stealth payments in wallets."
+
+      - alert: ViewTagScanLatencyHigh
+        expr: histogram_quantile(0.95, rate(wraith_view_tag_scan_duration_seconds_bucket[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: medium
+          component: watcher
+          team: platform
+        annotations:
+          summary: "View-tag scan P95 latency > 100ms"
+          description: "View-tag scanning is taking {{ $value }}s at P95. Risk of announcement processing bottleneck."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-5-watcher-drop-spike"
+
+      - alert: ViewTagFalsePositiveRateHigh
+        expr: rate(wraith_view_tag_false_positive_rate[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: low
+          component: watcher
+          team: platform
+        annotations:
+          summary: "View-tag false positive rate > 10%"
+          description: "{{ $value | humanizePercentage }} of view-tag matches are failing full ECDH check. Consider view-tag configuration review."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-5-watcher-drop-spike"
+
+      - alert: WatcherDown
+        expr: up{job="wraith-watcher"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: watcher
+          team: platform
+          page: "true"
+        annotations:
+          summary: "Watcher service is DOWN"
+          description: "Watcher process is not responding. All event monitoring is offline."
+          playbook: "https://docs.usewraith.xyz/guides/ops/monitoring-and-on-call#playbook-5-watcher-drop-spike"
+          impact: "NO stealth payment events are being processed. Service is effectively down for users."
+          action_required: "Restart watcher service immediately."
+
+  - name: wraith_meta_alerts
+    interval: 5m
+    rules:
+      - alert: TooManyFiringAlerts
+        expr: count(ALERTS{alertstate="firing", severity=~"critical|high"}) > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: meta
+          team: sre
+          page: "true"
+        annotations:
+          summary: "Multiple critical/high alerts firing simultaneously"
+          description: "{{ $value }} critical or high severity alerts are firing. Potential cascading failure or infrastructure issue."
+          action_required: "Escalate to incident commander. Begin coordinated multi-team response."
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: monitoring
+          team: sre
+        annotations:
+          summary: "Alertmanager is DOWN"
+          description: "Alertmanager process is not responding. Alert routing is offline."
+          impact: "No alerts are being delivered to on-call engineers."
+
+# Rationale per rule:
+#
+# RPC Alerts:
+# - HighRPCLatency: Slow RPC degrades UX and can cause transaction timeouts. 2s threshold based on typical Stellar finality.
+# - HorizonBackpressure: 429 rate limiting is critical - service is effectively down if sustained.
+# - SorobanInvocationFailures: Contract calls failing means core Wraith features unavailable.
+#
+# Indexer Alerts:
+# - IndexerBacklogBuildup: Large backlog means users won't see payments promptly. 1000 is ~10min at 100 announcements/min.
+# - AnnouncementLagHigh: 5min lag is poor UX for real-time payment notifications.
+# - ScanMissRateHigh: High miss rate suggests view-tag misconfiguration or scanning bugs.
+#
+# Contract Alerts:
+# - ContractErrorRateHigh: Any sustained contract error rate is critical - means core protocol broken.
+# - UnauthorizedAccessAttempt: Security incident - requires immediate response per auditor guide severity matrix.
+#
+# Watcher Alerts:
+# - WatcherEventDropSpike: Dropped events = missed payments = broken core functionality.
+# - ViewTagScanLatencyHigh: Slow scanning causes backlog and eventual drops.
+#
+# All thresholds tuned to balance false positives vs. catching real incidents early.

@@ -1,0 +1,263 @@
+{
+  "dashboard": {
+    "id": null,
+    "uid": "wraith-contract-monitoring",
+    "title": "Wraith Contract Monitoring",
+    "tags": ["wraith", "contracts", "stellar", "soroban"],
+    "timezone": "browser",
+    "schemaVersion": 38,
+    "version": 1,
+    "refresh": "1m",
+    "panels": [
+      {
+        "id": 1,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "type": "heatmap",
+        "title": "Contract Error Rate by Contract",
+        "targets": [
+          {
+            "expr": "sum(rate(wraith_contract_error_rate[5m])) by (contract)",
+            "format": "time_series",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              }
+            }
+          }
+        },
+        "options": {
+          "calculate": true,
+          "cellGap": 2,
+          "color": {
+            "mode": "scheme",
+            "scheme": "Spectral",
+            "steps": 128
+          },
+          "yAxis": {
+            "unit": "short"
+          },
+          "tooltip": {
+            "show": true,
+            "yHistogram": false
+          }
+        }
+      },
+      {
+        "id": 2,
+        "gridPos": {
+          "h": 9,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "type": "histogram",
+        "title": "Sender Invocation Latency Distribution",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, sum(rate(wraith_sender_invocation_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P50",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(wraith_sender_invocation_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P95",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, sum(rate(wraith_sender_invocation_latency_seconds_bucket[5m])) by (le))",
+            "legendFormat": "P99",
+            "refId": "C"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 5,
+                  "color": "yellow"
+                },
+                {
+                  "value": 20,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 9
+        },
+        "type": "stat",
+        "title": "Names Registration Failures (Last Hour)",
+        "targets": [
+          {
+            "expr": "sum(increase(wraith_names_registration_failures[1h]))",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {
+                  "value": null,
+                  "color": "green"
+                },
+                {
+                  "value": 1,
+                  "color": "yellow"
+                },
+                {
+                  "value": 3,
+                  "color": "red"
+                }
+              ]
+            }
+          }
+        },
+        "options": {
+          "colorMode": "background",
+          "graphMode": "area",
+          "textMode": "value_and_name",
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 9
+        },
+        "type": "alertlist",
+        "title": "Unauthorized Access Attempts",
+        "targets": [
+          {
+            "expr": "wraith_unauthorized_access_attempts",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "showOptions": "current",
+          "maxItems": 10,
+          "sortOrder": 1,
+          "dashboardAlerts": false,
+          "alertName": "",
+          "dashboardTitle": "",
+          "tags": ["wraith", "security"],
+          "stateFilter": {
+            "firing": true,
+            "pending": true,
+            "noData": false,
+            "normal": false,
+            "error": true
+          }
+        }
+      },
+      {
+        "id": 5,
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 17
+        },
+        "type": "timeseries",
+        "title": "Contract Invocations by Method",
+        "targets": [
+          {
+            "expr": "sum(rate(wraith_contract_invocations_total[5m])) by (contract, method)",
+            "legendFormat": "{{contract}}.{{method}}",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ops",
+            "custom": {
+              "lineWidth": 1,
+              "fillOpacity": 10
+            }
+          }
+        },
+        "options": {
+          "tooltip": {
+            "mode": "multi"
+          },
+          "legend": {
+            "displayMode": "table",
+            "placement": "right",
+            "calcs": ["mean", "lastNotNull", "max"]
+          }
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "contract",
+          "type": "query",
+          "query": "label_values(wraith_contract_error_rate, contract)",
+          "current": {
+            "text": "All",
+            "value": "$__all"
+          },
+          "multi": true,
+          "includeAll": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Contract Deployments",
+          "datasource": "-- Grafana --",
+          "enable": true,
+          "iconColor": "purple"
+        }
+      ]
+    },
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    }
+  },
+  "overwrite": true
+}
