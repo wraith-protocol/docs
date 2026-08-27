@@ -59,3 +59,33 @@ jobs:
 
       - name: Validate Stellar testnet snippets
         run: pnpm run check:stellar-testnet
+
+  playground-smoke:
+    name: Playground smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify playground fixtures are in sync
+        run: pnpm run check:playground-fixtures
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run playground smoke tests
+        run: pnpm run test:playground

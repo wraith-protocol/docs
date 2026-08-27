@@ -14,6 +14,10 @@ By the end of this tutorial you will have:
 
 **Prerequisites:** Node.js 18+, a Wraith API key ([sign up at usewraith.xyz](https://usewraith.xyz)), and the Freighter browser extension installed ([get it here](https://www.freighter.app)).
 
+<Tip>
+  Every stage below can be run interactively in your browser. The [Send](#send-a-stealth-payment) and [Withdraw](#withdraw-to-your-wallet) sections embed a client-side playground that runs the exact same flow against canned fixtures — no wallet or network calls needed. Continue the full guided flow on the [derive](/api-reference/stealth-keys) and [scan](/api-reference/fetch-announcements-stream) pages.
+</Tip>
+
 ---
 
 ## 1. Install Dependencies
@@ -328,6 +332,23 @@ Alice's agent scans for announcements, matches them using her viewing key, and d
   A view tag is the first byte of `SHA-256("wraith:tag:" || sharedSecret)`. It allows scanners to reject ~255/256 non-matching announcements with a single byte comparison — no expensive Ed25519 point operations needed. This makes scanning fast even over thousands of announcements.
 </Accordion>
 
+### Try It: Construct an Announcement
+
+Construct a mock stealth payment in your browser — the playground generates the one-time ephemeral keypair, derives the stealth address, and builds the Horizon announcement event the `stealth-announcer` contract would emit. The announcement lands in the scan batch, so it shows up in the [scan step](/api-reference/fetch-announcements-stream).
+
+<iframe
+  src="/scripts/playground/index.html?step=send"
+  sandbox="allow-scripts allow-same-origin"
+  width="100%"
+  height="640"
+  style={{ border: "1px solid #2a2f3d", borderRadius: "8px" }}
+  title="Wraith stealth playground — send step"
+/>
+
+<Note>
+  The demo recipient meta-address is pre-filled and deterministic; the payment it produces is a simulation, not an on-chain transaction.
+</Note>
+
 ---
 
 ## 8. Scan for Incoming Payments
@@ -394,6 +415,23 @@ console.log(privacy.response);
 <Info>
   To protect your privacy, space withdrawals at least **1 hour apart** and avoid withdrawing uniform round amounts. The agent's privacy scoring algorithm checks for timing patterns, address correlation, and dust amounts. See [Privacy Best Practices](/guides/privacy-best-practices) for details.
 </Info>
+
+### Try It: Withdraw a Stealth Balance
+
+The playground below derives the withdrawable balances from the fixture announcements with the demo keys, then shows the simulated withdrawal transaction each one would sign with its stealth private scalar.
+
+<iframe
+  src="/scripts/playground/index.html?step=withdraw"
+  sandbox="allow-scripts allow-same-origin"
+  width="100%"
+  height="640"
+  style={{ border: "1px solid #2a2f3d", borderRadius: "8px" }}
+  title="Wraith stealth playground — withdraw step"
+/>
+
+<Note>
+  This is a simulation — the destination wallet is a deterministic demo address. The private scalar shown is what your own agent would use to sign a real withdrawal.
+</Note>
 
 ### Withdrawing to Any Destination
 

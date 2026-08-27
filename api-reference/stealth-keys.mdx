@@ -87,3 +87,24 @@ const keys = await deriveStealthKeysFromPasskey({
 ```
 
 For a complete walkthrough on setting up passkey authentication with stealth transactions, refer to our [Passkey Signing Guide](../guides/stellar/passkey-signing.mdx).
+
+---
+
+## Try It: Derive Keys in Your Browser
+
+The playground below runs the same derivation the SDK performs, entirely client-side against canned fixtures — no wallet, no network calls. Paste any 64-byte signature (the demo one is pre-filled), and watch the two seeds split into a scan key, a spend key, and your stealth meta-address.
+
+<iframe
+  src="/scripts/playground/index.html?step=derive"
+  sandbox="allow-scripts allow-same-origin"
+  width="100%"
+  height="660"
+  style={{ border: "1px solid #2a2f3d", borderRadius: "8px" }}
+  title="Wraith stealth playground — derive step"
+/>
+
+<Note>
+  The demo signature is deterministic and the derived keys are not connected to any real wallet. The meta-address it produces matches the fixtures used by the [scan step](/api-reference/fetch-announcements-stream).
+</Note>
+
+Continue through the guided flow by opening the same playground on the [Send](/guides/stellar-quickstart), [Scan](/api-reference/fetch-announcements-stream), and [Withdraw](/guides/stellar-quickstart) steps.
