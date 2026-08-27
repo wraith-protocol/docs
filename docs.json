@@ -124,7 +124,10 @@
         "groups": [
           {
             "group": "Quickstarts",
-            "pages": ["guides/quickstarts/rust"]
+            "pages": [
+              "guides/quickstarts/python",
+              "guides/quickstarts/rust"
+            ]
           },
           {
             "group": "Guides",
