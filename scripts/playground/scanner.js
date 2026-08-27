@@ -1,7 +1,12 @@
 // ============================================================
-// Wraith Scanner Playground — scanner.js
-// Pure client-side: Web Crypto (SubtleCrypto) for hashing,
-// hand-rolled Curve25519 for X25519 DH. Zero third-party deps.
+// Wraith Stealth Playground — scanner.js
+// Pure client-side crypto engine: Web Crypto (SubtleCrypto) for
+// hashing, hand-rolled Curve25519/ed25519 arithmetic, Stellar
+// StrKey encoding, and a minimal XDR (ScVal) codec for parsing
+// Horizon contract events exactly like the SDK's
+// parseAnnouncementEvent. Zero third-party dependencies.
+//
+// This file contains no DOM access — the UI lives in playground.js.
 // ============================================================
 
 'use strict';
@@ -161,6 +166,26 @@ function strToBytes(s) {
   return new TextEncoder().encode(s);
 }
 
+function bytesToBinaryString(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return s;
+}
+
+function binaryStringToBytes(s) {
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
+function bytesToBase64(bytes) {
+  return btoa(bytesToBinaryString(bytes));
+}
+
+function base64ToBytes(b64) {
+  return binaryStringToBytes(atob(b64));
+}
+
 // ── Web Crypto hashing ───────────────────────────────────────
 async function sha256(...parts) {
   const data = concatBytes(...parts);
@@ -277,15 +302,15 @@ function decodeStealthMetaAddress(metaAddr) {
 }
 
 // ── X25519 shared secret ─────────────────────────────────────
-// viewingKeySeed: 32-byte Uint8Array (ed25519 seed)
-// ephemeralPubKeyBytes: 32-byte Uint8Array (ed25519 pubkey)
-async function computeSharedSecret(viewingKeySeed, ephemeralPubKeyBytes) {
+// privateSeed: 32-byte Uint8Array (ed25519 seed)
+// publicPub:   32-byte Uint8Array (ed25519 pubkey)
+async function computeSharedSecret(privateSeed, publicPub) {
   // 1. Expand seed → X25519 private scalar (clamp via SHA-512 lower half)
-  const privScalarBytes = await edSeedToMontgomeryScalar(viewingKeySeed);
+  const privScalarBytes = await edSeedToMontgomeryScalar(privateSeed);
   const privScalar = bytesToBigintLE(privScalarBytes);
 
   // 2. Convert ed25519 public key → X25519 public key (Montgomery u-coord)
-  const pubMont = edPubToMontgomery(ephemeralPubKeyBytes);
+  const pubMont = edPubToMontgomery(publicPub);
   const pubU = bytesToBigintLE(pubMont);
 
   // 3. X25519 scalar mult
@@ -293,10 +318,7 @@ async function computeSharedSecret(viewingKeySeed, ephemeralPubKeyBytes) {
   return bigintToBytesLE(sharedU, 32);
 }
 
-// ── Ed25519 point addition for stealth pub key derivation ────
-// We need: stealthPub = spendingPub + hashScalar * G
-// Using the extended twisted Edwards coordinates.
-
+// ── Ed25519 key derivation ───────────────────────────────────
 // ed25519 parameters
 const ED_P  = P; // same prime
 const ED_Q  = (2n ** 252n) + 27742317777372353535851937790883648493n; // group order
@@ -384,6 +406,77 @@ function deriveStealthPubKey(spendingPubBytes, hashScalar) {
   return edPointCompress(stealthPoint);
 }
 
+// ── Canonical key derivation (mirrors SDK deriveStealthKeys) ─
+// seedToScalar: expand 32-byte seed via SHA-512 lower half, clamp
+async function seedToScalar(seedBytes) {
+  const h = await sha512(seedBytes);
+  const lower = h.slice(0, 32);
+  lower[0]  &= 248;
+  lower[31] &= 127;
+  lower[31] |= 64;
+  return bytesToBigintLE(lower);
+}
+
+async function seedToPubKey(seedBytes) {
+  const scalar = await seedToScalar(seedBytes);
+  return edPointCompress(edScalarMult(scalar, ED_G));
+}
+
+// signature: 64-byte Uint8Array (an ed25519 wallet signature).
+// The 64 bytes are split into two domain-separated seeds:
+//   spendingKey = SHA-256("wraith:spending:" || signature)
+//   viewingKey  = SHA-256("wraith:viewing:"  || signature)
+async function deriveStealthKeys(signature) {
+  if (signature.length !== 64) {
+    throw new Error(`Expected 64-byte ed25519 signature, got ${signature.length} bytes`);
+  }
+  const spendingSeed = await sha256(strToBytes('wraith:spending:'), signature);
+  const viewingSeed  = await sha256(strToBytes('wraith:viewing:'), signature);
+  const [spendingScalar, viewingScalar] = await Promise.all([
+    seedToScalar(spendingSeed),
+    seedToScalar(viewingSeed),
+  ]);
+  const [spendingPubKey, viewingPubKey] = await Promise.all([
+    seedToPubKey(spendingSeed),
+    seedToPubKey(viewingSeed),
+  ]);
+  return {
+    spendingKey: spendingSeed,
+    viewingKey: viewingSeed,
+    spendingScalar,
+    viewingScalar,
+    spendingPubKey,
+    viewingPubKey,
+  };
+}
+
+// ── Stealth address generation (mirrors SDK generateStealthAddress) ─
+// spendingPubBytes, viewingPubBytes: 32-byte ed25519 pubkeys
+// ephemeralSeed: 32-byte ed25519 seed for the one-time ephemeral keypair
+async function generateStealthAddress(spendingPubBytes, viewingPubBytes, ephemeralSeed) {
+  const ephPubKey = await seedToPubKey(ephemeralSeed);
+  const sharedSecret = await computeSharedSecret(ephemeralSeed, viewingPubBytes);
+  const viewTag = await computeViewTag(sharedSecret);
+  const hScalar = await hashToScalar(sharedSecret);
+  const stealthPubKeyBytes = deriveStealthPubKey(spendingPubBytes, hScalar);
+  const stealthAddress = pubKeyToStellarAddress(stealthPubKeyBytes);
+  return {
+    stealthAddress,
+    ephemeralPubKey: ephPubKey,   // Uint8Array
+    viewTag,                       // number 0-255
+    hScalar,                       // bigint
+    sharedSecret,                  // Uint8Array
+    stealthPubKeyBytes,            // Uint8Array
+  };
+}
+
+// ── Stealth private scalar (mirrors SDK deriveStealthPrivateScalar) ─
+async function deriveStealthPrivateScalar(spendingScalar, viewingKeySeed, ephemeralPubKeyBytes) {
+  const sharedSecret = await computeSharedSecret(viewingKeySeed, ephemeralPubKeyBytes);
+  const hScalar = await hashToScalar(sharedSecret);
+  return (spendingScalar + hScalar) % ED_Q;
+}
+
 // ── Core scan function ───────────────────────────────────────
 const L = ED_Q;
 
@@ -426,279 +519,161 @@ async function scanAnnouncements(announcements, viewingKeySeed, spendingPubBytes
   return matches;
 }
 
-// ── Fixture data ─────────────────────────────────────────────
-// Deterministically generated from a known seed so the demo
-// always works with the pre-filled demo keys.
-//
-// Recipient keys were derived as follows (see FIXTURE_KEYS below):
-//   viewingKey  = SHA-256("wraith:viewing:demo")   (32-byte hex seed)
-//   spendingKey = SHA-256("wraith:spending:demo")  (32-byte hex seed)
-//   spendingPubKey and viewingPubKey derived from those seeds
-//   spendingScalar = seedToScalar(spendingKey)
-//
-// Two of the five announcements are addressed to this recipient.
-// The other three are noise (addressed to random keys).
-//
-// All values were pre-computed offline and are hardcoded here.
+// ── Minimal XDR (ScVal) codec ────────────────────────────────
+// Encodes/decodes exactly the subset of ScVal used by the
+// stealth-announcer contract events, byte-compatible with
+// @stellar/stellar-sdk's ScVal (verified against its XDR output).
+// Note: SCV_VEC and SCV_MAP are recursive, so per the XDR spec
+// they sit behind an option pointer — a `present` bool precedes
+// the array contents.
 
-// Demo recipient keys — derived from SHA-256("wraith:viewing:demo") etc.
-// (pre-computed by scripts/playground/generate-fixtures.mjs)
-const DEMO_VIEWING_KEY_HEX  = 'c7d997718f19c4e368a3957f29c736a96a00c95795f36698f7ea9cd52a159cbd';
-const DEMO_SPENDING_SCALAR  = 47238892582032075641309788249336400507171835695141794998383909413316810203216n;
-const DEMO_SPENDING_PUB_HEX = '45e84a059a47ee5d6fb721dcdbb31cecd928161e24b1e789e85d1e0510c99e86';
-const DEMO_VIEWING_PUB_HEX  = 'd25639f6da0834e32d912626fd59d01e79a126ff10a59d034d2e46124e1ca791';
-const DEMO_META_ADDRESS     = `st:xlm:${DEMO_SPENDING_PUB_HEX}${DEMO_VIEWING_PUB_HEX}`;
+const SCV_U32     = 3;
+const SCV_BYTES   = 13;
+const SCV_SYMBOL  = 15;
+const SCV_VEC     = 16;
+const SCV_ADDRESS = 18;
 
-// Fixture announcements (pre-computed by generate-fixtures.mjs).
-// Entries 0 and 2 (_yours: true) match the demo keys above.
-// Entries 1, 3, 4 are noise addressed to random keypairs.
-const FIXTURE_ANNOUNCEMENTS = [
-  {
-    // Match #1 — ephemeral seed SHA-256("eph:0")
-    schemeId:        1,
-    stealthAddress:  'GCQBIIZ2XR654U7FPVYVDU5W6R4FJG7QRLLGU6IMOKAWK3ZPLXHPVAA6',
-    caller:          'GALDGOMBLFBC2Z5V3KDSXWM6PL4SFNGOIRROK2A2HLHSEFDVELU54237',
-    ephemeralPubKey: '1633398159422d67b5da872bd99e7af922b4ce4462e5681a3acf22147522e9de',
-    metadata:        '0a00000000000000000000000000000000000000000000000000000000000000',
-    _yours: true,
-  },
-  {
-    // Noise #1 — ephemeral seed SHA-256("eph:1")
-    schemeId:        1,
-    stealthAddress:  'GBXQUML6RVKJLZJX2LWFQWR3AG2QUUS4YVMAQYDETXWLN7UKUXAWLGZI',
-    caller:          'GBQ2PGGKW45GFBTI57YMYSS46UOVNB6JI674M5AQACAFHACJ4E3DUPPI',
-    ephemeralPubKey: '61a798cab73a628668eff0cc4a5cf51d5687c947bfc674100080538049e1363a',
-    metadata:        '8500000000000000000000000000000000000000000000000000000000000000',
-    _yours: false,
-  },
-  {
-    // Match #2 — ephemeral seed SHA-256("eph:2")
-    schemeId:        1,
-    stealthAddress:  'GCW452O47CQUS5L2RHJNRZNQLNFZDPPWWICC6KJMNYTVAPRW2RP6WLWA',
-    caller:          'GBJBZJG3JDX2EV4CBW5PE7X5OQCQGDRA5LPFE23IAC4YF6QKI3F7BADU',
-    ephemeralPubKey: '521ca4db48efa257820dbaf27efd7405030e20eade526b6800b982fa0a46cbf0',
-    metadata:        '9c00000000000000000000000000000000000000000000000000000000000000',
-    _yours: true,
-  },
-  {
-    // Noise #2 — ephemeral seed SHA-256("eph:3")
-    schemeId:        1,
-    stealthAddress:  'GBG2TPIPQM3MMFMIIOUHJXZPMQ5FOB2DM2CTBYT4YOGZK5GCKFNAGOSI',
-    caller:          'GDOFFZ6AIKS2RIKW65GOTSW7ZB2NUNCIMTJZFMECSTS4BTB6HF2YTELI',
-    ephemeralPubKey: 'dc52e7c042a5a8a156f74ce9cadfc874da344864d392b08294e5c0cc3e397589',
-    metadata:        '9500000000000000000000000000000000000000000000000000000000000000',
-    _yours: false,
-  },
-  {
-    // Noise #3 — ephemeral seed SHA-256("eph:4")
-    schemeId:        1,
-    stealthAddress:  'GCHMAU4TJ2HVT2PE4AOSVXA6IG2X7HZ56EWCK55BFLAIRY3E6NBX2LLA',
-    caller:          'GCY3J75MGG2HVA7LJ6XIGUCTBHQAVIMQAUPZGTYF73LXJSXDOUQNZTMQ',
-    ephemeralPubKey: 'b1b4ffac31b47a83eb4fae83505309e00aa190051f934f05fed774cae37520dc',
-    metadata:        'fa00000000000000000000000000000000000000000000000000000000000000',
-    _yours: false,
-  },
-];
-
-// ── UI helpers ───────────────────────────────────────────────
-function trunc(hex, n = 12) {
-  return hex.length <= n * 2 ? hex : hex.slice(0, n) + '…' + hex.slice(-6);
+function u32ToBytes(n) {
+  const out = new Uint8Array(4);
+  new DataView(out.buffer).setUint32(0, n >>> 0);
+  return out;
 }
 
-function renderResults(matches, total, elapsedMs) {
-  const container = document.getElementById('results');
-
-  const bar = document.createElement('div');
-  bar.className = 'status-bar';
-
-  if (matches === null) {
-    bar.innerHTML = `<span class="dot dot-err"></span><span>Error — see console for details.</span>`;
-    container.innerHTML = '';
-    container.appendChild(bar);
-    return;
-  }
-
-  bar.innerHTML = `
-    <span class="dot dot-done"></span>
-    <span>Scanned <strong>${total}</strong> announcement${total !== 1 ? 's' : ''} in ${elapsedMs}ms — 
-    <strong>${matches.length}</strong> match${matches.length !== 1 ? 'es' : ''} found.</span>`;
-
-  container.innerHTML = '';
-  container.appendChild(bar);
-
-  if (matches.length === 0) {
-    const none = document.createElement('div');
-    none.className = 'no-match';
-    none.textContent = 'No announcements matched these keys.';
-    container.appendChild(none);
-    return;
-  }
-
-  for (const m of matches) {
-    const card = document.createElement('div');
-    card.className = 'match-card';
-    card.innerHTML = `
-      <div class="tag">Match</div>
-      <div class="kv-row">
-        <span class="k">Stealth Address</span>
-        <span class="v">${m.stealthAddress}</span>
-      </div>
-      <div class="kv-row">
-        <span class="k">Ephemeral Pub Key</span>
-        <span class="v">${m.ephemeralPubKey}</span>
-      </div>
-      <div class="kv-row">
-        <span class="k">Stealth Pub Key (hex)</span>
-        <span class="v">${bytesToHex(m.stealthPubKeyBytes)}</span>
-      </div>
-      <div class="kv-row">
-        <span class="k">Stealth Private Scalar (decimal)</span>
-        <span class="v" style="font-size:10px">${m.stealthPrivateScalar.toString()}</span>
-      </div>`;
-    container.appendChild(card);
-  }
+function readU32(bytes, off) {
+  return new DataView(bytes.buffer, bytes.byteOffset + off, 4).getUint32(0);
 }
 
-function showScanning(total) {
-  const container = document.getElementById('results');
-  container.innerHTML = `
-    <div class="status-bar">
-      <span class="dot dot-scanning"></span>
-      <span>Scanning ${total} announcements…</span>
-    </div>`;
+function padTo4(bytes) {
+  const rem = bytes.length % 4;
+  return rem === 0 ? new Uint8Array(0) : new Uint8Array(4 - rem);
 }
 
-function renderFixtureTable() {
-  const table = document.getElementById('fixtureTable');
-  table.innerHTML = `
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Stealth Address</th>
-        <th>Ephemeral Pub Key</th>
-        <th>View Tag</th>
-        <th>Owner</th>
-      </tr>
-    </thead>`;
-  const tbody = document.createElement('tbody');
-  FIXTURE_ANNOUNCEMENTS.forEach((ann, i) => {
-    const viewTag = parseInt(ann.metadata.slice(0, 2), 16);
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${i + 1}</td>
-      <td>${trunc(ann.stealthAddress, 8)}</td>
-      <td>${trunc(ann.ephemeralPubKey, 8)}</td>
-      <td>0x${viewTag.toString(16).padStart(2,'0')}</td>
-      <td>${ann._yours
-        ? '<span class="badge-yours">yours</span>'
-        : '<span class="badge-other">other</span>'}</td>`;
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
+function scvU32XDR(n) {
+  return concatBytes(u32ToBytes(SCV_U32), u32ToBytes(n));
 }
 
-// ── Input parsing helpers ────────────────────────────────────
-function parseInputs() {
-  const metaRaw    = document.getElementById('metaAddr').value.trim();
-  const vkRaw      = document.getElementById('viewingKey').value.trim();
-  const ssRaw      = document.getElementById('spendingScalar').value.trim();
-  const errors = {};
+function scvBytesXDR(bytes) {
+  return concatBytes(u32ToBytes(SCV_BYTES), u32ToBytes(bytes.length), bytes, padTo4(bytes));
+}
 
-  let viewingKey = null, spendingPubKey = null, spendingScalar = null;
+function scvSymbolXDR(s) {
+  const b = strToBytes(s);
+  return concatBytes(u32ToBytes(SCV_SYMBOL), u32ToBytes(b.length), b, padTo4(b));
+}
 
-  // Try to parse meta-address first
-  if (metaRaw.startsWith('st:xlm:')) {
-    try {
-      const decoded = decodeStealthMetaAddress(metaRaw);
-      spendingPubKey = decoded.spendingPubKey;
-      // meta-address doesn't give us viewing key seed or spending scalar — user must supply separately
-    } catch (e) {
-      errors.metaAddr = e.message;
+// ScAddress: account type 0, ed25519 pubkey type 0, 32-byte pubkey
+function scvAddressXDR(pubKeyBytes) {
+  return concatBytes(u32ToBytes(SCV_ADDRESS), u32ToBytes(0), u32ToBytes(0), pubKeyBytes);
+}
+
+function scvVecXDR(items) {
+  return concatBytes(u32ToBytes(SCV_VEC), u32ToBytes(1), u32ToBytes(items.length), ...items);
+}
+
+// Decode one ScVal, returning { kind, value, next }.
+function decodeScVal(bytes, off = 0) {
+  const type = readU32(bytes, off);
+  off += 4;
+  switch (type) {
+    case SCV_U32:
+      return { kind: 'u32', value: readU32(bytes, off), next: off + 4 };
+    case SCV_SYMBOL: {
+      const len = readU32(bytes, off);
+      off += 4;
+      const str = new TextDecoder().decode(bytes.slice(off, off + len));
+      return { kind: 'symbol', value: str, next: off + len + ((4 - (len % 4)) % 4) };
     }
+    case SCV_BYTES: {
+      const len = readU32(bytes, off);
+      off += 4;
+      const b = bytes.slice(off, off + len);
+      return { kind: 'bytes', value: b, next: off + len + ((4 - (len % 4)) % 4) };
+    }
+    case SCV_VEC: {
+      const present = readU32(bytes, off);
+      off += 4;
+      if (present !== 1) throw new Error('Missing SCV_VEC option pointer');
+      const count = readU32(bytes, off);
+      off += 4;
+      const items = [];
+      for (let i = 0; i < count; i++) {
+        const item = decodeScVal(bytes, off);
+        items.push(item);
+        off = item.next;
+      }
+      return { kind: 'vec', value: items, next: off };
+    }
+    case SCV_ADDRESS: {
+      const addrType = readU32(bytes, off);
+      off += 4;
+      if (addrType !== 0) throw new Error('Unsupported address type');
+      const pkType = readU32(bytes, off);
+      off += 4;
+      if (pkType !== 0) throw new Error('Unsupported public key type');
+      const pk = bytes.slice(off, off + 32);
+      return { kind: 'address', value: pk, next: off + 32 };
+    }
+    default:
+      throw new Error(`Unsupported ScVal type ${type}`);
   }
-
-  // Parse viewing key seed
-  if (vkRaw.length === 64) {
-    try { viewingKey = hexToBytes(vkRaw); } catch (e) { errors.viewingKey = e.message; }
-  } else if (vkRaw) {
-    errors.viewingKey = 'Must be 64 hex chars (32 bytes)';
-  } else {
-    errors.viewingKey = 'Required';
-  }
-
-  // If no meta-address, spending pub is derived from viewing key + scalar later; user can also
-  // supply it via meta-address. For the demo we require a meta-address OR we can use demo defaults.
-  if (!spendingPubKey && metaRaw) {
-    // already set error above or not a meta-address at all
-    if (!metaRaw.startsWith('st:xlm:')) errors.metaAddr = 'Must start with st:xlm:';
-  }
-
-  // Parse spending scalar
-  if (ssRaw) {
-    try { spendingScalar = BigInt(ssRaw); } catch (e) { errors.spendingScalar = 'Must be a decimal integer'; }
-  } else {
-    errors.spendingScalar = 'Required';
-  }
-
-  return { viewingKey, spendingPubKey, spendingScalar, errors };
 }
 
-// ── Main scan handler ────────────────────────────────────────
-document.getElementById('scanBtn').addEventListener('click', async () => {
-  const btn = document.getElementById('scanBtn');
-
-  // Clear previous field errors
-  ['metaAddr','viewingKey','spendingScalar'].forEach(id => {
-    document.getElementById(id).classList.remove('error');
-  });
-
-  const { viewingKey, spendingPubKey, spendingScalar, errors } = parseInputs();
-
-  if (Object.keys(errors).length > 0) {
-    // Highlight erroneous fields
-    if (errors.metaAddr)        document.getElementById('metaAddr').classList.add('error');
-    if (errors.viewingKey)      document.getElementById('viewingKey').classList.add('error');
-    if (errors.spendingScalar)  document.getElementById('spendingScalar').classList.add('error');
-    const container = document.getElementById('results');
-    container.innerHTML = `
-      <div class="status-bar">
-        <span class="dot dot-err"></span>
-        <span>Please fix the highlighted fields: ${Object.values(errors).join('; ')}</span>
-      </div>`;
-    return;
-  }
-
-  btn.disabled = true;
-  showScanning(FIXTURE_ANNOUNCEMENTS.length);
-
-  const t0 = performance.now();
+// ── Horizon event ↔ announcement ─────────────────────────────
+// Parses a Horizon contract event exactly like the SDK's
+// parseAnnouncementEvent:
+//   topic[0] = event name (symbol, ignored)
+//   topic[1] = schemeId (u32)
+//   topic[2] = stealth address (address)
+//   value    = vec [caller (address), ephemeralPubKey (bytes),
+//                   viewTag (bytes)]
+function parseHorizonEvent(event) {
   try {
-    const matches = await scanAnnouncements(
-      FIXTURE_ANNOUNCEMENTS,
-      viewingKey,
-      spendingPubKey,
-      spendingScalar,
-    );
-    const elapsed = Math.round(performance.now() - t0);
-    renderResults(matches, FIXTURE_ANNOUNCEMENTS.length, elapsed);
-  } catch (err) {
-    console.error('Scan error:', err);
-    renderResults(null, 0, 0);
-  } finally {
-    btn.disabled = false;
+    const topics = (event.topic || []).map((t) => decodeScVal(base64ToBytes(t)));
+    if (topics.length < 3) return null;
+    if (topics[1].kind !== 'u32' || topics[2].kind !== 'address') return null;
+
+    const value = decodeScVal(base64ToBytes(event.value));
+    if (value.kind !== 'vec' || value.value.length < 3) return null;
+    const [caller, ephPub, viewTag] = value.value;
+    if (caller.kind !== 'address' || ephPub.kind !== 'bytes' || viewTag.kind !== 'bytes') {
+      return null;
+    }
+
+    return {
+      schemeId: topics[1].value,
+      stealthAddress: pubKeyToStellarAddress(topics[2].value),
+      caller: pubKeyToStellarAddress(caller.value),
+      ephemeralPubKey: bytesToHex(ephPub.value),
+      metadata: bytesToHex(viewTag.value),
+    };
+  } catch (_) {
+    return null;
   }
-});
+}
 
-// ── Load demo keys ───────────────────────────────────────────
-document.getElementById('loadFixture').addEventListener('click', () => {
-  document.getElementById('metaAddr').value        = DEMO_META_ADDRESS;
-  document.getElementById('viewingKey').value      = DEMO_VIEWING_KEY_HEX;
-  document.getElementById('spendingScalar').value  = DEMO_SPENDING_SCALAR.toString();
-  ['metaAddr','viewingKey','spendingScalar'].forEach(id => {
-    document.getElementById(id).classList.remove('error');
-  });
-  document.getElementById('results').innerHTML = '';
-});
-
-// ── Boot ─────────────────────────────────────────────────────
-renderFixtureTable();
+// Builds a Horizon-shaped contract event from a plain announcement.
+function encodeHorizonEvent(announcement, opts = {}) {
+  const contractId = opts.contractId || 'CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL';
+  const ledger = opts.ledger || 0;
+  const closeTime = opts.ledgerCloseTime || new Date().toISOString();
+  const id = ledger.toString(16).padStart(24, '0') + '0000000000000000';
+  return {
+    type: 'contract',
+    contract_id: contractId,
+    ledger,
+    ledger_close_time: closeTime,
+    id,
+    paging_token: `${ledger}-0`,
+    topic: [
+      bytesToBase64(scvSymbolXDR('announce')),
+      bytesToBase64(scvU32XDR(announcement.schemeId)),
+      bytesToBase64(scvAddressXDR(stellarAddressToPubKey(announcement.stealthAddress))),
+    ],
+    value: bytesToBase64(scvVecXDR([
+      scvAddressXDR(stellarAddressToPubKey(announcement.caller)),
+      scvBytesXDR(hexToBytes(announcement.ephemeralPubKey)),
+      scvBytesXDR(hexToBytes(announcement.metadata)),
+    ])),
+    _yours: true,
+  };
+}

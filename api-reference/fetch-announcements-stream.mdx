@@ -434,6 +434,25 @@ for await (const announcement of stream) {
 }
 ```
 
+---
+
+## Try It: Scan Announcements in Your Browser
+
+The playground below parses a batch of Horizon-shaped fixture events — the same `topic`/`value` shape `fetchAnnouncementsStream` yields on Stellar — and scans them client-side with the view-tag fast filter and Ed25519 point math. No wallet, no network calls.
+
+<iframe
+  src="/scripts/playground/index.html?step=scan"
+  sandbox="allow-scripts allow-same-origin"
+  width="100%"
+  height="760"
+  style={{ border: "1px solid #2a2f3d", borderRadius: "8px" }}
+  title="Wraith stealth playground — scan step"
+/>
+
+<Note>
+  Two of the five fixture announcements match the demo keys (pre-filled via **Load demo keys**); the other three are noise with the wrong view tag. You can also construct your own announcement in the [Send step](/guides/stellar-quickstart) and scan it here.
+</Note>
+
 ### Resilient Stream with Retention Fallback
 
 ```typescript
