@@ -171,6 +171,7 @@
               "guides/stellar-custom-assets",
               "guides/stellar/stellar-liquidity-pool-swap",
               "guides/stellar/stellar-path-payment",
+              "guides/stellar/sponsored-batch-send",
               "guides/stellar/passkey-signing",
               "guides/stellar/stellar-quickstart",
               "guides/stellar/wraith-names-lifecycle",
