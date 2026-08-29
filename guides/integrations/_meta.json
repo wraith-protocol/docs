@@ -1,4 +1,10 @@
 {
+  "aquarius": "Aquarius",
   "blend": "Blend Lending",
-  "fxdao": "Fxdao CDP"
+  "fxdao": "Fxdao CDP",
+  "nuxt": "Nuxt",
+  "phoenix": "Phoenix DEX",
+  "react-native": "React Native",
+  "reflector": "Reflector Oracle",
+  "soroswap": "Soroswap"
 }
