@@ -8,6 +8,8 @@ _Last Verified: June 24, 2026_
 
 When building on Stellar or Soroban with Wraith, you might encounter opaque errors. This guide catalogs the most common errors, what they mean, and how to fix them.
 
+> **Looking for a linkable table?** The [Error Code Reference](/reference/error-codes) has normative flat tables for every Soroban contract error (`#N` codes), SDK error messages, CLI error codes, and Soroban RPC indexer errors — all in one place. Each row has a stable anchor you can paste into support tickets or Discord.
+
 ## Account & Balance Errors
 
 ### 1. `tx_bad_seq`
@@ -106,7 +108,8 @@ try {
 ### 7. `Soroban RPC: retention window exceeded`
 **Meaning**: The requested historical data is no longer available on the RPC node.  
 **Cause**: Querying events or transactions that occurred before the node's configured retention window.  
-**Fix**: Use an archiver node or data indexer like Hubble to fetch historical data.
+**Fix**: Use an archiver node or data indexer like Hubble to fetch historical data.  
+**Reference**: [Error Code Reference → `retention_window_exceeded`](/reference/error-codes#soroban-rpc--indexer-errors)
 ```typescript
 // Instead of querying Soroban RPC for old events, query an indexer API
 const response = await fetch(`https://indexer.example.com/events?contract=${contractId}`);
@@ -188,7 +191,8 @@ await server.submitTransaction(tx);
 ### 13. `Derived address matches recipient`
 **Meaning**: The calculated stealth address is identical to the recipient's public key.  
 **Cause**: The recipient's scan key or spend key wasn't properly configured, or entropy generation failed.  
-**Fix**: Ensure cryptographically secure random entropy is used when deriving the ephemeral key.
+**Fix**: Ensure cryptographically secure random entropy is used when deriving the ephemeral key.  
+**Reference**: [Error Code Reference → `Point at infinity`](/reference/error-codes#sdk-errors--stellar-chain-primitives)
 ```typescript
 import { randomBytes } from 'crypto';
 import { deriveStealthAddress } from '@wraith/stealth';
@@ -203,7 +207,8 @@ if (stealthInfo.address === recipientMeta.publicKey) {
 ### 14. `Zero-balance scan returning matches`
 **Meaning**: The stealth scan function is finding addresses that belong to the user, but they have no balance.  
 **Cause**: Dusting attacks, or previous stealth payments were fully spent but the ledger still shows the account.  
-**Fix**: Filter scan results to only include accounts with a balance greater than 0 (or base reserve).
+**Fix**: Filter scan results to only include accounts with a balance greater than 0 (or base reserve).  
+**Reference**: [Error Code Reference → SDK Stellar Primitives](/reference/error-codes#sdk-errors--stellar-chain-primitives)
 ```typescript
 const matches = await stealthScanner.scan(startLedger, endLedger);
 const activeMatches = await Promise.all(
@@ -219,7 +224,8 @@ const validMatches = activeMatches.filter(m => m !== null);
 ### 15. `Name resolution null` (Federation)
 **Meaning**: A Stellar Federation address (e.g., `user*wraith.com`) could not be resolved to an account ID.  
 **Cause**: The federation server is down, or the user does not exist on that domain.  
-**Fix**: Fall back to manual address entry or retry the federation lookup.
+**Fix**: Fall back to manual address entry or retry the federation lookup.  
+**Reference**: [Error Code Reference → `wraith-names` #5 `NameNotFound`](/reference/error-codes#wraith-names)
 ```typescript
 try {
   const record = await StellarSdk.FederationServer.resolve('alice*example.com');
@@ -233,7 +239,8 @@ try {
 ### 16. `Stealth payload too large for memo`
 **Meaning**: The stealth ephemeral public key or metadata exceeds the 32-byte limit of a Stellar `Memo.hash`.  
 **Cause**: Attempting to attach uncompressed keys or extra data in the memo field.  
-**Fix**: Use compressed public keys or store extra metadata in Soroban contract state/events instead.
+**Fix**: Use compressed public keys or store extra metadata in Soroban contract state/events instead.  
+**Reference**: [Error Code Reference → SDK Stellar Primitives](/reference/error-codes#sdk-errors--stellar-chain-primitives)
 ```typescript
 // Ensure the ephemeral key is 32 bytes
 const ephemeralKeyBuffer = getCompressedKey(ephemeralPublicKey);
@@ -248,7 +255,8 @@ const tx = new StellarSdk.TransactionBuilder(account, { fee: "100" })
 ### 17. `HostError: Error(Contract, #)` / Contract Trapped
 **Meaning**: The smart contract executed a `panic!` or returned a specific error code.  
 **Cause**: A contract assertion failed (e.g., unauthorized caller, arithmetic overflow).  
-**Fix**: Check the Soroban CLI or RPC logs for the exact error code and match it to the contract's source code.
+**Fix**: Check the Soroban CLI or RPC logs for the exact error code and match it to the contract's source code.  
+**Reference**: [Error Code Reference → stealth-registry](/reference/error-codes#stealth-registry) · [stealth-sender](/reference/error-codes#stealth-sender) · [wraith-names](/reference/error-codes#wraith-names)
 ```rust
 // In your Soroban contract:
 #[contracterror]
@@ -264,7 +272,8 @@ pub enum Error {
 ### 18. `op_no_trust` / Missing Trustline
 **Meaning**: The Soroban contract attempted to send a Classic asset (like USDC) to an account that doesn't trust it.  
 **Cause**: The recipient has not established a trustline for the asset being sent by the contract.  
-**Fix**: Have the recipient submit a `ChangeTrust` operation for the asset before invoking the contract.
+**Fix**: Have the recipient submit a `ChangeTrust` operation for the asset before invoking the contract.  
+**Reference**: [Error Code Reference → stealth-sender #4 `ZeroAmount`](/reference/error-codes#stealth-sender) (related token-transfer failures)
 ```typescript
 // Recipient must submit this transaction first
 const tx = new StellarSdk.TransactionBuilder(recipientAccount, { fee: "100" })
@@ -277,7 +286,8 @@ const tx = new StellarSdk.TransactionBuilder(recipientAccount, { fee: "100" })
 ### 19. `Expired auth` / `auth_invalid`
 **Meaning**: The Soroban authorization payload is invalid or has expired.  
 **Cause**: A time-bound authorization signature (`SorobanAuthorizationEntry`) expired before the transaction was submitted.  
-**Fix**: Re-sign the authorization payload with a fresh expiration ledger.
+**Fix**: Re-sign the authorization payload with a fresh expiration ledger.  
+**Reference**: [Error Code Reference → stealth-registry #2 / stealth-sender #2 `Unauthorized`](/reference/error-codes#stealth-registry)
 ```typescript
 // When generating the Soroban auth payload, extend the valid ledger range
 const currentLedger = await getLatestLedger();
@@ -290,7 +300,8 @@ const auth = createSorobanAuth({
 ### 20. `Replay rejection` / `nonce_already_used`
 **Meaning**: The contract invocation was rejected because its unique nonce was already used.  
 **Cause**: Submitting the same signed Soroban payload twice.  
-**Fix**: Query the contract for the latest nonce for the user, and increment it for the new invocation.
+**Fix**: Query the contract for the latest nonce for the user, and increment it for the new invocation.  
+**Reference**: [Error Code Reference → Soroban Contract Errors](/reference/error-codes#soroban-contract-errors)
 ```typescript
 // Always fetch the latest nonce before building the Soroban invocation
 const nextNonce = await myContract.getNonce({ user: userAddress });
