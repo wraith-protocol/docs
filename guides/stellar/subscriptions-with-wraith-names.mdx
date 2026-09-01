@@ -1,0 +1,309 @@
+---
+title: "Subscriptions with Wraith Names"
+description: "Build recurring Stellar subscriptions that resolve a .wraith name at every billing run, so recipients can rotate stealth keys without breaking payer schedules."
+keywords: "Stellar, Soroban, Wraith names, subscriptions, recurring payments, USDC, stealth meta-address, futurenet fixtures"
+---
+
+This tutorial shows how to build a recurring Stellar subscription around a `.wraith` name instead of a raw stealth meta-address. The payer stores `merchant.wraith` as the billing destination, resolves the name before each scheduled payment, and sends USDC to the current meta-address behind that name.
+
+For the lower-level scheduler mechanics, read [Recipe 2 in the Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook#recipe-2-dao-weekly-payroll-in-usdc-on-stellar). For one-time invoices and unsigned or signed URLs, read [Stellar Payment Links](/guides/stellar-payment-links). For name state, expiry, renewal, and update rules, read [Wraith Names Lifecycle on Stellar](/guides/stellar/wraith-names-lifecycle).
+
+<Warning>
+  The fixture example below uses Futurenet RPC/passphrase values and canned name records so the subscription flow can run without live Wraith contracts. Current Wraith contract deployments are listed in [Stellar Networks](/reference/stellar-networks); use Stellar testnet for live `wraith-names` contract calls until Futurenet deployments are published.
+</Warning>
+
+---
+
+## Flow
+
+The subscription contract between payer and recipient is off-chain. The on-chain privacy boundary is still Wraith's Stellar stealth payment flow:
+
+1. The recipient registers or updates `merchant.wraith` to point at their current Stellar stealth meta-address.
+2. The payer stores the subscription as `{ destinationName: "merchant.wraith", amount: "25", asset: "USDC" }`.
+3. Each billing run resolves `merchant.wraith` immediately before payment.
+4. The payer derives and sends to a fresh stealth address for the resolved meta-address.
+5. If the recipient rotates keys, only the name record changes. The payer's subscription row stays the same.
+
+That last point is the difference from a raw meta-address subscription. A raw `st:xlm:...` destination is stable only while the recipient keeps the same stealth keys. A `.wraith` destination lets the recipient rotate the mapping behind the name.
+
+---
+
+## Data Model
+
+Store the destination as a name, not as the resolved meta-address.
+
+```typescript
+type SubscriptionStatus = "active" | "paused" | "cancelled";
+
+interface Subscription {
+  id: string;
+  payerAccount: string;
+  destinationName: `${string}.wraith`;
+  amount: string;
+  asset: "USDC" | "XLM";
+  cadence: "monthly";
+  nextRunAt: string;
+  status: SubscriptionStatus;
+  lastResolvedMetaAddress?: string;
+}
+
+const subscription: Subscription = {
+  id: "sub_merchant_001",
+  payerAccount: "GBILLINGPAYER...",
+  destinationName: "merchant.wraith",
+  amount: "25",
+  asset: "USDC",
+  cadence: "monthly",
+  nextRunAt: "2026-09-01T09:00:00Z",
+  status: "active",
+};
+```
+
+Keep `lastResolvedMetaAddress` only as an audit field. Do not use it as the next billing destination unless a retry policy explicitly says to retry the exact same resolved target.
+
+---
+
+## Resolve on Every Billing Run
+
+The billing worker should resolve the name just before sending. This gives the recipient a clean rotation path: update the name record before the next billing date, and the payer automatically routes future payments to the new meta-address.
+
+```typescript
+import { Chain, Wraith } from "@wraith-protocol/sdk";
+
+interface BillingResult {
+  subscriptionId: string;
+  destinationName: string;
+  resolvedMetaAddress: string;
+  status: "sent" | "failed";
+  txHash?: string;
+  error?: string;
+}
+
+export async function runMonthlySubscription(
+  subscription: Subscription
+): Promise<BillingResult> {
+  const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const payerAgent = wraith.agent(process.env.PAYER_AGENT_ID!);
+
+  try {
+    const resolvedMetaAddress = await wraith.resolveName(
+      subscription.destinationName,
+      Chain.Stellar
+    );
+
+    const response = await payerAgent.chat(
+      `send ${subscription.amount} ${subscription.asset} to ${subscription.destinationName} on stellar`
+    );
+
+    return {
+      subscriptionId: subscription.id,
+      destinationName: subscription.destinationName,
+      resolvedMetaAddress,
+      status: "sent",
+      txHash: extractTxHash(response),
+    };
+  } catch (error: any) {
+    return {
+      subscriptionId: subscription.id,
+      destinationName: subscription.destinationName,
+      resolvedMetaAddress: subscription.lastResolvedMetaAddress ?? "",
+      status: "failed",
+      error: error.message,
+    };
+  }
+}
+
+function extractTxHash(response: any): string | undefined {
+  const detail = response.toolCalls?.find((call: any) => call.name === "send_payment")?.detail;
+  if (!detail) return undefined;
+  return JSON.parse(detail).txHash;
+}
+```
+
+The chat instruction still uses `merchant.wraith`. That keeps the payment intent human-readable in logs and lets the agent perform name resolution with the same routing rules users see elsewhere in the Wraith app.
+
+---
+
+## Futurenet Fixture Example
+
+Use this fixture-backed resolver in tests and tutorials that must run with Futurenet settings while live Wraith Futurenet contracts are unavailable. The shape mirrors the fields the scheduler cares about: name, meta-address, state, and expiry ledger.
+
+```typescript
+type NameState = "active" | "grace_period" | "expired";
+
+interface NameFixture {
+  name: `${string}.wraith`;
+  metaAddress: string;
+  owner: string;
+  state: NameState;
+  expiryLedger: number;
+}
+
+const FUTURENET_SUBSCRIPTION_FIXTURES: NameFixture[] = [
+  {
+    name: "merchant.wraith",
+    metaAddress:
+      "st:xlm:eb8452e938d04e9a56ef69c47dacd8224464b030b5ca569d5b4e4399f8d0fb5529a8dd877a3803289ab3a62ac39cce4a99021a3cd0fac6ad982e051c8fa769dc",
+    owner: "GB4X7TDIRWAXKYRAYRXSTY27DZUTQKEMJKV7GBKZ3RVJJS5XCHAELUZI",
+    state: "active",
+    expiryLedger: 58_600_000,
+  },
+];
+
+export function resolveFixtureName(name: string): NameFixture {
+  const record = FUTURENET_SUBSCRIPTION_FIXTURES.find((item) => item.name === name);
+  if (!record) throw new Error(`Name not found: ${name}`);
+  if (record.state === "expired") throw new Error(`Name expired: ${name}`);
+  return record;
+}
+```
+
+Now run a monthly payment against the fixture. The example records the resolved meta-address and emits the payment intent your real worker would hand to the Wraith sender.
+
+```typescript
+const FUTURENET_RPC_URL = "https://rpc-futurenet.stellar.org";
+const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
+
+interface FixturePaymentIntent {
+  network: "futurenet";
+  rpcUrl: string;
+  networkPassphrase: string;
+  toName: string;
+  toMetaAddress: string;
+  amount: string;
+  asset: string;
+  memo: string;
+}
+
+export function buildFixturePaymentIntent(
+  subscription: Subscription
+): FixturePaymentIntent {
+  const record = resolveFixtureName(subscription.destinationName);
+
+  return {
+    network: "futurenet",
+    rpcUrl: FUTURENET_RPC_URL,
+    networkPassphrase: FUTURENET_PASSPHRASE,
+    toName: record.name,
+    toMetaAddress: record.metaAddress,
+    amount: subscription.amount,
+    asset: subscription.asset,
+    memo: `subscription:${subscription.id}`,
+  };
+}
+
+const intent = buildFixturePaymentIntent(subscription);
+console.log(intent.toName, intent.toMetaAddress);
+```
+
+For a live network run, replace `resolveFixtureName` with `wraith.resolveName("merchant.wraith", Chain.Stellar)` and keep the rest of the billing workflow the same.
+
+---
+
+## Rotation Mid-Subscription
+
+Assume the first billing run resolves `merchant.wraith` to meta-address A. Before the second run, the merchant rotates their stealth keys and updates the name record to meta-address B.
+
+```typescript
+const beforeRotation = resolveFixtureName("merchant.wraith");
+
+const afterRotation: NameFixture = {
+  ...beforeRotation,
+  metaAddress:
+    "st:xlm:61a798cab73a628668eff0cc4a5cf51d5687c947bfc674100080538049e1363a61a798cab73a628668eff0cc4a5cf51d5687c947bfc674100080538049e1363a",
+  expiryLedger: beforeRotation.expiryLedger + 6_307_200,
+};
+
+console.log("month 1:", beforeRotation.metaAddress);
+console.log("month 2:", afterRotation.metaAddress);
+```
+
+The payer does not edit the subscription. They keep sending to `merchant.wraith`; the resolver supplies the current meta-address at each run.
+
+In production, the merchant performs the rotation with the `wraith-names` `update` entrypoint or the agent flow documented in [Update Meta-Address](/guides/stellar/wraith-names-lifecycle#update-meta-address).
+
+---
+
+## Cancellation
+
+Cancellation belongs to the payer's billing system. The payer should mark the subscription cancelled and stop scheduling future sends:
+
+```typescript
+export function cancelSubscription(
+  current: Subscription,
+  cancelledAt: string
+): Subscription {
+  return {
+    ...current,
+    status: "cancelled",
+    nextRunAt: cancelledAt,
+  };
+}
+```
+
+Do not model cancellation as a name update. A `.wraith` name may receive payments from many payers, so changing the merchant's name record would affect unrelated subscriptions and payment links.
+
+---
+
+## Missed Payments
+
+When a billing run fails, separate name-resolution failures from payment-execution failures.
+
+| Failure | Recommended behavior |
+|---|---|
+| `NameNotFound` | Pause the subscription and ask the merchant to confirm the destination. |
+| `NameExpired` | Pause new sends until the merchant renews the name. Do not fall back to a stale meta-address. |
+| Grace period | Continue sending, but warn the merchant that renewal is needed. |
+| Insufficient payer balance | Retry after funding; resolve the name again before the retry unless you are retrying the same submitted transaction. |
+| Network congestion | Retry with backoff; resolve the name again for a new payment attempt. |
+
+This is stricter than the raw meta-address cookbook flow. With a raw meta-address, retries can safely reuse the stored destination because the destination is the actual routing key. With a `.wraith` name, a retry may cross a rotation boundary, so the worker should resolve again unless it is replaying a transaction already built for a specific meta-address.
+
+---
+
+## Name Expiry Edge Case
+
+A `.wraith` name can be active, in grace period, or expired. The subscription worker should treat those states differently:
+
+```typescript
+interface NameInfo {
+  state: "active" | "grace_period" | "expired";
+  expiryLedger: number;
+}
+
+export function shouldBillName(info: NameInfo): boolean {
+  if (info.state === "expired") return false;
+  return true;
+}
+
+export function renewalWarning(info: NameInfo): string | undefined {
+  if (info.state !== "grace_period") return undefined;
+  return `Name is in grace period and expires after ledger ${info.expiryLedger}.`;
+}
+```
+
+Payments initiated before expiry still target the meta-address resolved at send time. Future billing runs should stop once resolution reports the name as expired. Falling back to `lastResolvedMetaAddress` after expiry defeats the purpose of name-based routing and may send funds to a stale destination.
+
+---
+
+## Compare with Raw Meta-Address Scheduling
+
+| Concern | Raw meta-address subscription | `.wraith` name subscription |
+|---|---|---|
+| Stored destination | `st:xlm:...` | `merchant.wraith` |
+| Recipient rotation | Payer must update every subscription row | Recipient updates one name record |
+| Cancellation | Payer stops scheduler | Payer stops scheduler |
+| Retry destination | Reuse the stored meta-address | Resolve again for each new attempt |
+| Expiry behavior | No name expiry state | Pause on expired name; warn during grace period |
+| Audit trail | Shows opaque meta-address | Shows human-readable name plus resolved meta-address |
+
+Use raw meta-addresses when the recipient wants no public name mapping. Use `.wraith` names when operational stability and human-readable routing are more important than hiding the routing identifier itself.
+
+---
+
+## Related
+
+- [Wraith Names Lifecycle on Stellar](/guides/stellar/wraith-names-lifecycle)
+- [Stellar Payment Links](/guides/stellar-payment-links)
+- [Spectre + Stellar Cookbook, Recipe 2](/guides/spectre-stellar-cookbook#recipe-2-dao-weekly-payroll-in-usdc-on-stellar)
+- [Stellar Networks](/reference/stellar-networks)
