@@ -36,6 +36,7 @@ jobs:
         run: pnpm run check:nav-coverage
 
   stellar-testnet-snippets:
+    if: github.event_name == 'push'
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest
     continue-on-error: true
