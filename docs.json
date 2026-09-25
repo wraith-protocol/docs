@@ -104,6 +104,15 @@
               "reference/stellar-networks",
               "reference/threat-model"
             ]
+          },
+          {
+            "group": "Security Checklists",
+            "pages": [
+              "reference/security-checklists/evm",
+              "reference/security-checklists/stellar",
+              "reference/security-checklists/solana",
+              "reference/security-checklists/ckb"
+            ]
           }
         ]
       },

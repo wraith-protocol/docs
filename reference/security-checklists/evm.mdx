@@ -1,0 +1,294 @@
+---
+title: "EVM Security Checklist"
+description: "Pre-release security checklist for builders integrating Wraith Protocol stealth payments on EVM-compatible chains"
+---
+
+Use this checklist before shipping any integration that touches Wraith Protocol on EVM chains (Ethereum, Base, Polygon, Arbitrum, Optimism, and any EVM-compatible network). Each item maps to a known risk in the [Threat Model](/reference/threat-model) and links to the relevant contract or SDK reference.
+
+This list is scoped to what a builder controls — key handling, network selection, transaction construction, and operational decisions. It is suitable for use as a pull request review checklist or a pre-mainnet sign-off.
+
+---
+
+## Key Handling
+
+<AccordionGroup>
+
+<Accordion title="Never log or persist the viewing private key">
+The viewing key is required to scan announcements. Exposing it lets any observer link all incoming stealth payments to a single meta-address, breaking unlinkability. See [R-02](/reference/threat-model#r-02----view-key-exposure).
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+// BAD — do not log key material
+const { viewingKey } = await wraith.generateStealthKeys();
+console.log("viewing key:", viewingKey); // never do this
+
+// GOOD — keep the key in memory only for the scan duration
+const payments = await wraith.scanPayments({ chain: Chain.EVM });
+```
+</Accordion>
+
+<Accordion title="Generate a fresh ephemeral key for every payment">
+Reusing the same ephemeral key pair across two payments links both stealth addresses to the same sender session, breaking unlinkability. The SDK generates a fresh key on every `generateStealthAddress()` call. Custom implementations must not cache or reuse ephemeral keys. See [R-01](/reference/threat-model#r-01----ephemeral-key-reuse).
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/evm";
+
+// GOOD — called once per payment, produces a fresh ephemeral key each time
+const stealth1 = generateStealthAddress(spendingPubKey, viewingPubKey);
+const stealth2 = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// stealth1.ephemeralPubKey !== stealth2.ephemeralPubKey — always
+```
+</Accordion>
+
+<Accordion title="Validate token addresses before passing them to WraithSender">
+`sendERC20` accepts a caller-supplied `token` address. A malicious or misconfigured token contract can re-enter `WraithSender` or behave unexpectedly. Only pass token addresses you have verified on-chain. See [E-14](/reference/threat-model#wraithsender).
+
+```typescript
+import { isAddress } from "viem";
+
+// Validate the token address before use
+if (!isAddress(tokenAddress)) throw new Error("Invalid token address");
+
+// Optionally verify the contract exists and has expected ERC-20 interface
+const code = await client.getCode({ address: tokenAddress });
+if (!code || code === "0x") throw new Error("No contract at token address");
+```
+</Accordion>
+
+<Accordion title="Store spending and viewing keys separately">
+The spending key authorizes fund movement. The viewing key only permits scanning. Grant scanning access (viewing key) without ever co-locating the spending key. If you run a scanning service, it should never hold the spending key.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Network Selection
+
+<AccordionGroup>
+
+<Accordion title="Set the correct chainId in the EIP-712 domain separator for ERC6538Registry">
+`ERC6538Registry` uses EIP-712 for delegated registration. The domain separator includes `chainId` and `verifyingContract`. A signature created for one chain is invalid on another. Confirm your signing code reads `chainId` from the connected provider rather than hardcoding it. See [E-08](/reference/threat-model#erc6538registry).
+
+```typescript
+import { getChainId } from "viem";
+
+const chainId = await getChainId(client);
+// Use chainId in the EIP-712 domain — never hardcode
+const domain = {
+  name: "ERC6538Registry",
+  version: "1",
+  chainId,
+  verifyingContract: registryAddress,
+};
+```
+</Accordion>
+
+<Accordion title="Deploy one contract set per chain — never share contracts across chains">
+Each EVM chain gets its own `ERC5564Announcer`, `ERC6538Registry`, `WraithSender`, and `WraithNames` deployment. Sharing a contract address across chains is not possible (different chain state), but ensure your deployment config maps the right addresses to the right chain IDs.
+
+```typescript
+import { SCHEME_ID } from "@wraith-protocol/sdk/chains/evm";
+
+// Always look up addresses by chain — never hardcode mainnet addresses for testnet use
+const { announcer, registry, sender } = getDeployment(chainId);
+```
+</Accordion>
+
+<Accordion title="Verify the WraithSender's stored announcer address after deployment">
+`WraithSender` stores the announcer address at construction. A deployment script error could set the wrong address, causing sends to succeed while announcements are silently lost. Verify immediately after deployment. See [E-16](/reference/threat-model#wraithsender).
+
+```typescript
+// Read the stored announcer from the deployed WraithSender
+const storedAnnouncer = await senderContract.read.announcer();
+console.assert(storedAnnouncer === announcerAddress, "Announcer address mismatch");
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Replay and Replay Prevention
+
+<AccordionGroup>
+
+<Accordion title="Always include the current nonce in registerKeysOnBehalf signatures">
+`ERC6538Registry.registerKeysOnBehalf` uses a per-registrant nonce to prevent replay. A signature that omits or stales the nonce can be replayed after a key rotation. Always fetch the current nonce from the contract before signing. See [E-07](/reference/threat-model#erc6538registry).
+
+```typescript
+// Fetch the current nonce before signing
+const nonce = await registry.read.nonceOf([registrantAddress]);
+
+const signature = await walletClient.signTypedData({
+  domain,
+  types: { /* EIP-712 types */ },
+  primaryType: "RegistrationData",
+  message: {
+    registrant: registrantAddress,
+    schemeId: SCHEME_ID,
+    metaAddress: metaBytes,
+    nonce, // must be current — fetched just before signing
+  },
+});
+```
+</Accordion>
+
+<Accordion title="Invalidate pending registerKeysOnBehalf signatures before rotating keys">
+Call `incrementNonce()` before submitting a new `registerKeysOnBehalf` signature to invalidate any previously issued signatures for the old nonce. See [E-09](/reference/threat-model#erc6538registry).
+
+```typescript
+// Rotate key: invalidate old signatures first, then re-register
+await registry.write.incrementNonce([registrantAddress]);
+// Now issue a new registerKeysOnBehalf signature with the incremented nonce
+```
+</Accordion>
+
+<Accordion title="Validate msg.value equals sum of amounts in batchSendETH">
+`batchSendETH` must receive exactly the sum of all `amounts[]`. Failure to validate allows an underfunding attack. Confirm this check is present in the contract you are deploying and in any SDK wrapper you write. See [E-15](/reference/threat-model#wraithsender).
+
+```typescript
+import { parseEther } from "viem";
+
+const amounts = [parseEther("0.1"), parseEther("0.2"), parseEther("0.05")];
+const total = amounts.reduce((a, b) => a + b, 0n);
+
+await sender.write.batchSendETH(
+  [SCHEME_ID, stealthAddresses, ephemeralPubKeys, metadatas, amounts],
+  { value: total }, // must equal sum(amounts)
+);
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Fees
+
+<AccordionGroup>
+
+<Accordion title="Cap the sponsorFee in WraithWithdrawer to prevent full balance drain">
+`withdrawETH` and `withdrawERC20` accept a caller-supplied `sponsorFee`. A fee equal to the full balance drains the stealth address to the sponsor. The SDK enforces a fee cap — any custom withdrawal flow must independently enforce a reasonable maximum fee. See [E-29](/reference/threat-model#wraithwithdrawer).
+
+```typescript
+// Enforce a fee cap before constructing the withdrawal
+const MAX_FEE_BPS = 100n; // 1%
+const balance = await client.getBalance({ address: stealthAddress });
+const maxFee = (balance * MAX_FEE_BPS) / 10_000n;
+
+if (sponsorFee > maxFee) throw new Error("Sponsor fee exceeds cap");
+```
+</Accordion>
+
+<Accordion title="Check the stealth address balance before constructing an EIP-7702 withdrawal">
+Calling `withdrawETH` on a zero-balance stealth address reverts and wastes gas. Check the balance before building the withdrawal transaction. See [E-31](/reference/threat-model#wraithwithdrawer).
+
+```typescript
+const balance = await client.getBalance({ address: stealthAddress });
+if (balance === 0n) {
+  console.log("Nothing to withdraw — skipping");
+  return;
+}
+```
+</Accordion>
+
+<Accordion title="Keep batch sizes within block gas limits for batchSendETH">
+`batchSendETH` with a very large `stealthAddresses[]` array can exceed the block gas limit and revert. The SDK enforces a default batch size cap. Custom callers must enforce their own limit based on the target chain's gas limit. See [E-18](/reference/threat-model#wraithsender).
+
+```typescript
+const MAX_BATCH_SIZE = 50; // safe for most EVM chains at default gas limits
+
+for (let i = 0; i < recipients.length; i += MAX_BATCH_SIZE) {
+  const batch = recipients.slice(i, i + MAX_BATCH_SIZE);
+  await sender.write.batchSendETH(/* ... */);
+}
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Upgrades and Contract Lifecycle
+
+<AccordionGroup>
+
+<Accordion title="Deploy WraithWithdrawer only on chains with EIP-7702 support">
+`WraithWithdrawer` is an EIP-7702 delegation target. EIP-7702 is not available on all EVM chains. Deploying the contract on a non-7702 chain is harmless, but attempting to use it will fail. Check the chain's EIP-7702 support before including it in your integration. See [E-30](/reference/threat-model#wraithwithdrawer).
+</Accordion>
+
+<Accordion title="Verify withdrawETH and withdrawERC20 enforce msg.sender == address(this)">
+Under EIP-7702, `WraithWithdrawer` is delegated to from the stealth address. The withdrawal functions must only be callable when `msg.sender` is the stealth address itself (i.e., the stealth key signed the transaction). Confirm this check is present in any custom withdrawal contract you deploy. See [E-28](/reference/threat-model#wraithwithdrawer).
+
+```solidity
+function withdrawETH(address payable to, uint256 sponsorFee) external {
+    require(msg.sender == address(this), "Only stealth address can withdraw");
+    // ...
+}
+```
+</Accordion>
+
+<Accordion title="Audit the WraithNames _decompressPoint implementation before mainnet">
+`WraithNames` performs on-chain secp256k1 point decompression to verify ownership signatures. Any arithmetic error in the modular square root allows attackers to pass invalid public keys. Ensure this function is covered by your audit scope before mainnet deployment. See [E-23](/reference/threat-model#wraithnames).
+</Accordion>
+
+<Accordion title="Publish deployed contract addresses for independent verification">
+After mainnet deployment, publish all contract addresses along with their deployed bytecode hashes. Integrators and auditors can independently verify the deployed code matches the audited source. See [R-08](/reference/threat-model#r-08----script--program-upgrade-authority).
+
+```typescript
+// Deployed addresses (example — replace with your verified addresses)
+export const DEPLOYMENTS = {
+  1: { // Ethereum mainnet
+    announcer: "0x...",
+    registry: "0x...",
+    sender: "0x...",
+    names: "0x...",
+  },
+};
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Recovery
+
+<AccordionGroup>
+
+<Accordion title="Warn users that a lost spending key permanently locks their .wraith name">
+If a user loses the private key whose spending public key is embedded in their registered meta-address, the name cannot be updated or released. There is no admin override. Surface this warning in your UI before name registration. See [E-26](/reference/threat-model#wraithnames).
+</Accordion>
+
+<Accordion title="Provide UI guidance for meta-address recovery after key rotation">
+If a user generates a new key pair, they must re-register with `registerKeys` or `registerKeysOnBehalf`. Provide clear UI for this flow. Stale meta-addresses cause senders to generate stealth addresses the recipient can no longer derive. See [E-12](/reference/threat-model#erc6538registry).
+</Accordion>
+
+<Accordion title="Test your integration against announcement scan misses">
+A malformed `metadata` field (e.g., missing or zeroed view tag) causes the recipient's scanner to miss the payment — no funds are lost, but the payment is undetectable until a full rescan. Test that your `metadata` always includes the view tag as the first byte. See [E-02](/reference/threat-model#erc5564announcer).
+
+```typescript
+import { SCHEME_ID } from "@wraith-protocol/sdk/chains/evm";
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+// metadata[0] must be the view tag byte
+const metadata = `0x${stealth.viewTag.toString(16).padStart(2, "0")}`;
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Linking to SDK and Contract APIs
+
+| Area | Reference |
+|---|---|
+| Key generation and stealth address derivation | [`@wraith-protocol/sdk/chains/evm`](/sdk/chains/evm) |
+| Contract interfaces | [EVM Contracts](/contracts/evm) |
+| Full STRIDE threat analysis | [Threat Model — EVM](/reference/threat-model#evm-contracts) |
+| Residual risks (R-01 to R-08) | [Threat Model — Residual Risks](/reference/threat-model#residual-risks) |
+| Privacy guidance for withdrawals | [Privacy Best Practices](/guides/privacy-best-practices) |

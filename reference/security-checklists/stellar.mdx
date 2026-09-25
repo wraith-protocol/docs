@@ -1,0 +1,266 @@
+---
+title: "Stellar Security Checklist"
+description: "Pre-release security checklist for builders integrating Wraith Protocol stealth payments on Stellar"
+---
+
+Use this checklist before shipping any integration that touches Wraith Protocol on Stellar. Each item maps to a known risk in the [Threat Model](/reference/threat-model) and links to the relevant contract or SDK reference.
+
+This list is scoped to what a builder controls — key handling, network selection, transaction construction, and operational decisions. It is suitable for use as a pull request review checklist or a pre-mainnet sign-off.
+
+---
+
+## Key Handling
+
+<AccordionGroup>
+
+<Accordion title="Never log or persist the viewing private key">
+The viewing key is required to scan announcements. Exposing it lets any observer link all incoming stealth payments to a single meta-address, breaking unlinkability. See [R-02](/reference/threat-model#r-02----view-key-exposure).
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+// BAD — do not log key material
+const { viewingKey } = await wraith.generateStealthKeys();
+console.log("viewing key:", viewingKey); // never do this
+
+// GOOD — keep the key in memory only for the scan duration
+const payments = await wraith.scanPayments({ chain: Chain.Stellar });
+```
+</Accordion>
+
+<Accordion title="Generate a fresh ephemeral key for every payment">
+Reusing the same ephemeral key pair across two payments links both stealth addresses to the same sender session, breaking unlinkability. The SDK generates a fresh key on every `generateStealthAddress()` call. Custom implementations must not cache or reuse ephemeral keys. See [R-01](/reference/threat-model#r-01----ephemeral-key-reuse).
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/stellar";
+
+// GOOD — called once per payment, produces a fresh ephemeral key each time
+const stealth1 = generateStealthAddress(spendingPubKey, viewingPubKey);
+const stealth2 = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// stealth1.ephemeralPubKey !== stealth2.ephemeralPubKey — always
+```
+</Accordion>
+
+<Accordion title="Verify Soroban auth is required on every state-changing call">
+`stealth-registry`, `stealth-sender`, and `wraith-names` all require Soroban auth from the `caller` or `registrant`. Confirm that your transaction builder attaches the correct auth entry. See [S-05](/reference/threat-model#stealth-registry), [S-12](/reference/threat-model#stealth-sender).
+
+```typescript
+// The Soroban SDK enforces this at submission time — confirm no auth entries are missing
+const tx = new TransactionBuilder(account, { fee: "100" })
+  .addOperation(
+    senderContract.call("send", callerAddress, /* ... */ )
+  )
+  .build();
+
+const sim = await sorobanServer.simulateTransaction(tx);
+// sim.auth contains the required auth entries — attach them before signing
+```
+</Accordion>
+
+<Accordion title="Store spending and viewing keys separately">
+The spending key authorizes fund movement. The viewing key only permits scanning. Grant scanning access (viewing key) without ever co-locating the spending key. If you run a scanning service, it should never hold the spending key.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Network Selection
+
+<AccordionGroup>
+
+<Accordion title="Confirm the correct Stellar network passphrase before signing">
+Stellar transactions are network-specific. A transaction signed for `testnet` is invalid on `mainnet`, but a mis-configured builder could silently target the wrong network. Always assert the passphrase explicitly.
+
+```typescript
+import { Networks } from "@stellar/stellar-sdk";
+
+// Testnet
+const tx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: Networks.TESTNET, // "Test SDF Network ; September 2015"
+}).build();
+
+// Mainnet
+const tx = new TransactionBuilder(account, {
+  fee: "100",
+  networkPassphrase: Networks.PUBLIC, // "Public Global Stellar Network ; September 2015"
+}).build();
+```
+
+See [Stellar Networks](/reference/stellar-networks) for testnet and mainnet RPC endpoints.
+</Accordion>
+
+<Accordion title="Use a dedicated RPC endpoint — not a public shared node for production">
+Public Horizon or Soroban RPC nodes throttle requests and may lag on `getEvents`. Use a dedicated RPC for payment scanning in production. See the [Stellar Networks](/reference/stellar-networks) reference for recommended providers.
+</Accordion>
+
+<Accordion title="Check the announcer contract WASM is not evicted before scanning">
+Soroban contract WASM is subject to ledger-state rent. If the announcer or sender WASM lapses, `send` will fail and `getEvents` may return stale data. Check contract liveness before the first scan in a session. See [S-17](/reference/threat-model#stealth-sender), [S-24](/reference/threat-model#wraith-names-stellar).
+
+```typescript
+// Check contract instance still exists before relying on it
+const instance = await sorobanServer.getContractData(
+  announcerContractId,
+  xdr.ScVal.scvLedgerKeyContractInstance(),
+  "latest",
+);
+if (!instance) throw new Error("Announcer WASM evicted — extend storage rent");
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Replay and Replay Prevention
+
+<AccordionGroup>
+
+<Accordion title="Soroban auth has no external nonce — sequence numbers prevent replay">
+Unlike EVM's EIP-712 nonce scheme, Stellar replay prevention relies on account sequence numbers. Each transaction increments the source account's sequence number. Confirm your transaction builder always fetches the latest sequence number before constructing a transaction and does not reuse a cached value.
+
+```typescript
+// Always load a fresh account state — never cache the sequence number
+const account = await sorobanServer.getAccount(sourceAddress);
+const tx = new TransactionBuilder(account, { fee: "100", /* ... */ }).build();
+```
+</Accordion>
+
+<Accordion title="Do not resubmit a transaction after it times out without rebuilding it">
+If a transaction expires before it is included in a ledger, rebuild it with a fresh sequence number and new `timeBounds`. Submitting an expired transaction produces a silent failure in some SDK wrappers. Always check the submission result's `status` field.
+
+```typescript
+const result = await sorobanServer.sendTransaction(signedTx);
+if (result.status === "ERROR") {
+  // Rebuild — do not reuse the expired transaction
+}
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Fees
+
+<AccordionGroup>
+
+<Accordion title="Set a fee that accommodates resource fee surges">
+Soroban transactions have a two-part fee: inclusion fee and resource fee. Resource fees can spike during high ledger utilization. Use `simulateTransaction` to estimate the resource fee and add headroom.
+
+```typescript
+const sim = await sorobanServer.simulateTransaction(tx);
+const preparedTx = SorobanRpc.assembleTransaction(tx, sim).build();
+// preparedTx.fee already includes the simulated resource fee
+// Add a percentage buffer for safety
+```
+</Accordion>
+
+<Accordion title="Verify the sender holds at least 1 XLM base reserve plus trustline reserves">
+Every Stellar account must maintain a minimum balance. Each additional trustline entry costs 0.5 XLM in reserve. Before sending, confirm the sender holds enough XLM to cover the base reserve, all trustline reserves, and the transaction fee. See [S-16](/reference/threat-model#stealth-sender).
+
+```typescript
+const account = await horizon.loadAccount(senderAddress);
+const baseReserve = 0.5 * (2 + account.subentry_count); // XLM
+const available = parseFloat(account.balances.find(b => b.asset_type === "native").balance);
+if (available < baseReserve + transactionFee) {
+  throw new Error("Insufficient XLM for reserves and fee");
+}
+```
+</Accordion>
+
+<Accordion title="Check for AUTH_REQUIRED and AUTH_CLAWBACK_ENABLED flags before sending non-XLM assets">
+Assets with `AUTH_REQUIRED` cannot be sent to new stealth addresses that have not been pre-authorized by the issuer. Assets with `AUTH_CLAWBACK_ENABLED` allow the issuer to reclaim funds from any address, including stealth addresses. Always check these flags before sending. See [S-15](/reference/threat-model#stealth-sender) and the [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility).
+
+```typescript
+import { checkAssetFlags } from "@wraith-protocol/sdk/chains/stellar";
+
+const { authRequired, clawbackEnabled } = await checkAssetFlags(assetCode, issuer, horizon);
+if (authRequired) throw new Error(`${assetCode} requires issuer authorization — incompatible with stealth addresses`);
+if (clawbackEnabled) console.warn(`${assetCode} can be clawed back by the issuer`);
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Upgrades and Contract Lifecycle
+
+<AccordionGroup>
+
+<Accordion title="Transfer or burn the admin key after deploying stealth-sender">
+`stealth-sender` has an `init` function that sets the admin and announcer address. This function must be callable only once. After initialization, the admin key should be transferred to a multisig or burned. A retained single-key admin can re-initialize the contract. See [S-11](/reference/threat-model#stealth-sender).
+
+```bash
+# After deploying and initializing, verify init cannot be called again
+soroban contract invoke \
+  --id <sender-contract-id> \
+  --network mainnet \
+  --source <admin-key> \
+  -- init \
+  --admin <admin-address> \
+  --announcer <announcer-contract-id>
+# Should fail with an "already initialized" error
+```
+</Accordion>
+
+<Accordion title="Verify the announcer address stored in stealth-sender after init">
+A misconfigured announcer address causes sends to succeed while announcements are lost. Query the contract state after `init` to confirm the stored announcer matches the deployed `stealth-announcer` contract ID. See [S-13](/reference/threat-model#stealth-sender).
+
+```typescript
+// Verify announcer is correctly configured
+const storedAnnouncer = await sorobanServer.getContractData(
+  senderContractId,
+  xdr.ScVal.scvSymbol("announcer"),
+  "persistent",
+);
+console.assert(storedAnnouncer === announcerContractId, "Announcer mismatch");
+```
+</Accordion>
+
+<Accordion title="Maintain storage rent for all deployed contracts">
+Soroban contracts and their persistent storage entries can be evicted if rent lapses. Set up automated rent extension for the announcer, sender, registry, and names contracts before going to mainnet. See [S-17](/reference/threat-model#stealth-sender), [S-24](/reference/threat-model#wraith-names-stellar).
+</Accordion>
+
+<Accordion title="Publish the deployed contract IDs and WASM hashes for independent verification">
+After mainnet deployment, publish all contract IDs and their WASM hashes in your documentation. Integrators and auditors can independently verify the deployed code matches the audited source. See [R-08](/reference/threat-model#r-08----script--program-upgrade-authority).
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Recovery
+
+<AccordionGroup>
+
+<Accordion title="Warn users that a lost spending key permanently locks their .wraith name">
+If a user loses the Stellar key that controls their `wraith-names` entry, the name cannot be updated or released. There is no recovery path. Surface this in your UI before name registration. See [S-23](/reference/threat-model#wraith-names-stellar).
+</Accordion>
+
+<Accordion title="Build a backup path for stale meta-addresses in stealth-registry">
+If a user loses their viewing or spending key, their registered meta-address in `stealth-registry` becomes unusable. Provide UI guidance for how to re-register with a new key pair. See [S-09](/reference/threat-model#stealth-registry).
+</Accordion>
+
+<Accordion title="Test recovery from an evicted contract in your staging environment">
+Simulate WASM eviction in your staging environment to verify your application degrades gracefully — surfacing a clear error rather than silently dropping transactions or scans.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Linking to SDK and Contract APIs
+
+| Area | Reference |
+|---|---|
+| Key generation and stealth address derivation | [`@wraith-protocol/sdk/chains/stellar`](/sdk/chains/stellar) |
+| Contract interfaces | [Stellar Contracts](/contracts/stellar) |
+| Stellar networks and RPC endpoints | [Stellar Networks](/reference/stellar-networks) |
+| SAC asset flag compatibility | [SAC Compatibility Audit](/contracts/stellar/audits/2026-06-sac-compatibility) |
+| Full STRIDE threat analysis | [Threat Model — Stellar](/reference/threat-model#stellar-contracts) |
+| Residual risks (R-01 to R-08) | [Threat Model — Residual Risks](/reference/threat-model#residual-risks) |
+| Privacy guidance for withdrawals | [Privacy Best Practices](/guides/privacy-best-practices) |
