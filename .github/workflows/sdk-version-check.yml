@@ -1,0 +1,47 @@
+name: SDK Version Check
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+
+jobs:
+  check-sdk-version:
+    name: Verify SDK version exists on npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract SDK version from package.json
+        id: extract-version
+        run: |
+          VERSION=$(node -p "require('./package.json').dependencies['@wraith-protocol/sdk']")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected SDK version: $VERSION"
+
+      - name: Check if version exists on npm
+        id: check
+        run: |
+          VERSION="${{ steps.extract-version.outputs.version }}"
+          echo "Checking if @wraith-protocol/sdk@$VERSION exists on npm..."
+          
+          if npm view @wraith-protocol/sdk@$VERSION version > /dev/null 2>&1; then
+            echo "✅ Version $VERSION exists on npm"
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Version $VERSION does not exist on npm"
+            echo "Please ensure the SDK version is published before updating docs"
+            echo "Run: npm view @wraith-protocol/sdk versions"
+            exit 1
+          fi
+
+      - name: Output verified version
+        run: |
+          echo "Verified SDK version: ${{ steps.check.outputs.version }}"
+          echo "This version will be used for all docs validation checks"
