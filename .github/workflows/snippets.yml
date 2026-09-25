@@ -35,6 +35,12 @@ jobs:
       - name: Check nav coverage
         run: pnpm run check:nav-coverage
 
+      - name: Check network docs
+        run: pnpm run check:network-docs
+
+      - name: Unit-test the network docs checker
+        run: pnpm run test:network-docs
+
   stellar-testnet-snippets:
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest
