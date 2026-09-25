@@ -270,7 +270,7 @@ const signature = signWithScalar(messageBytes, stealthScalar, stealthPubKey);
 
 The stealth scalar `(spendingScalar + hashScalar) % L` is not necessarily clamped, so standard Stellar signing functions don't work.
 
-### `signStellarTransaction(txHash, stealthScalar, stealthPubKey)`
+### `signStellarTransaction(txHash, stealthScalar, stealthPubKey)` {#signstellartransaction}
 
 Sign a Stellar transaction hash with a stealth private scalar.
 

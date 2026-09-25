@@ -5,7 +5,7 @@ description: "Start here to file a security finding against Wraith Protocol — 
 
 This is the on-ramp for security researchers who want to actually file a finding against Wraith Protocol. It assumes you can read TypeScript and are comfortable with smart-contract or TEE threat modeling, but it does **not** assume you have read everything else first.
 
-If you just want to report a bug, jump to [Submitting a Report](#submitting-a-report). If you want to reproduce something first, start with the [PoC Template](#poc-repository-template).
+If you just want to report a bug, jump to [Submitting a Report](#7-submitting-a-report). If you want to reproduce something first, start with the [PoC Template](#5-poc-repository-template).
 
 <Note>
   This guide is the companion to the [Security Disclosure Policy](/reference/security-disclosure) and the [Threat Model](/reference/threat-model). Read those two before submitting a formal report — they define scope, safe harbor, and the full STRIDE analysis that your finding should map onto.
@@ -54,7 +54,7 @@ console.log("ephemeralPubKey", ephemeralPubKey);
   [Security Disclosure Policy](/reference/security-disclosure#safe-harbor).
 </Note>
 
-## 3. Severity matrix
+## 3. Severity matrix {#severity-matrix}
 
 We use a four-level scale aligned with CVSS v3. The definitions mirror [Security Disclosure Policy → Severity Definitions](/reference/security-disclosure#severity-definitions); the right-hand column gives a concrete, Wraith-shaped example you can map a finding onto.
 
@@ -137,7 +137,7 @@ Include:
 - The affected component(s) and version or commit hash.
 - The threat-model ID(s) your finding relates to (e.g. `E-15`, `R-01`).
 - Steps to reproduce, as minimal as possible.
-- Your proof of concept (link the repo from [Section 5](#poc-repository-template)).
+- Your proof of concept (link the repo from [Section 5](#5-poc-repository-template)).
 - Your severity assessment and why.
 - Suggested fix or mitigation, if you have one.
 - Whether you want public credit, and what name to use.

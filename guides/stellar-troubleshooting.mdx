@@ -252,7 +252,7 @@ const tx = new StellarSdk.TransactionBuilder(account, { fee: "100" })
 
 ## Soroban Contract Errors
 
-### 17. `HostError: Error(Contract, #)` / Contract Trapped
+### 17. `HostError: Error(Contract, #)` / Contract Trapped {#17-hostError-contract-trapped}
 **Meaning**: The smart contract executed a `panic!` or returned a specific error code.  
 **Cause**: A contract assertion failed (e.g., unauthorized caller, arithmetic overflow).  
 **Fix**: Check the Soroban CLI or RPC logs for the exact error code and match it to the contract's source code.  
@@ -269,7 +269,7 @@ pub enum Error {
 // If you see Error(Contract, 2), it's InsufficientBalance.
 ```
 
-### 18. `op_no_trust` / Missing Trustline
+### 18. `op_no_trust` / Missing Trustline {#18-op_no_trust--missing-trustline}
 **Meaning**: The Soroban contract attempted to send a Classic asset (like USDC) to an account that doesn't trust it.  
 **Cause**: The recipient has not established a trustline for the asset being sent by the contract.  
 **Fix**: Have the recipient submit a `ChangeTrust` operation for the asset before invoking the contract.  

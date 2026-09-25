@@ -1,0 +1,135 @@
+# link-exceptions.yaml
+#
+# External URLs and known-missing internal paths that the link checker should skip.
+#
+# Add an entry here when:
+#   - An external URL is valid but returns 4xx/5xx in CI because the host
+#     rate-limits crawlers, requires auth, or is behind bot-protection.
+#   - An internal page is intentionally not yet written (stub / future doc).
+#   - A URL is a placeholder or example value in prose (not a real link).
+#
+# Each entry MUST include:
+#   url     – exact URL or URL prefix to skip (string)
+#   reason  – why this exception exists
+#   owner   – GitHub handle of the person who added it
+#   added   – ISO date the exception was added
+#
+# Review and prune stale entries every quarter.
+
+exceptions:
+  # ── Social / bot-blocked hosts ─────────────────────────────────────────────
+
+  - url: https://twitter.com
+    reason: Twitter/X returns 403 to all non-browser user-agents.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://x.com
+    reason: Same as twitter.com — bot-protection returns 403.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://www.linkedin.com
+    reason: LinkedIn blocks all crawler user-agents.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  # ── Placeholder / example URLs in prose ───────────────────────────────────
+
+  - url: https://pay.wraith.dev
+    reason: >
+      Placeholder domain used as an illustrative example in prose.
+      Not a real endpoint; will be replaced or removed when the feature ships.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://usewraith.xyz/pricing
+    reason: Page not yet published; planned for mainnet launch.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://usewraith.xyz/.well-known/security.txt
+    reason: >
+      security.txt not yet deployed to production host.
+      Will be removed once the file is live.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://docs.usewraith.xyz/reference/auditor-guide
+    reason: >
+      Docs site not yet deployed; link in SECURITY.md points to the future
+      production URL. Remove exception once the site is live.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  # ── External sites that block CI crawlers ──────────────────────────────────
+
+  - url: https://stellarbeat.io
+    reason: Returns connection errors / blocks non-browser agents in CI.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://phoenix-hub.org
+    reason: Site returns network errors in CI; confirmed reachable in browser.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://github.com/stellar/go/tree/master/services/federation
+    reason: >
+      GitHub tree-view URLs return 404 to HEAD requests from CI.
+      The repository and path are valid; this is a GitHub crawler quirk.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: https://developers.stellar.org
+    reason: >
+      Stellar developer docs return 404 on some deep paths via HEAD from CI.
+      URLs are valid in a browser; crawler-blocking behaviour.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  # ── Known stub / not-yet-written internal pages ────────────────────────────
+  # These are internal links that reference pages planned but not yet created.
+  # Prefix with "internal:" to distinguish from HTTP exceptions.
+
+  - url: internal:/reference/stellar-event-schemas
+    reason: >
+      Page planned but not yet written. Referenced by multiple guides.
+      Remove this exception when the page is created.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: internal:/sdk/stellar-react-hooks
+    reason: React hooks SDK page not yet authored. Tracked as a docs gap.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: internal:/reference/error-codes
+    reason: >
+      Error codes reference page exists on the target branch but not in this
+      branch. All links to it (including anchors) are suppressed until the
+      page is merged here.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: internal:/guides/ops/monitoring-and-on-call
+    reason: >
+      monitoring-and-on-call.mdx is not yet authored in this branch.
+      Referenced by guides that will link to it once the page exists.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: internal:/guides/integrations/phoenix
+    reason: >
+      phoenix.mdx not yet present in this branch. Contains links to anchors
+      in sdk/chains/stellar and reference/auditor-guide that are valid once
+      the page is merged.
+    owner: "@maintainer"
+    added: "2026-09-25"
+
+  - url: internal:/guides/my-guide
+    reason: >
+      Placeholder link used in docs/i18n.md as an illustrative example.
+      Not a real page; intentional.
+    owner: "@maintainer"
+    added: "2026-09-25"

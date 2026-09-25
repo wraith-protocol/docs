@@ -5,6 +5,7 @@
   "scripts": {
     "check:snippets": "tsx scripts/check-snippets.ts",
     "check:nav-coverage": "node scripts/check-nav-coverage.mjs",
+    "check:exports": "tsx scripts/check-exports.ts",
     "check:stellar-testnet": "tsx scripts/check-stellar-testnet-snippets.ts",
     "generate:stellar-reference": "tsx scripts/generate-stellar-reference.ts",
     "check:stellar-reference": "tsx scripts/generate-stellar-reference.ts --check --allow-missing",
@@ -13,7 +14,8 @@
     "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
-    "test": "npm run check:snippets && npm run check:nav-coverage"
+    "check:links": "node scripts/check-links.mjs",
+    "test": "npm run check:snippets && npm run check:nav-coverage && npm run check:exports"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0",
