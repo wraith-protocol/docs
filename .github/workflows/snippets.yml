@@ -51,13 +51,14 @@ jobs:
       - name: Download published SDK artifact
         run: |
           echo "Downloading @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}"
-          pnpm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }} --pack-destination /tmp/sdk.tgz
+          cd /tmp
+          npm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}
 
       - name: Install dependencies with pinned SDK
         run: |
           pnpm install --frozen-lockfile
           pnpm remove @wraith-protocol/sdk
-          pnpm add /tmp/sdk.tgz
+          pnpm add /tmp/wraith-protocol-sdk-${{ needs.extract-sdk-version.outputs.sdk-version }}.tgz
 
       - name: Record tested SDK version
         run: |
@@ -95,13 +96,14 @@ jobs:
       - name: Download published SDK artifact
         run: |
           echo "Downloading @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}"
-          pnpm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }} --pack-destination /tmp/sdk.tgz
+          cd /tmp
+          npm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}
 
       - name: Install dependencies with pinned SDK
         run: |
           pnpm install --frozen-lockfile
           pnpm remove @wraith-protocol/sdk
-          pnpm add /tmp/sdk.tgz
+          pnpm add /tmp/wraith-protocol-sdk-${{ needs.extract-sdk-version.outputs.sdk-version }}.tgz
 
       - name: Record tested SDK version
         run: |
@@ -132,13 +134,14 @@ jobs:
       - name: Download published SDK artifact
         run: |
           echo "Downloading @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}"
-          pnpm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }} --pack-destination /tmp/sdk.tgz
+          cd /tmp
+          npm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}
 
       - name: Install dependencies with pinned SDK
         run: |
           pnpm install --frozen-lockfile
           pnpm remove @wraith-protocol/sdk
-          pnpm add /tmp/sdk.tgz
+          pnpm add /tmp/wraith-protocol-sdk-${{ needs.extract-sdk-version.outputs.sdk-version }}.tgz
 
       - name: Record tested SDK version
         run: |

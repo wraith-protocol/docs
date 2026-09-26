@@ -30,7 +30,7 @@ When updating the `@wraith-protocol/sdk` version in the docs repository, follow 
 - The `sdk-version-check.yml` workflow runs on any PR that modifies `package.json`
 - It verifies the specified SDK version exists on npm before allowing the PR to proceed
 - The `snippets.yml` workflow extracts the version from `package.json` and:
-  - Downloads the exact published SDK artifact as a `.tgz` file
+  - Downloads the exact published SDK artifact as a `.tgz` file using `npm pack`
   - Installs the packed artifact instead of the registry version
   - Records the tested version in CI output
 
