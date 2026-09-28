@@ -15,7 +15,7 @@ importers:
         specifier: ^13.1.0
         version: 13.3.0
       '@wraith-protocol/sdk':
-        specifier: ^1.4.5
+        specifier: 1.4.5
         version: 1.4.5(@solana/web3.js@1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))(@stellar/stellar-sdk@13.3.0)(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
     devDependencies:
       '@playwright/test':
