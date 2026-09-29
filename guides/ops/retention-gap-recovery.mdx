@@ -1,0 +1,195 @@
+---
+title: 'Retention-Gap Recovery Runbook'
+sidebarTitle: 'Retention-Gap Recovery'
+description: 'Operator procedure to detect, bound, and recover a Wraith scanner that fell behind the Soroban RPC retention window'
+---
+
+A scanner that is offline longer than the RPC retention window can miss
+announcements permanently. This runbook is the recovery procedure: detect the
+gap, protect the checkpoint, replay from an archive, fail over between
+providers, safely rescan, de-duplicate, and collect the evidence needed to
+close the incident.
+
+<Note>
+  Background retention behaviour lives in
+  [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment#soroban-rpc-retention-windows).
+  This runbook is invoked from the monitoring guide's
+  [Watcher Drop Spike playbook](/guides/ops/monitoring-and-on-call#playbook-5-watcher-drop-spike).
+</Note>
+
+## When to use this runbook
+
+Use it whenever the scanner may have skipped a contiguous range of ledgers:
+
+- `WatcherEventDropSpike` or `IndexerScanStopped` has fired.
+- The scanner process was down, partitioned, or rate-limited for **more than ~24 hours**.
+- `lastProcessedLedger` is more than **17,280 ledgers** behind the network tip.
+- Post-restart, the first `getEvents` call returns `retention_window_exceeded`.
+
+This is a data-integrity incident: announcements missed inside the gap cannot be
+recovered from a pruned RPC node, so recovery must use an archive source.
+
+---
+
+## Step 1 — Detect and bound the gap
+
+Confirm the gap is real and measure it before touching any state. Record the
+values — they are the operator evidence for Step 6.
+
+```bash
+# Network tip (current ledger) and the scanner's last processed ledger
+stellar ledger latest --network mainnet
+wraith-watcher status --show-checkpoint
+
+# The gap in ledgers and in wall-clock time (~5-6s per ledger)
+GAP=$((LATEST_LEDGER - LAST_PROCESSED_LEDGER))
+echo "gap_ledgers=${GAP}  gap_hours=$((GAP * 6 / 3600))"
+```
+
+Classify the gap:
+
+| Gap (ledgers) | Approx. time | Retention status | Action |
+|---|---|---|---|
+| < 100 | < 10 min | well inside window | normal catch-up (Step 5) |
+| 100 – 17,280 | < ~24 h | inside window | live rescan from `lastProcessedLedger` (Step 5) |
+| > 17,280 | > ~24 h | **outside window** | archive replay (Step 3) — do not rely on the live provider |
+
+<Warning>
+  Do not "fix" the gap by jumping `lastProcessedLedger` forward to the network
+  tip. That silently marks the missed range as processed and makes the loss
+  permanent. Only advance the checkpoint once the range has been replayed
+  (Step 3/5).
+</Warning>
+
+## Step 2 — Protect the checkpoint
+
+Treat `lastProcessedLedger` as the recovery anchor.
+
+```bash
+# Snapshot the current checkpoint before any recovery work
+wraith-watcher checkpoint export --output /var/backups/wraith-checkpoint.json
+```
+
+- **Do not** delete the scanner database or rebuild the index from scratch.
+- Keep the checkpoint at the **first missing ledger**, not the latest.
+- If a partial rescan fails midway, recovery resumes from the last successfully
+  persisted ledger — never further forward than the real gap.
+
+## Step 3 — Archive replay
+
+When the gap is outside the retention window, replay the missed range from a
+source that still has history.
+
+<Steps>
+  <Step title="Choose an archive source">
+    - **Self-hosted archive node** — full history; preferred for large gaps.
+    - **Managed archive provider** — a provider that advertises full/ledger-history retention.
+    - **Horizon fallback** — reconstruct announcement events from transaction history (requires parsing) when no archive RPC is available.
+  </Step>
+  <Step title="Point the watcher at the archive for the replay window">
+    ```bash
+    export STELLAR_RPC_URL_FALLBACK=https://<archive-provider>/<API_KEY>
+    wraith-watcher rescan \
+      --from-ledger <LAST_PROCESSED_LEDGER> \
+      --to-ledger <LATEST_LEDGER> \
+      --provider fallback
+    ```
+  </Step>
+  <Step title="Verify coverage before advancing the checkpoint">
+    The rescan must report zero unprocessed ledgers before the checkpoint moves:
+    ```bash
+    wraith-watcher rescan status --expect-complete
+    ```
+  </Step>
+</Steps>
+
+## Step 4 — Dual-provider recovery
+
+If a single provider is failing or rate-limited, fail over before the window
+expires rather than after.
+
+```bash
+STELLAR_RPC_URL_PRIMARY=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
+STELLAR_RPC_URL_FALLBACK=https://<slug>.stellar-mainnet.quiknode.pro/<API_KEY>
+```
+
+- The Spectre server retries the fallback when the primary returns a 5xx or
+  times out after 10 seconds (see
+  [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment#rpc-failover)).
+- For an active gap, prefer the provider with the **deepest retention** as the
+  fallback so a replay can complete without switching sources mid-range.
+- Confirm both endpoints answer before declaring recovery:
+
+```bash
+wraith-watcher rpc check --primary --fallback
+```
+
+## Step 5 — Safe rescan and de-duplication
+
+A rescan may overlap ledgers that were already processed. The watcher
+de-duplicates by `(contract_id, ledger, event_index)`, so re-processing a
+range is safe — but only if the de-dup keys are intact.
+
+1. **Rescan the range** (bounded; use `--rate-limit` to avoid Horizon 429s):
+   ```bash
+   wraith-watcher rescan --from-ledger <FIRST_MISSING> --to-ledger <LATEST_LEDGER> --rate-limit 5
+   ```
+2. **Confirm de-duplication** — no duplicate announcements should appear:
+   ```bash
+   wraith-watcher audit duplicates --since <FIRST_MISSING>
+   ```
+3. **Reconcile balances/ledgers** for affected accounts against the index.
+4. **Only then** advance the checkpoint to the highest fully processed ledger.
+
+<Warning>
+  Never disable de-duplication to make a rescan "finish". Duplicates surface as
+  double-counted announcements and false payment notifications.
+</Warning>
+
+## Step 6 — Evidence to collect
+
+Attach all of the following to the incident ticket:
+
+- `gap_ledgers` and `gap_hours` from Step 1, plus the network tip and checkpoint.
+- Whether the gap was inside or outside the retention window.
+- The archive/fallback provider used for replay and its advertised retention.
+- `wraith-watcher rescan status --expect-complete` output (must be complete).
+- `wraith-watcher audit duplicates --since <FIRST_MISSING>` output (must be empty).
+- Number of announcements recovered and any accounts that could not be
+  reconciled.
+- Timeline: when the scanner stopped, when it was detected, detection source
+  (alert or user report).
+
+## Alert thresholds
+
+These should be configured so the gap is caught while it is still recoverable
+from the live provider:
+
+| Alert | Condition | Severity | Meaning |
+|---|---|---|---|
+| `IndexerScanStopped` | no successful scan for 10 min | High | scanner is down |
+| `IndexerCheckpointStale` | `latest_ledger - lastProcessedLedger > 3,600` (~6 h) | High | approaching the window |
+| `IndexerRetentionRisk` | checkpoint lag > 12,000 ledgers (~20 h) | Critical | replay may soon require an archive |
+| `WatcherEventDropSpike` | dropped-event rate > baseline for 5 min | High | events being missed now |
+| `SorobanRetentionWindowExceeded` | `retention_window_exceeded` from `getEvents` | Critical | gap is already outside the window |
+
+Metric names and baselines are defined in
+[Monitoring, Alerting, and On-Call](/guides/ops/monitoring-and-on-call#key-metrics).
+
+## Post-recovery verification
+
+1. `lastProcessedLedger` is within a few ledgers of the network tip.
+2. `IndexerCheckpointStale` and `IndexerRetentionRisk` have cleared.
+3. A test stealth payment to a fresh meta-address is detected end-to-end.
+4. The de-dup audit is empty and the reconciliation in Step 5 passed.
+5. Archive/failover configuration is left in place (or documented if reverted).
+
+---
+
+## Cross-references
+
+- [Monitoring, Alerting, and On-Call](/guides/ops/monitoring-and-on-call) — alerts, dashboards, and the Watcher Drop Spike playbook
+- [Self-Hosted Deployment](/guides/ops/self-hosted-deployment) — deploying the watcher and scanner
+- [Stellar Mainnet Deployment](/guides/stellar-mainnet-deployment#soroban-rpc-retention-windows) — retention windows and RPC failover
+- [View-Tag Scanner](/architecture/view-tag-scanner) — how scanning and view tags work
+- [Error Codes](/reference/error-codes#soroban-rpc--indexer-errors) — `retention_window_exceeded` and related errors

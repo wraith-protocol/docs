@@ -527,7 +527,10 @@ Each playbook follows a standard structure: **Symptoms → Diagnosis → Immedia
    ```bash
    wraith-watcher rescan --from-ledger <LAST_GOOD_LEDGER>
    ```
-3. **Notify users** to check for missing payments manually via explorer.
+3. **If the watcher was down longer than the RPC retention window (~24h)**, a live
+   rescan cannot recover the missed range. Follow the
+   [Retention-Gap Recovery Runbook](/guides/ops/retention-gap-recovery) instead.
+4. **Notify users** to check for missing payments manually via explorer.
 
 #### Long-term Fix
 - Implement event stream redundancy (subscribe to multiple RPC endpoints)
@@ -675,6 +678,7 @@ Run different scenarios each quarter:
 ## Cross-References
 
 - [Self-Hosted Deployment](/guides/ops/self-hosted-deployment) — prerequisite deployment guide
+- [Retention-Gap Recovery Runbook](/guides/ops/retention-gap-recovery) - recovering a scanner that fell behind the RPC retention window
 - [Auditor Guide Severity Matrix](/reference/auditor-guide#severity-matrix) — severity definitions and response SLAs
 - [Multisig Authority Rotation](/guides/stellar/multisig-authority-rotation) — key rotation procedures
 - [Stellar Cryptography](/architecture/stellar-cryptography) — contract architecture for debugging
