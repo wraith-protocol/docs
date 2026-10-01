@@ -1,0 +1,145 @@
+---
+title: "Chain and Package Compatibility Matrix"
+description: "Which Wraith SDK entry point, framework packages, contract versions, and deployment IDs belong together on EVM, Stellar, Solana, and CKB"
+keywords: "compatibility, matrix, EVM, Stellar, Soroban, Solana, Anchor, CKB, Nervos, viem, stellar-sdk, web3.js, deployments, versions, migration, multi-chain"
+---
+
+This page answers one question: **which SDK entry point, framework packages, and deployed contracts belong together on each chain?** Use it before starting a multi-chain integration or bumping a dependency, so a version or deployment mismatch surfaces here rather than at runtime.
+
+Every value below is transcribed from the page that owns it — the generated Stellar reference, the per-chain contracts pages, and the dependency pins in `package.json`. The [sync check](#keeping-this-matrix-in-sync) in CI keeps this page from drifting from those owners.
+
+## SDK core
+
+All four chains are served by the same npm package. Only the chain entry point and its optional peer dependency change.
+
+| Package | Version (pinned by these docs) | Used by | Purpose |
+|---|---|---|---|
+| `@wraith-protocol/sdk` | `^1.4.5` | All chains | Agent client (root import) plus the four chain entry points |
+| `@noble/curves` | direct dependency | EVM, Stellar, Solana, CKB | secp256k1 (EVM, CKB) and ed25519 (Stellar, Solana) curve arithmetic |
+| `@noble/hashes` | direct dependency | EVM, Stellar, Solana, CKB | SHA-256, SHA-512, keccak256, blake2b |
+| `viem` | direct dependency | EVM, agent client | EVM utilities and address encoding |
+
+Versions come from this repository's [`package.json`](https://github.com/wraith-protocol/docs/blob/main/package.json); the dependency roles come from [SDK Overview](/sdk/overview#dependencies).
+
+## Chain and package matrix
+
+| Chain | `Chain` enum | SDK entry point | Curve | Framework / peer packages | Deployment IDs | Migration notes |
+|---|---|---|---|---|---|---|
+| EVM (Horizen, Ethereum, Polygon, Base) | `Chain.Horizen`, `Chain.Ethereum`, `Chain.Polygon`, `Chain.Base` | `@wraith-protocol/sdk/chains/evm` | secp256k1 | `viem` (bundled; any signer library works) | [Horizen Testnet table](#evm--horizen-testnet) | [Deployment order and per-chain redeploys](#evm-migration-notes) |
+| Stellar | `Chain.Stellar` | `@wraith-protocol/sdk/chains/stellar` | ed25519 | `@stellar/stellar-sdk` `^13.1.0` (optional peer) | [Stellar Testnet table](#stellar--testnet) | [Testnet resets and pending contracts](#stellar-migration-notes) |
+| Solana | `Chain.Solana` | `@wraith-protocol/sdk/chains/solana` | ed25519 | `@solana/web3.js` `^1.95.0` (optional peer), Anchor event logs | [Solana table](#solana--devnet) | [PDA and rent model](#solana-migration-notes) |
+| CKB | `Chain.CKB` | `@wraith-protocol/sdk/chains/ckb` | secp256k1 | none — native `fetch` RPC plus `@noble/hashes` blake2b | [CKB Testnet table](#ckb--testnet) | [Cell model, no peer dependency](#ckb-migration-notes) |
+
+The `@stellar/stellar-sdk` and `@solana/web3.js` peer dependencies are only needed when you import their chain module; the CKB module adds none. See [SDK Overview](/sdk/overview#entry-points) for the full export list per entry point.
+
+---
+
+## Deployment IDs
+
+### EVM — Horizen Testnet
+
+| Contract | Address | Version |
+|---|---|---|
+| `ERC5564Announcer` | `0x8AE65c05E7eb48B9bA652781Bc0a3DBA09A484F3` | — |
+| `ERC6538Registry` | `0x953E6cEdcdfAe321796e7637d33653F6Ce05c527` | — |
+| `WraithSender` | `0x226C5eb4e139D9fa01cc09eA318638b090b12095` | — |
+| `WraithNames` | `0x3d46f709a99A3910f52bD292211Eb5D557F882D6` | — |
+
+`WraithWithdrawer` (EIP-7702 gas sponsorship) is optional and is deployed only on chains that support EIP-7702. These are the addresses currently published on [EVM Contracts](/contracts/evm#deployed-addresses-horizen-testnet); no other EVM network has a published deployment yet.
+
+<a id="evm-migration-notes"></a>
+
+#### EVM migration notes
+
+- Deploy order is fixed: announcer → registry → sender (constructor arg: announcer) → names → optional withdrawer. See [Deployment Order](/contracts/evm#deployment-order).
+- Adding a new EVM chain means re-running the deploy script on that chain and publishing a new row here; the SDK's `Chain` enum gains a value in the same release.
+- `WraithSender` is the only contract with a constructor argument, so a redeploy of the announcer requires redeploying the sender too.
+
+### Stellar — Testnet
+
+| Contract | Testnet address | Version |
+|---|---|---|
+| `stealth-announcer` | `CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL` | v2 |
+| `stealth-registry` | Pending deployment | v1 |
+| `stealth-sender` | Pending deployment | v1 |
+| `wraith-names` | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` | v1 |
+
+Source of truth: `getDeployment("stellar")` via `@wraith-protocol/sdk/chains/stellar`, as published in [Stellar Networks](/reference/stellar-networks#wraith-contract-ids) and the generated section of [Stellar Contracts](/contracts/stellar). Mainnet addresses are still placeholders.
+
+<a id="stellar-migration-notes"></a>
+
+#### Stellar migration notes
+
+- **Testnet resets roughly quarterly** and wipes all contract state. Re-read the current announcer and names IDs after a reset instead of pinning them in config. See [Stellar Networks → Testnet](/reference/stellar-networks#testnet).
+- `stealth-registry` and `stealth-sender` addresses are pending; integrations that need meta-address registration should track `contracts/stellar/MAINNET_READINESS.md` in the contracts repo.
+- `stealth-announcer` is on event version **v2**; the SDK's announcement parsing assumes the v2 indexed topics. See [Stellar Event Schemas (v2)](/reference/stellar-event-schemas).
+- The decoder-facing differences from EVM (caller auth instead of ECDSA recovery, `getEvents` instead of a subgraph) are tabulated in [Stellar Contracts → Differences from EVM Contracts](/contracts/stellar#differences-from-evm-contracts).
+
+### Solana — Devnet
+
+| Program | Program ID | Version |
+|---|---|---|
+| `wraith-announcer` | Not published in these docs | — |
+| `wraith-sender` | Not published in these docs | — |
+| `wraith-names` | Not published in these docs | — |
+
+Program IDs are not yet published in the documentation. Until they are, deploy with `anchor deploy --provider.cluster devnet` and read the IDs from the deploy output; see [Solana Contracts → Deployment](/contracts/solana#deployment).
+
+<a id="solana-migration-notes"></a>
+
+#### Solana migration notes
+
+- Names are stored in PDAs rather than contract storage, and accounts need rent-exempt balances; see [Solana Contracts → Differences](/contracts/solana#differences-from-evm-and-stellar-contracts).
+- Announcements are parsed from Anchor event logs, so the `@solana/web3.js` peer version must be able to read the deployed program's logs.
+- Program upgrades change the program ID's executable data in place; PIN the program ID, not the deployment transaction, in config.
+
+### CKB — Testnet
+
+| Script | Identifier | Kind |
+|---|---|---|
+| `wraith-stealth-lock` | `0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d` | Code hash (`data2`) |
+| `wraith-names-type` | `0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d` | Code hash (`data2`) |
+| Deployment cell dep | `0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8` | Transaction hash (index 0, `code`) |
+
+CKB has no separate announcer: the stealth Cell's lock args carry the announcement. The values above are the testnet example published in [CKB Contracts → Deployed Code Hash](/contracts/ckb#deployed-code-hash); confirm them against `getDeployment("ckb")` before mainnet use.
+
+<a id="ckb-migration-notes"></a>
+
+#### CKB migration notes
+
+- The CKB module has **no optional peer dependency** — RPC calls use native `fetch` and hashing uses the already-bundled `@noble/hashes`. See [CKB Primitives](/sdk/chains/ckb).
+- A redeploy produces a **new code hash**, which changes every stealth Cell's `lock.code_hash`. Record the new hash in the SDK's `deployments.ts` as described in [CKB Contracts → Record Deployment Info](/contracts/ckb#record-deployment-info).
+- CKB's Cell model has no account layer, so there is nothing analogous to EVM's `createAccount` prerequisite on Stellar.
+
+---
+
+## Known gaps
+
+| Gap | Chains affected | Tracking |
+|---|---|---|
+| Mainnet contract addresses not yet published | Stellar | [Stellar Networks → Mainnet](/reference/stellar-networks#mainnet) |
+| `stealth-registry` / `stealth-sender` not deployed | Stellar Testnet | [Stellar Networks → Testnet](/reference/stellar-networks#wraith-contract-ids) |
+| Program IDs not published in docs | Solana | [Solana Contracts → Deployment](/contracts/solana#deployment) |
+| Single published EVM deployment (Horizen Testnet) | EVM | [EVM Contracts → Deployed Addresses](/contracts/evm#deployed-addresses-horizen-testnet) |
+
+## Keeping this matrix in sync
+
+The deployment identifiers on this page are checked in CI against the pages that own them:
+
+```bash
+npm run check:compatibility-matrix
+```
+
+The check extracts every `0x…` address/code hash and `C…` strkey from this page and fails if one of them is not also present in `contracts/evm.mdx`, `contracts/stellar.mdx`, `contracts/solana.mdx`, `contracts/ckb.mdx`, `reference/stellar-networks.mdx`, or the `sdk/chains/*.mdx` primitives pages. After a redeploy:
+
+1. Update the owning page (or re-run `npm run generate:stellar-reference` for Stellar).
+2. Update the matching row here.
+3. Run `npm run check:compatibility-matrix` and the full `npm test`.
+
+## Related
+
+- [SDK Overview](/sdk/overview) — entry points, `Chain` enum, dependency roles
+- [EVM Contracts](/contracts/evm) · [Stellar Contracts](/contracts/stellar) · [Solana Contracts](/contracts/solana) · [CKB Contracts](/contracts/ckb)
+- [Stellar Networks](/reference/stellar-networks) — live contract IDs per network
+- [Stellar SEP Compatibility](/reference/sep-compatibility) — SEP-level support for Stellar integrations
+- [Multichain Agent guide](/guides/multichain-agent) — driving one agent across several chains
