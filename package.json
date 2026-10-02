@@ -11,12 +11,14 @@
     "check:stellar-testnet": "tsx scripts/check-stellar-testnet-snippets.ts",
     "generate:stellar-reference": "tsx scripts/generate-stellar-reference.ts",
     "check:stellar-reference": "tsx scripts/generate-stellar-reference.ts --check --allow-missing",
+    "generate:contract-reference": "tsx scripts/generate-contract-reference.ts",
+    "check:contract-reference": "tsx scripts/generate-contract-reference.ts --check",
     "generate:playground-fixtures": "node scripts/playground/generate-fixtures.mjs",
     "check:playground-fixtures": "node scripts/playground/generate-fixtures.mjs --check",
     "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
-    "test": "npm run check:snippets && npm run check:nav-coverage && npm run check:contract-registry"
+    "test": "npm run check:snippets && npm run check:nav-coverage && npm run check:contract-registry && npm run check:contract-reference"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0",

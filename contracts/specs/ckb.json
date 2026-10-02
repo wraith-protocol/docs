@@ -1,0 +1,87 @@
+{
+  "$comment": "Checked-in CKB script interface sources for the docs drift check.",
+  "chain": "ckb",
+  "specVersion": "1",
+  "source": {
+    "repository": "wraith-protocol/contracts",
+    "path": "ckb/scripts",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "scripts": [
+    {
+      "name": "wraith-stealth-lock",
+      "kind": "ckb-script",
+      "lock": {
+        "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "typeScript": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "functions": [
+        {
+          "name": "lock",
+          "authRequired": "No",
+          "params": [
+            { "name": "amount", "type": "Amount" },
+            { "name": "lock_args", "type": "Bytes" }
+          ],
+          "returns": "ScriptOutput"
+        }
+      ],
+      "types": [
+        {
+          "name": "LockArgs",
+          "fields": [
+            { "name": "stealth_lock_hash", "type": "H256" },
+            { "name": "scheme_id", "type": "Uint8" },
+            { "name": "ephemeral_pubkey", "type": "Bytes" },
+            { "name": "view_tag", "type": "Bytes" }
+          ]
+        }
+      ],
+      "errors": ["AmountZero", "InvalidArgs"]
+    },
+    {
+      "name": "wraith-stealth-unlock",
+      "kind": "ckb-script",
+      "lock": {
+        "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "typeScript": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "functions": [
+        {
+          "name": "unlock",
+          "authRequired": "Yes",
+          "params": [{ "name": "unlock_args", "type": "Bytes" }],
+          "returns": "ScriptOutput"
+        }
+      ],
+      "types": [
+        {
+          "name": "UnlockArgs",
+          "fields": [
+            { "name": "stealth_unlock_info", "type": "Bytes" },
+            { "name": "amount", "type": "Amount" }
+          ]
+        }
+      ],
+      "errors": ["InvalidArgs", "LockNotFound"]
+    },
+    {
+      "name": "wraith-stealth-scan",
+      "kind": "ckb-script",
+      "lock": {
+        "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "typeScript": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "functions": [
+        {
+          "name": "scan",
+          "authRequired": "No",
+          "params": [{ "name": "view_tag", "type": "Bytes" }],
+          "returns": "Option<CellData>"
+        }
+      ],
+      "types": [],
+      "errors": []
+    }
+  ]
+}

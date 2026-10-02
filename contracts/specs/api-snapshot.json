@@ -1,0 +1,283 @@
+{
+  "$comment": "Public API snapshot. The drift check compares this against the current checked-in specs under contracts/specs/. Any member that disappears from a spec must be recorded in `migrations` below with the version it was removed in, otherwise the check fails. To accept a removal, add an entry then regenerate.",
+  "version": "1",
+  "chains": {
+    "evm": {
+      "contracts": {
+        "ERC5564Announcer": {
+          "functions": [
+            {
+              "name": "announce",
+              "signature": "announce(uint256,address,bytes,bytes)"
+            }
+          ],
+          "events": [
+            {
+              "name": "Announcement"
+            }
+          ],
+          "errors": []
+        },
+        "ERC6538Registry": {
+          "functions": [
+            {
+              "name": "register",
+              "signature": "register(uint160,bytes32[2],uint8)"
+            },
+            {
+              "name": "stealthMetaAddressOf",
+              "signature": "stealthMetaAddressOf(uint160)"
+            },
+            {
+              "name": "keysOf",
+              "signature": "keysOf(uint160)"
+            },
+            {
+              "name": "prefixOf",
+              "signature": "prefixOf(uint160)"
+            }
+          ],
+          "events": [
+            {
+              "name": "Registered"
+            },
+            {
+              "name": "Updated"
+            }
+          ],
+          "errors": [
+            "DuplicateEntry()",
+            "IndexOutOfBounds()",
+            "ZeroIndex()"
+          ]
+        },
+        "WraithSender": {
+          "functions": [
+            {
+              "name": "sendAndAnnounce",
+              "signature": "sendAndAnnounce(uint256,address,uint256,address,bytes,bytes)"
+            },
+            {
+              "name": "batchSendAndAnnounce",
+              "signature": "batchSendAndAnnounce(uint256,address[],uint256[],address,bytes[],bytes[])"
+            }
+          ],
+          "events": [],
+          "errors": [
+            "LengthMismatch()",
+            "AmountZero()",
+            "InsufficientBalance()",
+            "TransferFailed()"
+          ]
+        },
+        "WraithNames": {
+          "functions": [
+            {
+              "name": "register",
+              "signature": "register(string,bytes32,bytes32)"
+            },
+            {
+              "name": "resolve",
+              "signature": "resolve(string)"
+            },
+            {
+              "name": "transfer",
+              "signature": "transfer(string,address)"
+            }
+          ],
+          "events": [],
+          "errors": [
+            "AlreadyRegistered()",
+            "NotFound()",
+            "Unauthorized()"
+          ]
+        },
+        "WraithWithdrawer": {
+          "functions": [
+            {
+              "name": "withdraw",
+              "signature": "withdraw(address,uint256,address)"
+            }
+          ],
+          "events": [],
+          "errors": [
+            "NotAuthorized()",
+            "TransferFailed()"
+          ]
+        }
+      }
+    },
+    "solana": {
+      "programs": {
+        "wraith-announcer": {
+          "instructions": [
+            {
+              "name": "announce"
+            }
+          ],
+          "events": [
+            {
+              "name": "AnnouncementEvent"
+            }
+          ],
+          "errors": []
+        },
+        "wraith-sender": {
+          "instructions": [
+            {
+              "name": "send_and_announce"
+            },
+            {
+              "name": "batch_send_and_announce"
+            }
+          ],
+          "events": [],
+          "errors": [
+            "LengthMismatch",
+            "AmountZero",
+            "InsufficientBalance",
+            "TransferFailed"
+          ]
+        },
+        "wraith-names": {
+          "instructions": [
+            {
+              "name": "register"
+            },
+            {
+              "name": "resolve"
+            },
+            {
+              "name": "transfer"
+            }
+          ],
+          "events": [],
+          "errors": [
+            "AlreadyRegistered",
+            "NotFound",
+            "Unauthorized"
+          ]
+        }
+      }
+    },
+    "ckb": {
+      "scripts": {
+        "wraith-stealth-lock": {
+          "functions": [
+            {
+              "name": "lock"
+            }
+          ],
+          "errors": [
+            "AmountZero",
+            "InvalidArgs"
+          ]
+        },
+        "wraith-stealth-unlock": {
+          "functions": [
+            {
+              "name": "unlock"
+            }
+          ],
+          "errors": [
+            "InvalidArgs",
+            "LockNotFound"
+          ]
+        },
+        "wraith-stealth-scan": {
+          "functions": [
+            {
+              "name": "scan"
+            }
+          ],
+          "errors": []
+        }
+      }
+    },
+    "stellar": {
+      "contracts": {
+        "stealth-announcer": {
+          "functions": [
+            {
+              "name": "announce"
+            }
+          ],
+          "events": [],
+          "storageKeys": [],
+          "errors": []
+        },
+        "stealth-registry": {
+          "functions": [
+            {
+              "name": "register"
+            },
+            {
+              "name": "stealth_meta_address_of"
+            },
+            {
+              "name": "keys_of"
+            },
+            {
+              "name": "prefix_of"
+            }
+          ],
+          "events": [],
+          "storageKeys": [
+            "DataKey::MetaAddress(Address)",
+            "DataKey::Prefix(Address)"
+          ],
+          "errors": [
+            "AlreadyRegistered",
+            "IndexOutOfBounds",
+            "ZeroIndex",
+            "NotFound"
+          ]
+        },
+        "stealth-sender": {
+          "functions": [
+            {
+              "name": "send"
+            },
+            {
+              "name": "batch_send"
+            }
+          ],
+          "events": [],
+          "storageKeys": [
+            "DataKey::Balance(Address)"
+          ],
+          "errors": [
+            "LengthMismatch",
+            "AmountZero",
+            "InsufficientBalance",
+            "TransferFailed"
+          ]
+        },
+        "wraith-names": {
+          "functions": [
+            {
+              "name": "register"
+            },
+            {
+              "name": "resolve"
+            },
+            {
+              "name": "name_of"
+            }
+          ],
+          "events": [],
+          "storageKeys": [
+            "DataKey::Name(String)",
+            "DataKey::MetaAddress(Address)"
+          ],
+          "errors": [
+            "AlreadyRegistered",
+            "NotFound",
+            "Unauthorized"
+          ]
+        }
+      }
+    }
+  },
+  "migrations": []
+}

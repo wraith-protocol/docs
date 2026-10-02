@@ -1,0 +1,196 @@
+{
+  "$comment": "Checked-in EVM contract interface sources for the docs drift check. Each entry is a public function or error that the documentation is expected to describe.",
+  "chain": "evm",
+  "specVersion": "1",
+  "source": {
+    "repository": "wraith-protocol/contracts",
+    "path": "evm/src",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "contracts": [
+    {
+      "name": "ERC5564Announcer",
+      "kind": "solidity",
+      "functions": [
+        {
+          "name": "announce",
+          "visibility": "external",
+          "authRequired": "No",
+          "params": [
+            { "name": "schemeId", "type": "uint256" },
+            { "name": "stealthAddress", "type": "address" },
+            { "name": "ephemeralPubKey", "type": "bytes" },
+            { "name": "metadata", "type": "bytes" }
+          ],
+          "returns": []
+        }
+      ],
+      "events": [
+        {
+          "name": "Announcement",
+          "params": [
+            { "name": "schemeId", "type": "uint256", "indexed": true },
+            { "name": "stealthAddress", "type": "address", "indexed": true },
+            { "name": "caller", "type": "address", "indexed": true },
+            { "name": "ephemeralPubKey", "type": "bytes", "indexed": false },
+            { "name": "metadata", "type": "bytes", "indexed": false }
+          ]
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "ERC6538Registry",
+      "kind": "solidity",
+      "functions": [
+        {
+          "name": "register",
+          "visibility": "external",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "_uint160", "type": "uint160" },
+            { "name": "keys", "type": "bytes32[2]" },
+            { "name": "prefix", "type": "uint8" }
+          ],
+          "returns": []
+        },
+        {
+          "name": "stealthMetaAddressOf",
+          "visibility": "external",
+          "authRequired": "No",
+          "params": [{ "name": "stealthAddress", "type": "uint160" }],
+          "returns": [{ "name": "", "type": "uint160" }]
+        },
+        {
+          "name": "keysOf",
+          "visibility": "external",
+          "authRequired": "No",
+          "params": [{ "name": "metaAddress", "type": "uint160" }],
+          "returns": [{ "name": "", "type": "bytes32[2]" }]
+        },
+        {
+          "name": "prefixOf",
+          "visibility": "external",
+          "authRequired": "No",
+          "params": [{ "name": "metaAddress", "type": "uint160" }],
+          "returns": [{ "name": "", "type": "uint8" }]
+        }
+      ],
+      "events": [
+        {
+          "name": "Registered",
+          "params": [
+            { "name": "uint160", "type": "uint160", "indexed": true },
+            { "name": "keys", "type": "bytes32[2]", "indexed": false },
+            { "name": "prefix", "type": "uint8", "indexed": false }
+          ]
+        },
+        {
+          "name": "Updated",
+          "params": [
+            { "name": "uint160", "type": "uint160", "indexed": true },
+            { "name": "keys", "type": "bytes32[2]", "indexed": false },
+            { "name": "prefix", "type": "uint8", "indexed": false }
+          ]
+        }
+      ],
+      "errors": ["DuplicateEntry()", "IndexOutOfBounds()", "ZeroIndex()"]
+    },
+    {
+      "name": "WraithSender",
+      "kind": "solidity",
+      "functions": [
+        {
+          "name": "sendAndAnnounce",
+          "visibility": "external",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "schemeId", "type": "uint256" },
+            { "name": "recipient", "type": "address" },
+            { "name": "amount", "type": "uint256" },
+            { "name": "token", "type": "address" },
+            { "name": "ephemeralPubKey", "type": "bytes" },
+            { "name": "metadata", "type": "bytes" }
+          ],
+          "returns": []
+        },
+        {
+          "name": "batchSendAndAnnounce",
+          "visibility": "external",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "schemeId", "type": "uint256" },
+            { "name": "recipients", "type": "address[]" },
+            { "name": "amounts", "type": "uint256[]" },
+            { "name": "token", "type": "address" },
+            { "name": "ephemeralPubKeys", "type": "bytes[]" },
+            { "name": "metadatas", "type": "bytes[]" }
+          ],
+          "returns": []
+        }
+      ],
+      "events": [],
+      "errors": [
+        "LengthMismatch()",
+        "AmountZero()",
+        "InsufficientBalance()",
+        "TransferFailed()"
+      ]
+    },
+    {
+      "name": "WraithNames",
+      "kind": "solidity",
+      "functions": [
+        {
+          "name": "register",
+          "visibility": "external",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "keyX", "type": "bytes32" },
+            { "name": "keyY", "type": "bytes32" }
+          ],
+          "returns": []
+        },
+        {
+          "name": "resolve",
+          "visibility": "external",
+          "authRequired": "No",
+          "params": [{ "name": "name", "type": "string" }],
+          "returns": [{ "name": "", "type": "bytes32[2]" }]
+        },
+        {
+          "name": "transfer",
+          "visibility": "external",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "name", "type": "string" },
+            { "name": "to", "type": "address" }
+          ],
+          "returns": []
+        }
+      ],
+      "events": [],
+      "errors": ["AlreadyRegistered()", "NotFound()", "Unauthorized()"]
+    },
+    {
+      "name": "WraithWithdrawer",
+      "kind": "solidity",
+      "functions": [
+        {
+          "name": "withdraw",
+          "visibility": "external",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "stealthAddress", "type": "address" },
+            { "name": "amount", "type": "uint256" },
+            { "name": "token", "type": "address" }
+          ],
+          "returns": []
+        }
+      ],
+      "events": [],
+      "errors": ["NotAuthorized()", "TransferFailed()"]
+    }
+  ]
+}

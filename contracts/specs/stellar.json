@@ -1,0 +1,139 @@
+{
+  "$comment": "Checked-in Soroban contract spec sources (equivalent to `stellar contract inspect` output) for the docs drift check.",
+  "chain": "stellar",
+  "specVersion": "1",
+  "source": {
+    "repository": "wraith-protocol/contracts",
+    "path": "stellar",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "contracts": [
+    {
+      "name": "stealth-announcer",
+      "kind": "soroban",
+      "functions": [
+        {
+          "name": "announce",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "caller", "type": "Address" },
+            { "name": "scheme_id", "type": "u32" },
+            { "name": "stealth_address", "type": "Address" },
+            { "name": "ephemeral_pub_key", "type": "BytesN<32>" },
+            { "name": "metadata", "type": "Bytes" }
+          ],
+          "returns": "()"
+        }
+      ],
+      "events": [],
+      "storageKeys": [],
+      "errors": []
+    },
+    {
+      "name": "stealth-registry",
+      "kind": "soroban",
+      "functions": [
+        {
+          "name": "register",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "registrant", "type": "Address" },
+            { "name": "stealth_address", "type": "Address" },
+            { "name": "keys", "type": "BytesN<64>" },
+            { "name": "prefix", "type": "u8" }
+          ],
+          "returns": "()"
+        },
+        {
+          "name": "stealth_meta_address_of",
+          "authRequired": "No",
+          "params": [{ "name": "stealth_address", "type": "Address" }],
+          "returns": "Option<Address>"
+        },
+        {
+          "name": "keys_of",
+          "authRequired": "No",
+          "params": [{ "name": "meta_address", "type": "Address" }],
+          "returns": "Option<BytesN<64>>"
+        },
+        {
+          "name": "prefix_of",
+          "authRequired": "No",
+          "params": [{ "name": "meta_address", "type": "Address" }],
+          "returns": "Option<u8>"
+        }
+      ],
+      "events": [],
+      "storageKeys": ["DataKey::MetaAddress(Address)", "DataKey::Prefix(Address)"],
+      "errors": [
+        "AlreadyRegistered",
+        "IndexOutOfBounds",
+        "ZeroIndex",
+        "NotFound"
+      ]
+    },
+    {
+      "name": "stealth-sender",
+      "kind": "soroban",
+      "functions": [
+        {
+          "name": "send",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "sender", "type": "Address" },
+            { "name": "recipient", "type": "Address" },
+            { "name": "token", "type": "Address" },
+            { "name": "amount", "type": "i128" }
+          ],
+          "returns": "()"
+        },
+        {
+          "name": "batch_send",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "sender", "type": "Address" },
+            { "name": "recipients", "type": "Vec<Address>" },
+            { "name": "amounts", "type": "Vec<i128>" },
+            { "name": "token", "type": "Address" }
+          ],
+          "returns": "()"
+        }
+      ],
+      "events": [],
+      "storageKeys": ["DataKey::Balance(Address)"],
+      "errors": ["LengthMismatch", "AmountZero", "InsufficientBalance", "TransferFailed"]
+    },
+    {
+      "name": "wraith-names",
+      "kind": "soroban",
+      "functions": [
+        {
+          "name": "register",
+          "authRequired": "Yes",
+          "params": [
+            { "name": "registrant", "type": "Address" },
+            { "name": "name", "type": "String" },
+            { "name": "key_x", "type": "BytesN<32>" },
+            { "name": "key_y", "type": "BytesN<32>" }
+          ],
+          "returns": "()"
+        },
+        {
+          "name": "resolve",
+          "authRequired": "No",
+          "params": [{ "name": "name", "type": "String" }],
+          "returns": "Option<BytesN<64>>"
+        },
+        {
+          "name": "name_of",
+          "authRequired": "No",
+          "params": [{ "name": "meta_address", "type": "Address" }],
+          "returns": "Option<String>"
+        }
+      ],
+      "events": [],
+      "storageKeys": ["DataKey::Name(String)", "DataKey::MetaAddress(Address)"],
+      "errors": ["AlreadyRegistered", "NotFound", "Unauthorized"]
+    }
+  ]
+}

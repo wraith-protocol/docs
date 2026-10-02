@@ -1,0 +1,121 @@
+{
+  "$comment": "Checked-in Solana program interface sources (Anchor IDL-equivalent) for the docs drift check.",
+  "chain": "solana",
+  "specVersion": "1",
+  "source": {
+    "repository": "wraith-protocol/contracts",
+    "path": "solana/programs",
+    "commit": "0000000000000000000000000000000000000000"
+  },
+  "programs": [
+    {
+      "name": "wraith-announcer",
+      "kind": "anchor",
+      "instructions": [
+        {
+          "name": "announce",
+          "authRequired": "Yes",
+          "accounts": [{ "name": "caller", "type": "Signer" }],
+          "params": [
+            { "name": "scheme_id", "type": "u32" },
+            { "name": "stealth_address", "type": "Pubkey" },
+            { "name": "ephemeral_pub_key", "type": "[u8; 32]" },
+            { "name": "metadata", "type": "Vec<u8>" }
+          ],
+          "returns": "()"
+        }
+      ],
+      "events": [
+        {
+          "name": "AnnouncementEvent",
+          "params": [
+            { "name": "scheme_id", "type": "u32" },
+            { "name": "stealth_address", "type": "Pubkey" },
+            { "name": "caller", "type": "Pubkey" },
+            { "name": "ephemeral_pub_key", "type": "[u8; 32]" },
+            { "name": "metadata", "type": "Vec<u8>" }
+          ]
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "wraith-sender",
+      "kind": "anchor",
+      "instructions": [
+        {
+          "name": "send_and_announce",
+          "authRequired": "Yes",
+          "accounts": [
+            { "name": "payer", "type": "Signer" },
+            { "name": "stealth_account", "type": "SystemAccount" }
+          ],
+          "params": [
+            { "name": "scheme_id", "type": "u32" },
+            { "name": "stealth_address", "type": "Pubkey" },
+            { "name": "amount", "type": "u64" },
+            { "name": "ephemeral_pub_key", "type": "[u8; 32]" },
+            { "name": "metadata", "type": "Vec<u8>" }
+          ],
+          "returns": "()"
+        },
+        {
+          "name": "batch_send_and_announce",
+          "authRequired": "Yes",
+          "accounts": [{ "name": "payer", "type": "Signer" }],
+          "params": [
+            { "name": "scheme_id", "type": "u32" },
+            { "name": "stealth_addresses", "type": "Vec<Pubkey>" },
+            { "name": "amounts", "type": "Vec<u64>" },
+            { "name": "ephemeral_pub_keys", "type": "Vec<[u8; 32]>" },
+            { "name": "metadatas", "type": "Vec<Vec<u8>>" }
+          ],
+          "returns": "()"
+        }
+      ],
+      "events": [],
+      "errors": [
+        "LengthMismatch",
+        "AmountZero",
+        "InsufficientBalance",
+        "TransferFailed"
+      ]
+    },
+    {
+      "name": "wraith-names",
+      "kind": "anchor",
+      "instructions": [
+        {
+          "name": "register",
+          "authRequired": "Yes",
+          "accounts": [{ "name": "registrant", "type": "Signer" }],
+          "params": [
+            { "name": "name", "type": "String" },
+            { "name": "key_x", "type": "[u8; 32]" },
+            { "name": "key_y", "type": "[u8; 32]" }
+          ],
+          "returns": "()"
+        },
+        {
+          "name": "resolve",
+          "authRequired": "No",
+          "accounts": [],
+          "params": [{ "name": "name", "type": "String" }],
+          "returns": "[u8; 64]"
+        },
+        {
+          "name": "transfer",
+          "authRequired": "Yes",
+          "accounts": [{ "name": "registrant", "type": "Signer" }],
+          "params": [
+            { "name": "name", "type": "String" },
+            { "name": "to", "type": "Pubkey" }
+          ],
+          "returns": "()"
+        }
+      ],
+      "events": [],
+      "errors": ["AlreadyRegistered", "NotFound", "Unauthorized"]
+    }
+  ]
+}
