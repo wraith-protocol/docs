@@ -1,0 +1,324 @@
+---
+title: "CKB Security Checklist"
+description: "Pre-release security checklist for builders integrating Wraith Protocol stealth payments on Nervos CKB"
+---
+
+Use this checklist before shipping any integration that touches Wraith Protocol on CKB. Each item maps to a known risk in the [Threat Model](/reference/threat-model) and links to the relevant script or SDK reference.
+
+CKB uses a UTXO Cell model, which is architecturally different from account-based chains. Read the [CKB Contracts](/contracts/ckb) overview before working through this checklist.
+
+This list is scoped to what a builder controls — key handling, Cell construction, lock script args, fee management, and operational decisions. It is suitable for use as a pull request review checklist or a pre-mainnet sign-off.
+
+---
+
+## Key Handling
+
+<AccordionGroup>
+
+<Accordion title="Never log or persist the viewing private key">
+The viewing key is required to scan for incoming stealth payments by performing ECDH on each Cell's ephemeral key. Exposing it lets any observer link all incoming stealth Cells to a single meta-address, breaking unlinkability. See [R-02](/reference/threat-model#r-02----view-key-exposure).
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+// BAD — do not log key material
+const { viewingKey } = await wraith.generateStealthKeys();
+console.log("viewing key:", viewingKey); // never do this
+
+// GOOD — keep the key in memory only for the scan duration
+const payments = await wraith.scanPayments({ chain: Chain.CKB });
+```
+</Accordion>
+
+<Accordion title="Generate a fresh ephemeral key for every payment">
+Reusing the same ephemeral key pair across two payments links both stealth Cells to the same sender session, breaking unlinkability. The SDK generates a fresh key on every `generateStealthAddress()` call. Custom implementations must not cache or reuse ephemeral keys. See [R-01](/reference/threat-model#r-01----ephemeral-key-reuse).
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/ckb";
+
+// GOOD — called once per payment, produces a fresh ephemeral key each time
+const stealth1 = generateStealthAddress(spendingPubKey, viewingPubKey);
+const stealth2 = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// stealth1.lockArgs !== stealth2.lockArgs — always
+```
+</Accordion>
+
+<Accordion title="Store spending and viewing keys separately">
+The spending key produces the secp256k1 signature required to consume a stealth Cell. The viewing key only permits scanning. If you run a scanning service, it should never hold the spending key.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Lock Script Args — The Most Critical Section
+
+CKB stealth payments have one failure mode with no on-chain recovery: a Cell created with malformed `lock.args` can never be spent. This section must pass before any transaction is broadcast.
+
+<AccordionGroup>
+
+<Accordion title="Validate lockArgs is exactly 53 bytes before broadcasting">
+The `wraith-stealth-lock` script rejects any spend attempt if `args` is not exactly 53 bytes. A Cell created with wrong-length args locks its capacity permanently — there is no on-chain recovery. This is the single most important check. See [C-08](/reference/threat-model#wraith-stealth-lock), [R-06](/reference/threat-model#r-06----ckb-malformed-lockargs-locks-capacity-permanently).
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/ckb";
+
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// MUST be 53 bytes: 33 (ephemeral pubkey) + 20 (blake160 of stealth pubkey)
+if (stealth.lockArgs.length !== 53) {
+  throw new Error(`lockArgs must be 53 bytes, got ${stealth.lockArgs.length}`);
+}
+
+const output = {
+  capacity: "0x" + (200_00000000n).toString(16),
+  lock: {
+    codeHash: deployment.contracts.stealthLockCodeHash,
+    hashType: "data2" as const,
+    args: "0x" + Buffer.from(stealth.lockArgs).toString("hex"),
+  },
+};
+```
+</Accordion>
+
+<Accordion title="Confirm the blake160 hash uses the ckb-default-hash personalization">
+The `wraith-stealth-lock` script hashes the stealth public key with blake2b using `"ckb-default-hash"` as the personalization constant. Using a different personalization — or no personalization — produces a different 20-byte hash, making the lock unspendable. Verify the SDK and any custom implementation applies this personalization correctly. See [C-04](/reference/threat-model#wraith-stealth-lock).
+
+```typescript
+import { blake160 } from "@wraith-protocol/sdk/chains/ckb";
+
+// The SDK applies "ckb-default-hash" personalization automatically
+const pubkeyHash = blake160(stealthPubKey); // 20 bytes, correct personalization
+console.assert(pubkeyHash.length === 20, "blake160 must return 20 bytes");
+```
+</Accordion>
+
+<Accordion title="Verify the lockArgs layout: ephemeral_pubkey [0:33] then blake160(stealth_pub) [33:53]">
+The args field has a fixed layout. Swapping the order or omitting either component produces args that fail signature verification or fail the length check. Validate the layout explicitly when constructing args outside the SDK.
+
+```typescript
+// args layout: [ephemeral_pubkey (33 bytes)] [blake160(stealth_pub) (20 bytes)]
+const lockArgs = Buffer.concat([
+  Buffer.from(stealth.ephemeralPubKey), // 33 bytes — compressed secp256k1
+  Buffer.from(blake160(stealth.stealthPubKey)), // 20 bytes — ckb-default-hash
+]);
+
+console.assert(lockArgs.length === 53, "lockArgs length check failed");
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Network Selection
+
+<AccordionGroup>
+
+<Accordion title="Use separate RPC endpoints for testnet (Pudge) and mainnet">
+CKB testnet (Pudge) and mainnet use separate node URLs. Hardcoding the wrong URL causes transactions to be broadcast to the wrong network. Read the RPC URL from a versioned deployment config.
+
+```typescript
+import { getDeployment } from "@wraith-protocol/sdk/chains/ckb";
+
+const deployment = getDeployment("ckb"); // "ckb" = mainnet, "ckb_testnet" = Pudge
+const rpc = new RPC(deployment.rpcUrl);
+```
+</Accordion>
+
+<Accordion title="Confirm the code_hash in your Cell dep matches the deployed script binary">
+The `code_hash` in a Cell's lock or type script is the blake2b hash of the script binary. A mismatch means the Cell references a non-existent or different script. After any redeployment, update the code hash in your SDK deployment config and re-verify. See [C-05](/reference/threat-model#wraith-stealth-lock).
+
+```typescript
+import { getDeployment } from "@wraith-protocol/sdk/chains/ckb";
+import { utils } from "@ckb-lumos/base";
+
+const deployment = getDeployment("ckb");
+
+// Fetch the deployed script Cell and verify its hash
+const scriptCell = await rpc.getTransaction(deployment.cellDeps.stealthLock.txHash);
+const deployedBinary = scriptCell.transaction.outputs_data[deployment.cellDeps.stealthLock.index];
+const computedHash = utils.ckbHash(deployedBinary);
+
+console.assert(
+  computedHash === deployment.contracts.stealthLockCodeHash,
+  "Code hash mismatch — update deployment config",
+);
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Replay and Replay Prevention
+
+<AccordionGroup>
+
+<Accordion title="CKB transactions are replay-resistant by construction — verify input outpoints are unspent">
+CKB transaction hashes include input outpoints (transaction hash + index). Once a Cell is consumed, its outpoint can never appear in another input. This makes CKB transactions inherently non-replayable. However, confirm that the stealth Cell you are spending is still live (unspent) before building the withdrawal transaction.
+
+```typescript
+// Verify the Cell is still live before spending
+const liveCell = await rpc.getLiveCell(
+  { txHash: stealthCellOutpoint.txHash, index: stealthCellOutpoint.index },
+  true,
+);
+if (!liveCell || liveCell.status !== "live") {
+  throw new Error("Stealth Cell already spent");
+}
+```
+</Accordion>
+
+<Accordion title="Do not reuse a transaction after it is rejected — rebuild from current state">
+If a CKB transaction is rejected (e.g., due to a fee issue or a consumed input), do not resubmit it. Fetch current Cell state and rebuild the transaction from scratch to avoid referencing already-spent inputs.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Fees
+
+<AccordionGroup>
+
+<Accordion title="Ensure the stealth Cell capacity covers the minimum 61 CKB plus occupied bytes">
+Every CKB Cell must hold at least 1 CKB per byte of occupied space (capacity + lock + type + data). A stealth lock Cell with the standard 53-byte args requires approximately 61 CKB minimum. Sending less causes the transaction to be rejected. See the [CKB Contracts](/contracts/ckb) capacity table.
+
+```typescript
+// Minimum capacity for a stealth lock Cell (in shannons — 1 CKB = 100,000,000 shannons)
+const STEALTH_LOCK_ARGS_BYTES = 53n;
+const LOCK_SCRIPT_OVERHEAD_BYTES = 33n; // code_hash (32) + hash_type (1)
+const OUTPUT_OVERHEAD_BYTES = 8n;       // capacity field
+const MIN_CAPACITY_SHANNONS =
+  (STEALTH_LOCK_ARGS_BYTES + LOCK_SCRIPT_OVERHEAD_BYTES + OUTPUT_OVERHEAD_BYTES) * 100_000_000n;
+// ≈ 94 CKB — adjust based on actual Cell structure; the SDK computes this automatically
+
+if (sendAmount < MIN_CAPACITY_SHANNONS) {
+  throw new Error(`Amount ${sendAmount} shannons is below minimum Cell capacity`);
+}
+```
+</Accordion>
+
+<Accordion title="Include the correct cell dep in every transaction that uses wraith-stealth-lock or wraith-names-type">
+CKB transactions must explicitly reference the Cell dep that holds the script binary. Omitting the cell dep causes every script validation to fail. Always include both `stealthLock` and `namesType` cell deps when relevant.
+
+```typescript
+import { getDeployment } from "@wraith-protocol/sdk/chains/ckb";
+
+const deployment = getDeployment("ckb");
+
+const tx = {
+  // ...
+  cellDeps: [
+    {
+      outPoint: {
+        txHash: deployment.cellDeps.stealthLock.txHash,
+        index: `0x${deployment.cellDeps.stealthLock.index.toString(16)}`,
+      },
+      depType: "code",
+    },
+  ],
+};
+```
+</Accordion>
+
+<Accordion title="Set a transaction fee that covers the current median fee rate">
+CKB fees are calculated as `fee = tx_size_bytes * fee_rate`. A fee below the current network minimum is rejected without entering the mempool. Use `get_fee_rate_statistics` to estimate a safe fee rate.
+
+```typescript
+// Fetch current fee rate statistics from the node
+const feeStats = await rpc.getFeeRateStatistics();
+const safeRate = BigInt(feeStats.median) * 2n; // 2× median for faster confirmation
+const txSizeBytes = BigInt(/* estimated transaction size in bytes */);
+const fee = (txSizeBytes * safeRate) / 1000n; // fee_rate is shannons per 1000 bytes
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Upgrades and Script Lifecycle
+
+<AccordionGroup>
+
+<Accordion title="Deploy the script binary Cell with a lock that prevents accidental consumption">
+The Cell dep that holds the `wraith-stealth-lock` or `wraith-names-type` binary must never be consumed. If it is, all Cells referencing that script become unspendable. Deploy the binary Cell with a multisig lock or a lock that requires multiple parties to spend. See [C-09](/reference/threat-model#wraith-stealth-lock), [C-18](/reference/threat-model#wraith-names-type).
+
+```typescript
+// Use a multisig lock for the script binary Cell
+const scriptCellLock = {
+  codeHash: SECP256K1_MULTISIG_CODE_HASH,
+  hashType: "type",
+  args: multisigArgs, // require M-of-N signatures to spend
+};
+```
+</Accordion>
+
+<Accordion title="Publish the stealthLock and namesType code hashes for independent verification">
+After mainnet deployment, publish the `code_hash` values for both scripts. Integrators can independently verify the deployed binary matches the audited source by fetching the Cell data and computing its blake2b hash.
+
+```typescript
+// Canonical mainnet code hashes (update after each deployment)
+export const CANONICAL_CODE_HASHES = {
+  stealthLock: "0x...", // publish after audited mainnet deployment
+  namesType: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
+};
+```
+</Accordion>
+
+<Accordion title="When upgrading scripts, deploy as a new Cell — do not modify the existing one">
+CKB script binaries are deployed as Cell data. Modifying the deployed Cell changes its data hash, which changes the `code_hash` all users must reference. Always deploy script upgrades as new Cells and migrate integrations to the new code hash. Old Cells with the previous code hash continue to work until explicitly migrated.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Recovery
+
+<AccordionGroup>
+
+<Accordion title="Warn users that a lost spending key permanently locks stealth Cell capacity">
+If a user loses the stealth private key, the stealth Cell can never be consumed. The CKB capacity locked in that Cell is permanently inaccessible. There is no on-chain recovery mechanism. Surface this warning prominently in any withdrawal UI. See [C-08](/reference/threat-model#wraith-stealth-lock).
+</Accordion>
+
+<Accordion title="Warn users that a lost owner key permanently locks a .wraith name Cell">
+The `wraith-names-type` Cell's lock script determines ownership. If the owner's key is lost, the name Cell cannot be consumed — the name is permanently locked and the capacity is inaccessible. Surface this warning before name registration. See [C-17](/reference/threat-model#wraith-names-type).
+</Accordion>
+
+<Accordion title="Do not rely on name hashing for privacy — short names are enumerable">
+Name Cells use `SHA-256(name)` as the type script `args`. An attacker who knows the name space can brute-force all 3-32 character lowercase alphanumeric names. Do not treat name hashing as a privacy mechanism. See [C-16](/reference/threat-model#wraith-names-type).
+</Accordion>
+
+<Accordion title="Test scanning against a locally seeded CKB node before mainnet">
+Scanning on CKB works by querying `get_cells` filtered by the stealth lock code hash. Confirm that your scanning logic correctly parses `args[0:33]` as the ephemeral key and performs the ECDH check. Test end-to-end on a local CKB node before connecting to mainnet.
+
+```typescript
+import { scanStealthCells } from "@wraith-protocol/sdk/chains/ckb";
+
+// Scan for incoming stealth payments
+const incomingCells = await scanStealthCells({
+  viewingKey,
+  spendingPubKey,
+  rpcUrl: deployment.rpcUrl,
+  codeHash: deployment.contracts.stealthLockCodeHash,
+});
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Linking to SDK and Script APIs
+
+| Area | Reference |
+|---|---|
+| Key generation and stealth address derivation | [`@wraith-protocol/sdk/chains/ckb`](/sdk/chains/ckb) |
+| Script interfaces and Cell model | [CKB Contracts](/contracts/ckb) |
+| Full STRIDE threat analysis | [Threat Model — CKB](/reference/threat-model#ckb-scripts) |
+| Residual risks (R-01 to R-08) | [Threat Model — Residual Risks](/reference/threat-model#residual-risks) |
+| Privacy guidance for withdrawals | [Privacy Best Practices](/guides/privacy-best-practices) |
