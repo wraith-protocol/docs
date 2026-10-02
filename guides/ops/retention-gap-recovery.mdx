@@ -1,0 +1,314 @@
+---
+title: 'Retention‑Gap Recovery Runbook'
+sidebarTitle: 'Retention‑Gap Recovery'
+description: 'Step-by-step operator procedure for recovering a scanner that fell behind the Soroban RPC retention window'
+---
+
+This runbook is the recovery procedure for the failure mode described in
+[Soroban RPC Retention Windows](/guides/stellar-mainnet-deployment#soroban-rpc-retention-windows):
+a scanner (indexer or watcher) was offline long enough that its
+`lastProcessedLedger` checkpoint fell **behind the tip of the RPC node's
+retention window**, so the node no longer serves the events the scanner still
+needs.
+
+<Warning>
+  This is a **data-recovery** procedure. Every step is written to avoid
+  advancing the checkpoint past events that have not actually been persisted,
+  and to make the recovery safe to re-run. Do not skip the
+  [evidence collection](#operator-evidence-to-collect) step — it is what makes
+  the incident reviewable.
+</Warning>
+
+## When to use this runbook
+
+Use it when any of the following is true:
+
+- An alert fired because `lastProcessedLedger` lagged past the retention
+  boundary (see [alert thresholds](#alert-thresholds)).
+- Logs contain `retention_window_exceeded` (see
+  [Error Codes](/reference/error-codes#soroban-rpc--indexer-errors)).
+- `fetchAnnouncementsStream` / `getEvents` throws `RetentionExceededError`
+  because the requested `fromLedger` was pruned.
+- An operator reports missing announcements that are older than ~24 hours.
+
+If the scanner is merely lagging but still **inside** the window, use
+[Playbook 3: Indexer Stall](/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall)
+instead — this runbook is only for crossing the retention boundary.
+
+## 1. Detect the gap
+
+Detection is a comparison between the scanner's checkpoint and the network tip.
+
+1. Read the current network tip ledger:
+
+   ```bash
+   curl -s https://soroban-mainnet.stellar.org \
+     -X POST -H 'Content-Type: application/json' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"getLatestLedger"}'
+   ```
+
+2. Read the scanner's checkpoint (`lastProcessedLedger`) from its datastore.
+3. Compute the gap: `gap = latest_ledger - lastProcessedLedger`.
+4. Compare the gap against the provider's retention window
+   (`~17,280` ledgers ≈ 24 hours for public nodes, per
+   [Soroban RPC Retention Windows](/guides/stellar-mainnet-deployment#retention-limits)).
+
+| Gap (ledgers) | Meaning | Action |
+|---|---|---|
+| < 8,640 (~12h) | Inside the window | Continue normal operation; [Playbook 3](/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall) applies |
+| 8,640 – 17,280 | Approaching the boundary | Treat as a **warning**; verify failover is healthy |
+| > 17,280 (~24h) | **Past the boundary** | Continue with this runbook from step 2 |
+
+Also confirm the gap in the error signal, not just the arithmetic:
+
+```bash
+grep -E "retention_window_exceeded|RetentionExceededError" /var/log/wraith-indexer.log | tail -20
+```
+
+<Note>
+  The storage of `lastProcessedLedger` is implementation-specific (a table, a
+  KV entry, or a file). Locate your scanner's checkpoint store before starting —
+  you will read and write it several times below.
+</Note>
+
+## 2. Stop the scanner and freeze the checkpoint
+
+1. Stop the scanner so it cannot advance the checkpoint mid-recovery:
+
+   ```bash
+   systemctl stop wraith-indexer      # and/or wraith-watcher
+   ```
+
+2. Record the checkpoint value **before** changing anything:
+
+   ```bash
+   # Example: checkpoint persisted in Postgres
+   psql "$DATABASE_URL" -c \
+     "SELECT value FROM indexer_state WHERE key = 'lastProcessedLedger';" \
+     | tee checkpoint-before.txt
+   ```
+
+3. Record the network tip as the upper bound of the recovery range:
+
+   ```bash
+   echo "recovery_range = (lastProcessedLedger, latest_ledger]"
+   ```
+
+<Warning>
+  Never move the checkpoint forward to `latest_ledger` to "clear" the error. Doing
+  so permanently discards the announcements in the gap and is unrecoverable.
+</Warning>
+
+## 3. Recover the missed range
+
+Pick exactly one of the following, in order of preference. All of them replay
+the range `(lastProcessedLedger, latest_ledger]`; they differ only in where the
+history comes from.
+
+### Option A — Archive replay (most reliable)
+
+Replay the pruned range from a node that retains full history.
+
+```typescript
+import { fetchAnnouncementsStream } from '@wraith-protocol/sdk';
+
+const stream = fetchAnnouncementsStream({
+  // Archive node with full history enabled.
+  rpcUrl: process.env.STELLAR_ARCHIVE_RPC_URL,
+  contractIds: [ANNOUNCER_CONTRACT_ID],
+  fromLedger: lastProcessedLedger,      // replay exactly the missed range
+  retention: {
+    fallbackPolicy: 'archive_node',     // fail loudly if even the archive lacks it
+  },
+});
+
+for await (const announcement of stream) {
+  await persistAnnouncement(announcement); // idempotent — see step 4
+  if (announcement.ledger > latestLedger) break;
+}
+```
+
+### Option B — Dual-provider recovery
+
+If your primary provider pruned the range, fail over to the independent
+secondary provider and replay from there. This is why dual-provider setups are
+recommended in
+[Mitigating Retention Gaps](/guides/stellar-mainnet-deployment#mitigating-retention-gaps).
+
+```bash
+# Confirm the fallback provider still serves the missed range.
+curl -s "$STELLAR_RPC_URL_FALLBACK" \
+  -X POST -H 'Content-Type: application/json' \
+  -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"getEvents\",
+       \"params\":{\"startLedger\":$lastProcessedLedger,\"filters\":[]}}"
+```
+
+If the fallback returns events for `startLedger`, replay the range against it,
+then restore the primary once it is healthy. If **both** providers have pruned
+the range, use Option A (archive) or Option C (Horizon).
+
+### Option C — Horizon fallback (best-effort)
+
+Horizon retains transaction history longer than the RPC event window and can
+reconstruct announcement events from transaction results, at the cost of extra
+parsing. Use this only when no archive or secondary provider covers the range.
+
+```typescript
+// Reconstruct announcements from Horizon transactions in the gap.
+// See /guides/stellar-troubleshooting for the retention-window error context.
+const txs = await horizon.getTransactions({ from: gapStartTime, to: gapEndTime });
+const announcements = txs
+  .flatMap(reconstructAnnouncementsFromTransaction) // announce events in tx meta
+  .filter(isWraithAnnouncement);
+```
+
+<Note>
+  Horizon reconstruction is lossy if it cannot fully decode contract event
+  metadata. Record how many events were recovered this way in the operator
+  evidence (step 6) so the coverage gap is documented.
+</Note>
+
+## 4. Safe rescan and deduplication
+
+A rescan overlaps data the scanner may have already persisted, so replay
+**must** be idempotent. Never assume the gap is clean of already-processed
+events.
+
+### Deduplicate on a stable event identity
+
+Derive a deterministic key from the event's on-chain identity — not from
+insertion time — and enforce it with a unique constraint.
+
+```sql
+-- Stable identity for a Wraith announcement.
+ALTER TABLE announcements
+  ADD CONSTRAINT announcements_event_key
+  UNIQUE (contract_id, ledger, tx_hash, event_index);
+```
+
+Then persist with an upsert so a replay can be run repeatedly:
+
+```sql
+INSERT INTO announcements (contract_id, ledger, tx_hash, event_index, payload)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (contract_id, ledger, tx_hash, event_index) DO NOTHING;
+```
+
+### Rescan procedure
+
+<Steps>
+  <Step title="Replay the gap range">
+    Run one of the recovery options above for the exact range
+    `(lastProcessedLedger, latest_ledger]`.
+  </Step>
+  <Step title="Verify the count reconciles">
+    Compare the number of announcements persisted for the range against the
+    number the source returns:
+
+    ```sql
+    SELECT count(*) FROM announcements
+    WHERE ledger > $lastProcessedLedger AND ledger <= $latestLedger;
+    ```
+  </Step>
+  <Step title="Advance the checkpoint only after persistence">
+    Only once every event in the range is committed (or confirmed absent),
+    advance `lastProcessedLedger` to `latest_ledger`.
+  </Step>
+  <Step title="Resume the scanner">
+    ```bash
+    systemctl start wraith-indexer      # and/or wraith-watcher
+    ```
+  </Step>
+  <Step title="Confirm lag drains">
+    Watch `wraith_announcement_lag_seconds` and `wraith_indexer_sync_height`
+    until both return to their healthy baselines.
+  </Step>
+</Steps>
+
+<Warning>
+  Keep the unique constraint in place after recovery. It is the mechanism that
+  makes any future rescan safe, not a one-time fix.
+</Warning>
+
+## 5. Alert thresholds
+
+Add retention-aware alerts on top of the existing
+[Indexer Metrics](/guides/ops/monitoring-and-on-call#indexer-metrics). The
+existing alerts catch a stalled indexer; these catch a scanner that is about to
+cross the point of no return.
+
+```yaml
+groups:
+  - name: wraith_retention_alerts
+    interval: 1m
+    rules:
+      - alert: ScannerApproachingRetentionBoundary
+        expr: (wraith_latest_ledger - wraith_indexer_sync_height) > 8640
+        for: 10m
+        labels:
+          severity: medium
+          component: indexer
+        annotations:
+          summary: "Scanner sync gap > 8,640 ledgers (~12h)"
+          description: "The scanner is approaching the ~17,280-ledger retention boundary. Verify failover and prepare retention-gap recovery."
+          playbook: "https://docs.usewraith.xyz/guides/ops/retention-gap-recovery"
+
+      - alert: ScannerPastRetentionBoundary
+        expr: (wraith_latest_ledger - wraith_indexer_sync_height) > 17280
+        for: 1m
+        labels:
+          severity: critical
+          component: indexer
+        annotations:
+          summary: "Scanner gap exceeds the RPC retention window (~24h)"
+          description: "Events in the gap may be pruned. Run the retention-gap recovery runbook immediately."
+          playbook: "https://docs.usewraith.xyz/guides/ops/retention-gap-recovery"
+```
+
+| Threshold | Expression | Severity | Why |
+|---|---|---|---|
+| Approaching boundary | gap > 8,640 ledgers for 10m | Medium | Half the window; time remains to fail over |
+| Past boundary | gap > 17,280 ledgers for 1m | Critical | Range may be pruned; recovery is now required |
+| Retention error observed | `increase(wraith_retention_window_errors_total[5m]) > 0` | Critical | The boundary has already been crossed |
+
+If you do not yet export a ledger-gap gauge, derive it from
+`wraith_indexer_sync_height` plus the network tip, or from the
+`wraith_announcement_lag_seconds` metric already described in the monitoring
+guide.
+
+## 6. Operator evidence to collect
+
+Capture all of the following before closing the incident. Missing evidence is
+the most common reason a retention-gap postmortem cannot determine coverage.
+
+- [ ] `checkpoint-before.txt` — the `lastProcessedLedger` value at detent time.
+- [ ] Network tip ledger at detent time and the computed gap (ledgers and hours).
+- [ ] The exact recovery range `(lastProcessedLedger, latest_ledger]`.
+- [ ] Which recovery option was used (archive / dual-provider / Horizon) and why.
+- [ ] The `retention_window_exceeded` / `RetentionExceededError` log lines.
+- [ ] Announcement count the source returned for the range, and the count persisted after dedup.
+- [ ] Any events that could **not** be recovered, with the affected ledger range.
+- [ ] Before/after values for `wraith_announcement_lag_seconds` and `wraith_indexer_sync_height`.
+- [ ] The checkpoint value after recovery.
+
+## 7. Verify recovery
+
+1. `wraith_indexer_sync_height` lag is back under the healthy baseline
+   (< 10 ledgers).
+2. `wraith_announcement_lag_seconds` is back under 30s.
+3. The reconciled announcement count for the recovery range matches the source
+   (minus any documented unrecoverable events).
+4. `wraith_scan_miss_rate` is back under 0.1%.
+5. A spot-check of known stealth payments from the gap appears in the datastore.
+
+Once all five pass, remove the incident hold and note the outcome in the
+post-incident review.
+
+## Cross-References
+
+- [Soroban RPC Retention Windows](/guides/stellar-mainnet-deployment#soroban-rpc-retention-windows) — the retention limits this runbook recovers from
+- [Monitoring, Alerting, and On-Call](/guides/ops/monitoring-and-on-call) — metrics, alerts, and the other incident playbooks
+- [Indexer Stall (Playbook 3)](/guides/ops/monitoring-and-on-call#playbook-3-indexer-stall) — use instead when the scanner is still inside the window
+- [Error Codes](/reference/error-codes#soroban-rpc--indexer-errors) — `retention_window_exceeded`
+- [fetchAnnouncementsStream](/api-reference/fetch-announcements-stream) — `RetentionConfig`, `fallbackPolicy`, and checkpoint resumption
+- [Stellar Troubleshooting](/guides/stellar-troubleshooting) — general retention-window error handling

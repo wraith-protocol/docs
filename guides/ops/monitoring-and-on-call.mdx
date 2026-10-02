@@ -403,6 +403,13 @@ Each playbook follows a standard structure: **Symptoms → Diagnosis → Immedia
 **Severity**: High ([Auditor Guide Sev 2](/reference/auditor-guide#severity-matrix))  
 **Response SLA**: 1 hour to acknowledge, 4 hours to mitigation
 
+<Note>
+  If the indexer's `lastProcessedLedger` gap exceeds the Soroban RPC retention
+  window (~17,280 ledgers / ~24 hours), this is no longer a stall — it is a
+  retention gap. Follow the
+  [Retention‑Gap Recovery Runbook](/guides/ops/retention-gap-recovery) instead.
+</Note>
+
 #### Symptoms
 - `IndexerBacklogBuildup` or `AnnouncementLagHigh` alert firing
 - Users report delayed stealth payment notifications
@@ -675,6 +682,7 @@ Run different scenarios each quarter:
 ## Cross-References
 
 - [Self-Hosted Deployment](/guides/ops/self-hosted-deployment) — prerequisite deployment guide
+- [Retention‑Gap Recovery Runbook](/guides/ops/retention-gap-recovery) — recover a scanner that fell behind the RPC retention window
 - [Auditor Guide Severity Matrix](/reference/auditor-guide#severity-matrix) — severity definitions and response SLAs
 - [Multisig Authority Rotation](/guides/stellar/multisig-authority-rotation) — key rotation procedures
 - [Stellar Cryptography](/architecture/stellar-cryptography) — contract architecture for debugging
