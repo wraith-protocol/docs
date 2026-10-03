@@ -95,4 +95,31 @@ the pages that quote it. Never ship a placeholder contract id such as
 Every pull request runs the snippet checker, the nav coverage check, and the
 contract registry check through GitHub Actions. A separate non-blocking Stellar
 testnet job is reserved for end-to-end snippet validation that depends on network
-availability.
+availability. The workflow also runs extended snippet validation and the
+redirect and anchor checks, including their unit tests.
+
+## Mintlify preview redirect check
+
+After Mintlify publishes the pull request preview, run the smoke check from
+this PR's checkout, supplying the actual preview base URL (for example,
+`https://example.mintlify.app`). On macOS/Linux:
+
+```bash
+MINTLIFY_PREVIEW_URL=https://example.mintlify.app \
+pnpm run test:preview-redirect
+```
+
+In PowerShell:
+
+```powershell
+$env:MINTLIFY_PREVIEW_URL = "https://example.mintlify.app"
+pnpm run test:preview-redirect
+```
+
+The check makes a real request to `/README`, does not follow redirects, and
+requires a 3xx response with a `Location` resolving to `/introduction`. The
+repository's GitHub Actions workflows do not expose the Mintlify preview URL.
+GitHub also requires a `workflow_dispatch` workflow to exist on the default
+branch before it can be manually dispatched, so this PR uses the documented
+command against the preview URL instead of adding a workflow that cannot yet
+be run for this PR.
