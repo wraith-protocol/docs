@@ -46,7 +46,7 @@ Simulation is especially important in stealth flows because the `stealth-announc
 
 ## SDK Helpers
 
-The Soroban SDK's `SorobanRpc.Server` exposes `prepareTransaction`, which runs simulation internally and returns a transaction ready to sign. Use it as the standard path for all contract calls.
+The Soroban SDK's `rpc.Server` exposes `prepareTransaction`, which runs simulation internally and returns a transaction ready to sign. Use it as the standard path for all contract calls.
 
 ### `prepareTransaction` — the standard path
 
@@ -58,12 +58,12 @@ import {
   nativeToScVal,
   Address,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
 const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
 
-const server = new SorobanRpc.Server(FUTURENET_RPC);
+const server = new rpc.Server(FUTURENET_RPC);
 
 async function buildAndPrepareContractCall(params: {
   callerAccountId: string;
@@ -94,10 +94,10 @@ async function buildAndPrepareContractCall(params: {
 }
 ```
 
-`prepareTransaction` throws a `SorobanRpc.SimulateTransactionError` if the simulation fails, with the raw simulation result attached. Catch it to decode the contract error:
+`prepareTransaction` throws a `rpc.SimulateTransactionError` if the simulation fails, with the raw simulation result attached. Catch it to decode the contract error:
 
-```typescript
-import { SorobanRpc, xdr } from "@stellar/stellar-sdk";
+```typescript no-check
+import { rpc, xdr } from "@stellar/stellar-sdk";
 
 try {
   const preparedTx = await buildAndPrepareContractCall({
@@ -115,7 +115,7 @@ try {
   console.log("Submitted:", result.hash);
 
 } catch (e) {
-  if (e instanceof SorobanRpc.SimulateTransactionError) {
+  if (e instanceof rpc.SimulateTransactionError) {
     console.error("Simulation failed:", e.message);
     console.error("Raw simulation result:", JSON.stringify(e.result, null, 2));
     // Decode the contract error — see "Handling Sim Failures" below
@@ -134,9 +134,9 @@ When you need full control over the simulation result — for logging, fee inspe
 ### Direct simulation
 
 ```typescript
-import { SorobanRpc, Transaction } from "@stellar/stellar-sdk";
+import { rpc, Transaction } from "@stellar/stellar-sdk";
 
-async function simulate(rawTxXdr: string): Promise<SorobanRpc.Api.SimulateTransactionResponse> {
+async function simulate(rawTxXdr: string): Promise<rpc.Api.SimulateTransactionResponse> {
   const tx = new Transaction(rawTxXdr, FUTURENET_PASSPHRASE);
   const result = await server.simulateTransaction(tx);
   return result;
@@ -144,9 +144,9 @@ async function simulate(rawTxXdr: string): Promise<SorobanRpc.Api.SimulateTransa
 
 const simResult = await simulate(rawTx.toXDR());
 
-if (SorobanRpc.Api.isSimulationError(simResult)) {
+if (rpc.Api.isSimulationError(simResult)) {
   console.error("Simulation error:", simResult.error);
-} else if (SorobanRpc.Api.isSimulationRestore(simResult)) {
+} else if (rpc.Api.isSimulationRestore(simResult)) {
   console.warn("State restore required before this transaction can succeed");
 } else {
   console.log("Simulation success");
@@ -158,8 +158,8 @@ if (SorobanRpc.Api.isSimulationError(simResult)) {
 
 If you need to apply simulation results to a transaction yourself (advanced use cases):
 
-```typescript
-import { SorobanRpc, assembleTransaction } from "@stellar/stellar-sdk";
+```typescript no-check
+import { rpc, assembleTransaction } from "@stellar/stellar-sdk";
 
 // assembleTransaction applies the footprint + resource estimates from the sim result
 // This is what prepareTransaction does internally
@@ -175,9 +175,9 @@ const assembledTx = assembleTransaction(rawTx, simResult);
 The contract's return value is an XDR `ScVal`. Decode it with `scValToNative`:
 
 ```typescript
-import { scValToNative, SorobanRpc } from "@stellar/stellar-sdk";
+import { scValToNative, rpc } from "@stellar/stellar-sdk";
 
-if (!SorobanRpc.Api.isSimulationError(simResult) && simResult.result) {
+if (!rpc.Api.isSimulationError(simResult) && simResult.result) {
   const returnValue = scValToNative(simResult.result.retval);
   console.log("Contract return value:", returnValue);
 }
@@ -187,10 +187,10 @@ if (!SorobanRpc.Api.isSimulationError(simResult) && simResult.result) {
 
 Simulated events appear in `simResult.events`. Each is a base64-encoded XDR `DiagnosticEvent`:
 
-```typescript
+```typescript no-check
 import { xdr, scValToNative } from "@stellar/stellar-sdk";
 
-if (!SorobanRpc.Api.isSimulationError(simResult)) {
+if (!rpc.Api.isSimulationError(simResult)) {
   for (const rawEvent of simResult.events ?? []) {
     const event = xdr.DiagnosticEvent.fromXDR(rawEvent.event, "base64");
 
@@ -214,8 +214,8 @@ and data containing the ephemeral public key and view tag metadata — exactly w
 
 ### Fee breakdown
 
-```typescript
-if (!SorobanRpc.Api.isSimulationError(simResult)) {
+```typescript no-check
+if (!rpc.Api.isSimulationError(simResult)) {
   console.log("Min resource fee:", simResult.minResourceFee, "stroops");
 
   const resources = simResult.transactionData?.build().resources();
@@ -238,10 +238,10 @@ Contract errors returned by simulation are far more actionable than opaque on-ch
 ### Decoding a contract error
 
 ```typescript
-import { xdr, SorobanRpc, scValToNative } from "@stellar/stellar-sdk";
+import { xdr, rpc, scValToNative } from "@stellar/stellar-sdk";
 
-function decodeSimulationError(simResult: SorobanRpc.Api.SimulateTransactionResponse): string {
-  if (!SorobanRpc.Api.isSimulationError(simResult)) return "No error";
+function decodeSimulationError(simResult: rpc.Api.SimulateTransactionResponse): string {
+  if (!rpc.Api.isSimulationError(simResult)) return "No error";
 
   const errorStr = simResult.error;
 
@@ -270,10 +270,10 @@ function decodeSimulationError(simResult: SorobanRpc.Api.SimulateTransactionResp
 ### User-facing error messages for stealth flows
 
 ```typescript
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
-function userFacingSimError(simResult: SorobanRpc.Api.SimulateTransactionResponse): string {
-  if (!SorobanRpc.Api.isSimulationError(simResult)) return "";
+function userFacingSimError(simResult: rpc.Api.SimulateTransactionResponse): string {
+  if (!rpc.Api.isSimulationError(simResult)) return "";
 
   const raw = simResult.error.toLowerCase();
 
@@ -283,7 +283,7 @@ function userFacingSimError(simResult: SorobanRpc.Api.SimulateTransactionRespons
   if (raw.includes("insufficient") || raw.includes("underfunded")) {
     return "Insufficient balance. Top up the account before sending.";
   }
-  if (SorobanRpc.Api.isSimulationRestore(simResult)) {
+  if (rpc.Api.isSimulationRestore(simResult)) {
     return "A state restore is required. Please retry — the restore will be handled automatically.";
   }
 
@@ -297,7 +297,7 @@ function userFacingSimError(simResult: SorobanRpc.Api.SimulateTransactionRespons
 
 This shows the full simulation flow for a `stealth-announcer` contract call — the most common Soroban interaction in a stealth payment flow.
 
-```typescript
+```typescript no-check
 import {
   Contract,
   TransactionBuilder,
@@ -308,7 +308,7 @@ import {
   scValToNative,
   Address,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 import {
   generateStealthAddress,
   deriveStealthKeys,
@@ -318,7 +318,7 @@ import {
 
 const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
 const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
-const server = new SorobanRpc.Server(FUTURENET_RPC);
+const server = new rpc.Server(FUTURENET_RPC);
 
 async function simulateAndSendAnnouncement(params: {
   callerKeypair: Keypair;
@@ -361,7 +361,7 @@ async function simulateAndSendAnnouncement(params: {
   console.log("Running pre-flight simulation...");
   const simResult = await server.simulateTransaction(rawTx);
 
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
+  if (rpc.Api.isSimulationError(simResult)) {
     const msg = userFacingSimError(simResult);
     throw new Error(`Pre-flight failed: ${msg}`);
   }

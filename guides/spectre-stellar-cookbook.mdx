@@ -65,7 +65,7 @@ curl -X POST https://api.usewraith.xyz/agent/create \
 
 **Response:**
 
-```json
+```json no-check
 {
   "id": "a1b2c3d4-...",
   "name": "payments",
@@ -112,7 +112,7 @@ curl https://api.usewraith.xyz/agent/info/payments \
   -H "Authorization: Bearer $WRAITH_API_KEY"
 ```
 
-```json
+```json no-check
 {
   "id": "a1b2c3d4-...",
   "name": "payments",
@@ -126,7 +126,7 @@ curl https://api.usewraith.xyz/agent/info/payments \
 
 Poll notifications on a schedule, or wire up a background worker:
 
-```typescript
+```typescript no-check
 // poll-payments.ts — run every 60 seconds
 async function pollIncoming(agentId: string) {
   const res = await fetch(
@@ -153,7 +153,7 @@ async function pollIncoming(agentId: string) {
 
 **Sample notification payload:**
 
-```json
+```json no-check
 {
   "id": 42,
   "type": "payment_received",
@@ -242,7 +242,7 @@ curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
 
 Enable privacy autopilot to get weekly analysis and preemptive warnings built into the agent's behavior:
 
-```typescript
+```typescript no-check
 // privacy-autopilot.ts — run weekly, or after large payment batches
 export async function privacyAutopilot(agentId: string) {
   const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -266,7 +266,7 @@ export async function privacyAutopilot(agentId: string) {
 
 **Full production setup (single file):**
 
-```typescript
+```typescript no-check
 // agent-setup.ts
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 import cron from "node-cron";
@@ -429,7 +429,7 @@ curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
 
 **Sample success response:**
 
-```json
+```json no-check
 {
   "response": "Payment sent — 500 USDC to alice.wraith via stealth address GABC...xyz on Stellar.",
   "toolCalls": [
@@ -445,7 +445,7 @@ curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
 
 ### Step 4 — Monitor failures and retry
 
-```typescript
+```typescript no-check
 // payroll-monitor.ts
 export async function monitorAndRetry(
   results: PayrollResult[],
@@ -504,7 +504,7 @@ async function alertOps(info: {
 
 Contributors update their `.wraith` destination monthly to prevent pattern analysis across pay periods. Your DAO governance process submits new names; your code updates the registry:
 
-```typescript
+```typescript no-check
 // rotation.ts
 export async function rotateDestinations(
   updates: Array<{ contributorId: string; newWraithName: string }>
@@ -531,7 +531,7 @@ To rotate, contributors call `wraith.getAgentByName("alice")` on a new agent and
 
 ### Step 6 — Full payroll scheduler
 
-```typescript
+```typescript no-check
 // scheduler.ts
 import cron from "node-cron";
 
@@ -723,7 +723,7 @@ Best Practices:
 
 ### Step 3 — Send Slack and email reports
 
-```tsx
+```tsx no-check
 // reporters.ts
 
 // Slack report
@@ -820,7 +820,7 @@ export async function sendEmailReport(report: PrivacyReport, to: string) {
 
 When the privacy score drops below a threshold, the agent suggests new `.wraith` names to rotate to:
 
-```typescript
+```typescript no-check
 // auto-rotate.ts
 export async function generateRotationPlan(
   agentId: string,
@@ -863,7 +863,7 @@ export async function applyRotation(
 
 ### Step 5 — Full weekly job
 
-```typescript
+```typescript no-check
 // weekly-privacy-job.ts
 import cron from "node-cron";
 
@@ -967,7 +967,7 @@ Or a name-transfer endpoint that moves ownership to a new agent without requirin
 
 **Proposed response:**
 
-```json
+```json no-check
 {
   "score": 72,
   "chain": "stellar",
@@ -1023,7 +1023,7 @@ Or a name-transfer endpoint that moves ownership to a new agent without requirin
 
 All three recipes reconnect to a pre-created agent by ID. Store the agent ID in your environment after the first `createAgent` call:
 
-```typescript
+```typescript no-check
 // Reconnect — no new agent is created
 const agent = wraith.agent(process.env.AGENT_ID!);
 
@@ -1044,7 +1044,7 @@ curl https://api.usewraith.xyz/agent/$AGENT_ID/status \
   -H "Authorization: Bearer $WRAITH_API_KEY"
 ```
 
-```json
+```json no-check
 {
   "balance": "9998.5",
   "tokens": { "USDC": "4500.00" },

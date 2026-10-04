@@ -35,25 +35,25 @@ Create a new agent with a `.wraith` name.
 **Request:**
 
 ```typescript no-check
-{
+type CreateAgentRequest = {
   name: string;          // "alice" (becomes alice.wraith)
   chain: string;         // "horizen" | "stellar" | "ethereum" | ...
   wallet: string;        // owner wallet address
   signature: string;     // EIP-191 or ed25519 signature
   message?: string;      // signed message (for verification)
-}
+};
 ```
 
 **Response:**
 
-```typescript
-{
+```typescript no-check
+type AgentInfoResponse = {
   id: string;            // UUID
   name: string;          // "alice"
   chain: string;         // "horizen"
   address: string;       // agent's on-chain address
   metaAddress: string;   // stealth meta-address
-}
+};
 ```
 
 ### List Agents
@@ -104,15 +104,15 @@ Returns balance, pending invoices, and other stats.
 
 **Response:**
 
-```typescript
-{
+```typescript no-check
+type InvoiceResponse = {
   balance: string;
   tokens: Record<string, string>;
   pendingInvoices: number;
   address: string;
   metaAddress: string;
   chain: string;
-}
+};
 ```
 
 ### Export Private Key
@@ -125,7 +125,7 @@ Export the agent's private key. Requires a fresh wallet signature.
 
 **Request:**
 
-```typescript
+```typescript no-check
 {
   signature: string;     // fresh signature from owner wallet
   message: string;       // signed message
@@ -134,7 +134,7 @@ Export the agent's private key. Requires a fresh wallet signature.
 
 **Response:**
 
-```typescript
+```typescript no-check
 {
   secret: string;        // "0x..." — the agent's private key
 }
@@ -155,23 +155,23 @@ Send a natural language message to the AI agent.
 **Request:**
 
 ```typescript no-check
-{
+type ChatRequest = {
   message: string;
   conversationId?: string;  // continue existing conversation
-}
+};
 ```
 
 **Response:**
 
 ```typescript no-check
-{
+type ChatResponse = {
   response: string;          // agent's text reply
   toolCalls?: ToolCall[];    // tools the agent executed
   conversationId: string;    // conversation ID for continuity
-}
+};
 ```
 
-```typescript
+```typescript no-check
 interface ToolCall {
   name: string;              // "send_payment", "scan_payments", etc.
   status: string;            // "success" or "error"
@@ -191,7 +191,7 @@ GET /agent/:id/conversations
 
 **Response:** `Conversation[]`
 
-```typescript
+```typescript no-check
 interface Conversation {
   id: string;
   title: string;
@@ -242,7 +242,7 @@ GET /invoice/:id
 
 **Response:**
 
-```typescript
+```typescript no-check
 {
   id: string;
   agentName: string;
@@ -277,13 +277,13 @@ GET /agent/:id/notifications
 **Response:**
 
 ```typescript no-check
-{
+type NotificationsResponse = {
   notifications: Notification[];
   unreadCount: number;
-}
+};
 ```
 
-```typescript
+```typescript no-check
 interface Notification {
   id: number;
   type: string;
@@ -318,7 +318,7 @@ GET /health
 
 **Response:**
 
-```typescript
+```typescript no-check
 {
   status: "ok";
 }
@@ -346,7 +346,7 @@ Returns cryptographic proof that the TEE is running authentic code and the agent
 
 All errors return JSON with a `message` field:
 
-```typescript
+```typescript no-check
 {
   message: string;
   statusCode: number;
@@ -363,22 +363,16 @@ All errors return JSON with a `message` field:
 
 ### Example
 
-```typescript no-check
-// 400 Bad Request
-{
-  "message": "Name must be 3-32 characters, lowercase alphanumeric and hyphens only",
-  "statusCode": 400
-}
-
-// 401 Unauthorized
-{
-  "message": "Invalid API key",
-  "statusCode": 401
-}
-
-// 409 Conflict
-{
-  "message": "Name 'alice' is already registered",
-  "statusCode": 409
-}
+```typescript
+const errorResponses = [
+  // 400 Bad Request
+  {
+    message: "Name must be 3-32 characters, lowercase alphanumeric and hyphens only",
+    statusCode: 400,
+  },
+  // 401 Unauthorized
+  { message: "Invalid API key", statusCode: 401 },
+  // 409 Conflict
+  { message: "Name 'alice' is already registered", statusCode: 409 },
+];
 ```

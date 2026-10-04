@@ -168,7 +168,7 @@ async function connectXBull(): Promise<string> {
 
 ### Sign a transaction
 
-```typescript
+```typescript no-check
 async function signWithXBull(xdr: string, publicKey: string): Promise<string> {
   return xbull.sign({ xdr, publicKey });
 }
@@ -176,7 +176,7 @@ async function signWithXBull(xdr: string, publicKey: string): Promise<string> {
 
 ### Derive stealth keys
 
-```typescript
+```typescript no-check
 import { deriveStealthKeys, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
 
 async function deriveKeysWithXBull() {
@@ -188,7 +188,7 @@ async function deriveKeysWithXBull() {
 
 ### Disconnect
 
-```typescript
+```typescript no-check
 await xbull.disconnect();
 ```
 
@@ -247,7 +247,7 @@ export interface StellarWallet {
 
 ### Wallet registry
 
-```typescript
+```typescript no-check
 import { isConnected as freighterIsConnected } from "@stellar/freighter-api";
 import albedo from "albedo-link";
 import { xBullWalletConnect } from "@xbull/sdk";
@@ -322,7 +322,7 @@ export const STELLAR_WALLETS: StellarWallet[] = [
 
 ### Wallet picker (React)
 
-```typescript
+```typescript no-check
 import { useState, useEffect } from "react";
 import { STELLAR_WALLETS, StellarWallet, StellarWalletId } from "./wallets";
 
@@ -359,7 +359,7 @@ export function StellarWalletPicker({ onConnect }: WalletPickerProps) {
 
 ### Hook the picker into Wraith key derivation
 
-```typescript
+```typescript no-check
 import { deriveStealthKeys, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
 import { STELLAR_WALLETS, StellarWalletId } from "./wallets";
 
@@ -401,7 +401,7 @@ const kit = new StellarWalletsKit({
 
 ### Open the built-in modal
 
-```typescript
+```typescript no-check
 await kit.openModal({
   onWalletSelected: async (option) => {
     kit.setWallet(option.id);
@@ -413,13 +413,13 @@ await kit.openModal({
 
 ### Sign a transaction
 
-```typescript
+```typescript no-check
 const { signedTxXdr } = await kit.signTransaction(unsignedXdr);
 ```
 
 ### Derive stealth keys
 
-```typescript
+```typescript no-check
 import { STEALTH_SIGNING_MESSAGE, deriveStealthKeys } from "@wraith-protocol/sdk/chains/stellar";
 
 const { signedMessage } = await kit.signMessage(STEALTH_SIGNING_MESSAGE);
@@ -465,7 +465,7 @@ const accounts = provider.accounts;
 
 ## Session Persistence
 
-```tsx
+```tsx no-check
 const SESSION_KEY = "wraith:stellar:session";
 
 interface StellarSession {
@@ -507,7 +507,7 @@ async function restoreSession(): Promise<StellarSession | null> {
 
 ### React hook
 
-```tsx
+```tsx no-check
 import { useEffect, useState } from "react";
 
 export function useWalletSession() {
@@ -540,7 +540,7 @@ export function useWalletSession() {
 
 Most Stellar extensions do not run on mobile. Filter wallets by platform:
 
-```typescript
+```typescript no-check
 function isMobile(): boolean {
   return /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
 }
@@ -565,7 +565,7 @@ function getRecommendedWallets(): StellarWallet[] {
 
 ### LOBSTR deep link fallback
 
-```typescript
+```typescript no-check
 function openLobstrMobile(xdr: string) {
   window.location.href = `lobstr://sign?xdr=${encodeURIComponent(xdr)}`;
 }

@@ -161,7 +161,7 @@ const payments = await agent.scanPayments();
 
 Export the agent's private key. Requires a fresh wallet signature for verification.
 
-```typescript
+```typescript no-check
 const sig = await wallet.signMessage("Export private key for agent " + agent.info.id);
 const { secret } = await agent.exportKey(sig, "Export private key for agent " + agent.info.id);
 console.log(secret); // "0x..."

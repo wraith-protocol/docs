@@ -33,36 +33,16 @@ This is the managed platform client. It talks to Wraith's hosted TEE infrastruct
 
 ```typescript
 // EVM chains (secp256k1)
-import {
-  generateStealthAddress,
-  deriveStealthKeys,
-  scanAnnouncements,
-  deriveStealthPrivateKey,
-} from "@wraith-protocol/sdk/chains/evm";
+import * as evm from "@wraith-protocol/sdk/chains/evm";
 
 // Stellar (ed25519)
-import {
-  generateStealthAddress,
-  deriveStealthKeys,
-  scanAnnouncements,
-  deriveStealthPrivateScalar,
-} from "@wraith-protocol/sdk/chains/stellar";
+import * as stellar from "@wraith-protocol/sdk/chains/stellar";
 
 // Solana (ed25519)
-import {
-  generateStealthAddress,
-  deriveStealthKeys,
-  scanAnnouncements,
-  deriveStealthPrivateScalar,
-} from "@wraith-protocol/sdk/chains/solana";
+import * as solana from "@wraith-protocol/sdk/chains/solana";
 
 // CKB (secp256k1 + Cell model)
-import {
-  generateStealthAddress,
-  deriveStealthKeys,
-  scanStealthCells,
-  deriveStealthPrivateKey,
-} from "@wraith-protocol/sdk/chains/ckb";
+import * as ckb from "@wraith-protocol/sdk/chains/ckb";
 ```
 
 Each chain module exports the same conceptual functions adapted to that chain's cryptographic scheme and address format. You only need these if you're building custom stealth address integrations without the managed agent platform.
@@ -71,7 +51,7 @@ Each chain module exports the same conceptual functions adapted to that chain's 
 
 Always use the `Chain` enum when specifying chains. Never pass raw strings.
 
-```typescript
+```typescript no-check
 import { Chain } from "@wraith-protocol/sdk";
 
 // Single chain
@@ -130,7 +110,7 @@ enum Chain {
 
 The SDK uses `package.json` exports to expose multiple entry points from a single package:
 
-```json
+```json no-check
 {
   "exports": {
     ".": {

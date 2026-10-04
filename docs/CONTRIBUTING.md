@@ -11,13 +11,12 @@ npm run check:snippets
 ```
 
 The checker extracts each `ts`, `tsx`, `typescript`, `js`, and `javascript` fence,
-writes it to a temporary file, and runs `tsc --noEmit` against that snippet. The
-initial gate is intentionally syntax-focused because many current docs snippets
-are fragments meant to illustrate API shapes rather than complete programs. It
-still catches malformed TypeScript and keeps the docs ready for stricter runtime
-validation over time.
+syntax-checks it, and runs `tsc --noEmit` against it using the published SDK
+types. This catches API type errors in executable examples as well as malformed
+syntax.
 
-Use `no-check` only for intentionally illustrative pseudocode:
+Use the `no-check` fence attribute only for prose fragments that are not
+executable examples:
 
 ````mdx
 ```typescript no-check

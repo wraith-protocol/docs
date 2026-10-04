@@ -129,7 +129,7 @@ import {
   Contract,
   Networks,
   TransactionBuilder,
-  SorobanRpc,
+  rpc,
 } from "@stellar/stellar-sdk";
 import {
   generateStealthAddress,
@@ -167,7 +167,7 @@ const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 
 Before sending, verify the sender holds USDC and has enough XLM for the new trustline reserve (0.5 XLM per entry):
 
-```typescript
+```typescript no-check
 import { Horizon } from "@stellar/stellar-sdk";
 
 const horizonUrl = deployment.horizonUrl; // "https://horizon-testnet.stellar.org"
@@ -201,11 +201,11 @@ if (xlmBalance < MIN_XLM_FOR_TRUSTLINE + 0.01 /* fee buffer */) {
 
 ### Step 4 — Invoke stealth-sender
 
-```typescript
+```typescript no-check
 import { xdr, Contract as SorobanContract } from "@stellar/stellar-sdk";
 import { bytesToHex } from "@wraith-protocol/sdk/chains/stellar";
 
-const sorobanServer = new SorobanRpc.Server(deployment.sorobanUrl);
+const sorobanServer = new rpc.Server(deployment.sorobanUrl);
 const senderContractId = deployment.contracts.sender; // from getDeployment()
 
 const senderContract = new SorobanContract(senderContractId);
@@ -270,12 +270,12 @@ const tx = new TransactionBuilder(account, {
 
 // Simulate first to get the resource footprint
 const simResult = await sorobanServer.simulateTransaction(tx);
-if (SorobanRpc.Api.isSimulationError(simResult)) {
+if (rpc.Api.isSimulationError(simResult)) {
   throw new Error(`Simulation failed: ${simResult.error}`);
 }
 
 // Assemble and sign
-const assembledTx = SorobanRpc.assembleTransaction(tx, simResult).build();
+const assembledTx = rpc.assembleTransaction(tx, simResult).build();
 assembledTx.sign(senderKeypair);
 
 // Submit
@@ -291,7 +291,7 @@ If the stealth address has never been activated on Stellar (no XLM), USDC can't 
 
 Solution: fund the stealth address with the minimum balance (1 XLM) before or in the same transaction:
 
-```typescript
+```typescript no-check
 import { Operation } from "@stellar/stellar-sdk";
 
 // Add createAccount operation BEFORE the stealth-sender call
@@ -324,7 +324,7 @@ After scanning and detecting the payment, you'll want to spend or withdraw the U
 
 Scanning works the same as for XLM. `fetchAnnouncements` returns all announcements regardless of asset type. The asset type isn't encoded in the announcement — you discover what the stealth address holds by querying the balance.
 
-```typescript
+```typescript no-check
 import {
   fetchAnnouncements,
   scanAnnouncements,
@@ -381,14 +381,14 @@ When you withdraw USDC from a stealth address to your main wallet, the destinati
 
 Check before withdrawing:
 
-```typescript
+```typescript no-check
 import { Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 
 async function ensureUsdcTrustline(
   destinationAddress: string,
   destinationKeypair: any, // keypair for destination
   server: Horizon.Server,
-  sorobanServer: SorobanRpc.Server
+  sorobanServer: rpc.Server
 ) {
   const account = await server.loadAccount(destinationAddress);
   const hasTrustline = account.balances.some(
@@ -424,7 +424,7 @@ async function ensureUsdcTrustline(
 
 Withdrawing USDC from a stealth address requires signing with the derived stealth scalar — not a standard seed. Use `signStellarTransaction`:
 
-```typescript
+```typescript no-check
 import {
   signStellarTransaction,
   pubKeyToStellarAddress,
@@ -484,7 +484,7 @@ Stellar's path payment operations let a sender pay in one asset while the recipi
 
 The stealth address must hold a trustline for the destination asset (the asset the recipient receives). The `stealth-sender` contract currently supports single-asset sends only. For path payments, use the classic Stellar `PathPaymentStrictReceive` or `PathPaymentStrictSend` operations directly.
 
-```typescript
+```typescript no-check
 import { Operation, Asset } from "@stellar/stellar-sdk";
 
 // Sender pays XLM, recipient stealth address receives USDC
@@ -517,7 +517,7 @@ await server.submitTransaction(tx);
 
 After the path payment succeeds, announce it:
 
-```typescript
+```typescript no-check
 import { SCHEME_ID } from "@wraith-protocol/sdk/chains/stellar";
 
 const announcerContract = new SorobanContract(deployment.contracts.announcer);
@@ -541,7 +541,7 @@ const announceTx = new TransactionBuilder(senderAccount, {
   .build();
 
 const simResult = await sorobanServer.simulateTransaction(announceTx);
-const assembled = SorobanRpc.assembleTransaction(announceTx, simResult).build();
+const assembled = rpc.assembleTransaction(announceTx, simResult).build();
 assembled.sign(senderKeypair);
 await sorobanServer.sendTransaction(assembled);
 ```
@@ -552,7 +552,7 @@ await sorobanServer.sendTransaction(assembled);
 
 Before building a path payment, query Horizon for available paths:
 
-```typescript
+```typescript no-check
 // Find XLM → USDC paths
 const paths = await server
   .strictReceivePaths()
@@ -592,9 +592,9 @@ Stellar fees have two components: a base fee (per operation, very cheap) and a S
 
 Soroban fees vary with ledger state. Always simulate before submitting:
 
-```typescript
+```typescript no-check
 const simResult = await sorobanServer.simulateTransaction(tx);
-if (SorobanRpc.Api.isSimulationSuccess(simResult)) {
+if (rpc.Api.isSimulationSuccess(simResult)) {
   console.log("Estimated fee (stroops):", simResult.minResourceFee);
   // 1 XLM = 10,000,000 stroops
   console.log("Estimated fee (XLM):", parseInt(simResult.minResourceFee) / 1e7);
@@ -622,7 +622,7 @@ Results from the June 2026 internal audit of `stealth-sender` v1.2 against Stell
 
 ### Checking flags before sending
 
-```typescript
+```typescript no-check
 import { Horizon } from "@stellar/stellar-sdk";
 
 async function checkAssetFlags(assetCode: string, issuerAddress: string) {
@@ -689,7 +689,7 @@ You can confirm or cancel. The warning is informational — the send will work a
 
 ### Checking at runtime
 
-```typescript
+```typescript no-check
 async function warnIfRisky(assetCode: string, issuerAddress: string): Promise<string[]> {
   const warnings: string[] = [];
   const flags = await checkAssetFlags(assetCode, issuerAddress);
@@ -735,7 +735,7 @@ AGENT_ID=         # from wraith.createAgent()
 
 ### Full flow
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });

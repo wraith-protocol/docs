@@ -67,11 +67,11 @@ Adding a new EVM chain requires:
 
 No new code. The `EVMConnector` handles all EVM chains with the same logic — only the RPC URL, chain ID, and contract addresses differ.
 
-```typescript
+```typescript no-check
 import { Chain } from "@wraith-protocol/sdk";
 
 // Adding Arbitrum — same connector, new config
-chainRegistry.register(Chain.Arbitrum, new EVMConnector({
+chainRegistry.register(Chain.ArbitrumOne, new EVMConnector({
   chainId: 42161,
   rpcUrl: "https://arb1.arbitrum.io/rpc",
   explorerUrl: "https://arbiscan.io",

@@ -73,7 +73,7 @@ You don't need XLM in your own wallet to register a name. The contract supports 
 
 By signing a Soroban auth payload, you can delegate the fee payment to a relayer or the Wraith API, which will submit the transaction and pay the network fees on your behalf.
 
-```typescript
+```typescript no-check
 // The Wraith SDK handles delegated registration out-of-the-box
 const agent = await wraith.createAgent({
   name: "alice", // Automatically uses delegated registration if the agent lacks XLM
@@ -92,7 +92,7 @@ Resolving a name returns the 64-byte stealth meta-address associated with it.
 
 ### SDK Example
 
-```typescript
+```typescript no-check
 const metaAddress = await wraith.resolveName("alice.wraith", Chain.Stellar);
 console.log("Resolved meta-address:", metaAddress);
 ```
@@ -118,7 +118,7 @@ You can perform a reverse lookup to find the name associated with a specific met
 
 ### SDK Example
 
-```typescript
+```typescript no-check
 const name = await wraith.lookupMetaAddress(metaAddress, Chain.Stellar);
 console.log("Associated name:", name); // Returns "alice"
 ```
@@ -205,7 +205,7 @@ This is particularly useful for organizations or applications that want to provi
 
 ### SDK Example (Upcoming)
 
-```typescript
+```typescript no-check
 // 1. Set the delegation resolver for your main name
 await agent.chat("set subdomain resolver to CC... on stellar");
 

@@ -45,7 +45,7 @@ https://stellar.expert/explorer/public/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM3
 
 Copy this helper into your project to generate explorer URLs safely:
 
-```ts
+```ts no-check
 type ExplorerNetwork = "public" | "testnet";
 type ExplorerKind = "account" | "tx" | "contract" | "asset" | "op";
 
@@ -62,7 +62,7 @@ export function stellarExplorerUrl(
 
 **Usage:**
 
-```ts
+```ts no-check
 stellarExplorerUrl("account", "GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN");
 // → https://stellar.expert/explorer/public/account/GAAZI4TCR3TY5OJHCTJC2A4QSY6CJWJH5IAJTGKIN2ER7LBNVKOCCWN
 
@@ -85,7 +85,7 @@ When showing explorer links in your UI:
 - **Label links as** `"View on stellar.expert"` — this sets user expectations clearly.
 - **Always use** `rel="noopener noreferrer"` and `target="_blank"` on anchor tags so the explorer opens in a new tab without passing referrer info.
 
-```tsx
+```tsx no-check
 <a
   href={stellarExplorerUrl("account", address, network)}
   target="_blank"

@@ -26,7 +26,7 @@ Traders swap through the pool by using a `PathPaymentStrictSend` or `PathPayment
 
 Each pool is identified by a deterministic SHA-256 hash of its pool type and the two assets (sorted lexicographically):
 
-```typescript
+```typescript no-check
 import { LiquidityPoolId, Asset, LiquidityPoolType } from "@stellar/stellar-sdk";
 
 const assetA = new Asset("YXLM", "G...issuer");
@@ -41,7 +41,7 @@ console.log(poolId.toString()); // 64-char hex pool ID
 
 You can look up existing pools and their reserves via Horizon:
 
-```typescript
+```typescript no-check
 const resp = await server
   .liquidityPools()
   .forAssets(assetA, assetB)
@@ -63,7 +63,7 @@ if (resp.records.length > 0) {
 
 The `LiquidityPoolDeposit` operation adds liquidity to a pool. You must hold both assets and specify the maximum amounts you're willing to deposit.
 
-```typescript
+```typescript no-check
 import { Operation, TransactionBuilder, Asset } from "@stellar/stellar-sdk";
 import { LiquidityPoolId } from "@stellar/stellar-sdk";
 
@@ -104,7 +104,7 @@ To swap through a liquidity pool, use `PathPaymentStrictSend` or `PathPaymentStr
 
 ### Strict Send (pay YXLM, receive USDC)
 
-```typescript
+```typescript no-check
 import { Operation, Asset } from "@stellar/stellar-sdk";
 
 const swapTx = new TransactionBuilder(senderAccount, {
@@ -127,7 +127,7 @@ const swapTx = new TransactionBuilder(senderAccount, {
 
 ### Strict Receive (pay YXLM, receive exactly N USDC)
 
-```typescript
+```typescript no-check
 const swapTx = new TransactionBuilder(senderAccount, {
   fee: "100",
   networkPassphrase: NETWORK,
@@ -152,7 +152,7 @@ const swapTx = new TransactionBuilder(senderAccount, {
 
 If you know a specific pool has the best rate, you can supply its asset pair as an intermediate path. The network will route through that pool:
 
-```typescript
+```typescript no-check
 const poolAsset = new Asset(
   "YXLM",
   yxlmIssuer,
@@ -186,7 +186,7 @@ When swapping through a liquidity pool, the effective exchange rate depends on t
 
 Use Horizon's path finding to estimate the expected output before building the transaction:
 
-```typescript
+```typescript no-check
 const paths = await server
   .strictSendPaths()
   .sourceAsset(new Asset("YXLM", yxlmIssuer))
@@ -210,13 +210,13 @@ const minOutput = expectedOutput * (1 - SLIPPAGE_BPS / 10000);
 
 For `pathPaymentStrictSend`, set `destMin` to the minimum output you'll accept:
 
-```typescript
+```typescript no-check
 const destMin = minOutput.toFixed(7); // USDC has 7 decimals
 ```
 
 For `pathPaymentStrictReceive`, set `sendMax` to the maximum input you're willing to spend:
 
-```typescript
+```typescript no-check
 const sendMax = (expectedInput * (1 + SLIPPAGE_BPS / 10000)).toFixed(7);
 ```
 
@@ -233,7 +233,7 @@ const sendMax = (expectedInput * (1 + SLIPPAGE_BPS / 10000)).toFixed(7);
 
 For manual slippage calculations without path finding:
 
-```typescript
+```typescript no-check
 const poolResp = await server
   .liquidityPools()
   .forAssets(
@@ -302,7 +302,7 @@ console.log("Stealth address:", stealth.stealthAddress);
 
 #### Step 2 — Verify sender balances and pool liquidity
 
-```typescript
+```typescript no-check
 import { Horizon, Asset, LiquidityPoolId } from "@stellar/stellar-sdk";
 
 const NETWORK = "Test SDF Network ; September 2015";
@@ -339,10 +339,10 @@ console.log("Pool total shares:", poolResp.records[0].total_shares);
 
 #### Step 3 — Swap YXLM → USDC via the liquidity pool
 
-```typescript
-import { Operation, TransactionBuilder, Asset, SorobanRpc } from "@stellar/stellar-sdk";
+```typescript no-check
+import { Operation, TransactionBuilder, Asset, rpc } from "@stellar/stellar-sdk";
 
-const sorobanServer = new SorobanRpc.Server(deployment.sorobanUrl);
+const sorobanServer = new rpc.Server(deployment.sorobanUrl);
 const account = await sorobanServer.getAccount(senderKeypair.publicKey());
 
 // Query path to estimate output
@@ -387,7 +387,7 @@ console.log("Swap tx hash:", swapResult.hash);
 
 #### Step 4 — Announce the payment
 
-```typescript
+```typescript no-check
 import { Contract, xdr } from "@stellar/stellar-sdk";
 import { bytesToHex } from "@wraith-protocol/sdk/chains/stellar";
 
@@ -432,11 +432,11 @@ const announceTx = new TransactionBuilder(account2, {
   .build();
 
 const simResult = await sorobanServer.simulateTransaction(announceTx);
-if (SorobanRpc.Api.isSimulationError(simResult)) {
+if (rpc.Api.isSimulationError(simResult)) {
   throw new Error(`Simulation failed: ${simResult.error}`);
 }
 
-const assembledTx = SorobanRpc.assembleTransaction(announceTx, simResult).build();
+const assembledTx = rpc.assembleTransaction(announceTx, simResult).build();
 assembledTx.sign(senderKeypair);
 
 const announceResult = await sorobanServer.sendTransaction(assembledTx);
@@ -445,7 +445,7 @@ console.log("Announce tx hash:", announceResult.hash);
 
 #### Step 5 — Recipient scans and detects
 
-```typescript
+```typescript no-check
 import {
   fetchAnnouncements,
   scanAnnouncements,
@@ -483,7 +483,7 @@ The recipient can then withdraw the USDC using `signStellarTransaction` with the
 
 If you want to provide liquidity to a pool and stealth-announce separate from any swap, the `LiquidityPoolDeposit` operation works alongside the announce transaction:
 
-```typescript
+```typescript no-check
 // Transaction 1: Provide liquidity
 const depositTx = new TransactionBuilder(account, {
   fee: "100",

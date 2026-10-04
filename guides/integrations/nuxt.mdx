@@ -13,7 +13,7 @@ npx nuxi module add @wraith-protocol/nuxt
 
 This registers the module in your `nuxt.config.ts`:
 
-```ts
+```ts no-check
 export default defineNuxtConfig({
   modules: ["@wraith-protocol/nuxt"],
   wraith: {
@@ -36,7 +36,7 @@ The module auto-imports three composables. No manual imports needed.
 
 Returns a shared `Wraith` client configured with the API key from `nuxt.config.ts`.
 
-```ts
+```ts no-check
 import { Chain } from "@wraith-protocol/sdk";
 
 const wraith = useWraith();
@@ -53,7 +53,7 @@ const agent = await wraith.createAgent({
 
 Returns the currently active agent, or `null` if no agent has been created yet.
 
-```ts
+```ts no-check
 const agent = useWraithAgent();
 
 if (agent) {
@@ -66,7 +66,7 @@ if (agent) {
 
 Reactive balance state for the active agent. Refreshes on an interval.
 
-```ts
+```ts no-check
 const { balance, refresh } = useWraithBalance();
 
 // balance.value is a Ref<{ native: string; tokens: Record<string, string> }>
@@ -85,11 +85,11 @@ If you import chain-specific crypto modules (`@wraith-protocol/sdk/chains/evm`, 
 Use dynamic imports guarded by `import.meta.client`:
 
 ```ts
-let generateStealthMetaAddress: typeof import("@wraith-protocol/sdk/chains/evm").generateStealthMetaAddress;
+let encodeStealthMetaAddress: typeof import("@wraith-protocol/sdk/chains/evm").encodeStealthMetaAddress;
 
-if (import.meta.client) {
+if (typeof window !== "undefined") {
   const evm = await import("@wraith-protocol/sdk/chains/evm");
-  generateStealthMetaAddress = evm.generateStealthMetaAddress;
+  encodeStealthMetaAddress = evm.encodeStealthMetaAddress;
 }
 ```
 
@@ -112,7 +112,7 @@ For UI components that interact with Wraith, mark them with the `.client.vue` su
 
 The module registers a Nuxt plugin that initializes the `Wraith` client. It defaults to `ssr: false` (client-only). Toggle this in `nuxt.config.ts`:
 
-```ts
+```ts no-check
 export default defineNuxtConfig({
   wraith: {
     apiKey: process.env.NUXT_PUBLIC_WRAITH_API_KEY,
@@ -264,7 +264,7 @@ Full `wraith` options in `nuxt.config.ts`:
 
 Types ship with the module. Add them to your `tsconfig.json`:
 
-```json
+```json no-check
 {
   "compilerOptions": {
     "types": ["@wraith-protocol/nuxt"]

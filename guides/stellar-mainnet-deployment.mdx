@@ -189,7 +189,7 @@ One ledger closes roughly every **5–6 seconds**, so 17,280 ledgers ≈ 24 hour
 
 The Wraith scanner tracks `lastProcessedLedger` and resumes from that checkpoint. If the scanner is **offline for more than ~24 hours**, it may miss announcements that have aged out of the RPC retention window.
 
-```typescript
+```typescript no-check
 // The Stellar connector tracks ledger position
 const events = await sorobanServer.getEvents({
   startLedger: lastProcessedLedger,

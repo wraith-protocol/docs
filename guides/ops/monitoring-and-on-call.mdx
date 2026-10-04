@@ -99,7 +99,7 @@ Monitor on-chain contract health and error rates:
 
 **Collection**: Parse Soroban contract events and transaction results. Example:
 
-```javascript
+```javascript no-check
 const contractErrors = new promClient.Counter({
   name: 'wraith_contract_error_rate',
   help: 'Contract invocation errors',

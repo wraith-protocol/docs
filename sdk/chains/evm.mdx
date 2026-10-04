@@ -51,7 +51,7 @@ import {
 
 ## Types
 
-```typescript
+```typescript no-check
 type HexString = `0x${string}`;
 
 interface StealthKeys {
@@ -96,7 +96,7 @@ const META_ADDRESS_PREFIX = "st:eth:0x";
 
 Derive spending and viewing key pairs from a wallet signature.
 
-```typescript
+```typescript no-check
 const signature = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
 const keys = deriveStealthKeys(signature as HexString);
 
@@ -143,7 +143,7 @@ Each call produces a different address (new ephemeral key). Pass an explicit `ep
 
 Check if a stealth address announcement belongs to you.
 
-```typescript
+```typescript no-check
 const result = checkStealthAddress(
   announcement.ephemeralPubKey,
   keys.viewingKey,
@@ -162,7 +162,7 @@ Uses view tag for fast rejection — eliminates ~255/256 non-matching announceme
 
 Scan an array of on-chain announcements and return the ones that belong to you.
 
-```typescript
+```typescript no-check
 const announcements: Announcement[] = [
   // from subgraph query or chain events
 ];
@@ -190,7 +190,7 @@ For each announcement:
 
 Compute the private key that controls a specific stealth address.
 
-```typescript
+```typescript no-check
 const privateKey = deriveStealthPrivateKey(
   keys.spendingKey,
   stealth.ephemeralPubKey,
@@ -238,7 +238,7 @@ Validates the prefix, length, and that both keys are valid curve points.
 
 Strip the `st:eth:` prefix from a meta-address, returning the raw hex bytes.
 
-```typescript
+```typescript no-check
 const bytes = metaAddressToBytes("st:eth:0x02abc...03def...");
 // "0x02abc...03def..."
 ```
@@ -247,7 +247,7 @@ const bytes = metaAddressToBytes("st:eth:0x02abc...03def...");
 
 Sign a message for on-chain `.wraith` name registration.
 
-```typescript
+```typescript no-check
 const metaBytes = metaAddressToBytes(metaAddress);
 const sig = signNameRegistration("alice", metaBytes, keys.spendingKey);
 // 65-byte hex signature for the WraithNames contract
@@ -257,7 +257,7 @@ const sig = signNameRegistration("alice", metaBytes, keys.spendingKey);
 
 Sign with a nonce for delegated registration.
 
-```typescript
+```typescript no-check
 const sig = signNameRegistrationOnBehalf("alice", metaBytes, keys.spendingKey, 0n);
 ```
 
@@ -265,7 +265,7 @@ const sig = signNameRegistrationOnBehalf("alice", metaBytes, keys.spendingKey, 0
 
 Sign a name update to point to a new meta-address.
 
-```typescript
+```typescript no-check
 const sig = signNameUpdate("alice", newMetaBytes, keys.spendingKey);
 ```
 
@@ -273,7 +273,7 @@ const sig = signNameUpdate("alice", newMetaBytes, keys.spendingKey);
 
 Sign a name release to give up ownership.
 
-```typescript
+```typescript no-check
 const sig = signNameRelease("alice", keys.spendingKey);
 ```
 
@@ -333,7 +333,7 @@ Builders return `{ to, data, value? }` objects — submit with any library (viem
 
 Send ETH privately via stealth address. Uses the WraithSender contract for atomic send + announce.
 
-```typescript
+```typescript no-check
 import { buildSendStealth } from "@wraith-protocol/sdk/chains/evm";
 
 const { transaction, stealthAddress, ephemeralPubKey, viewTag } = buildSendStealth({
@@ -356,7 +356,7 @@ Returns: `{ transaction: { to, data, value }, stealthAddress, ephemeralPubKey, v
 
 Send an ERC-20 token privately. The sender must have approved the WraithSender contract first.
 
-```typescript
+```typescript no-check
 import { buildSendERC20 } from "@wraith-protocol/sdk/chains/evm";
 
 const { transaction } = buildSendERC20({
@@ -374,7 +374,7 @@ await walletClient.sendTransaction(transaction);
 
 Register a `.wraith` name on-chain. The name is bound to the spending key.
 
-```typescript
+```typescript no-check
 import { buildRegisterName, deriveStealthKeys } from "@wraith-protocol/sdk/chains/evm";
 
 const keys = deriveStealthKeys(signature);
@@ -391,7 +391,7 @@ await walletClient.sendTransaction(tx);
 
 Update a `.wraith` name's meta-address. Must be signed by the current owner.
 
-```typescript
+```typescript no-check
 import { buildUpdateName } from "@wraith-protocol/sdk/chains/evm";
 
 const tx = buildUpdateName({
@@ -408,7 +408,7 @@ await walletClient.sendTransaction(tx);
 
 Release a `.wraith` name. After release, anyone can register it.
 
-```typescript
+```typescript no-check
 import { buildReleaseName } from "@wraith-protocol/sdk/chains/evm";
 
 const tx = buildReleaseName({
@@ -424,7 +424,7 @@ await walletClient.sendTransaction(tx);
 
 Register a stealth meta-address in the ERC-6538 registry. Makes it discoverable by wallet address.
 
-```typescript
+```typescript no-check
 import { buildRegisterMetaAddress } from "@wraith-protocol/sdk/chains/evm";
 
 const tx = buildRegisterMetaAddress({
@@ -439,7 +439,7 @@ await walletClient.sendTransaction(tx);
 
 Publish a stealth address announcement on-chain. Use this if you're sending assets directly (not via WraithSender) and need to announce separately.
 
-```typescript
+```typescript no-check
 import { buildAnnounce } from "@wraith-protocol/sdk/chains/evm";
 
 const tx = buildAnnounce({

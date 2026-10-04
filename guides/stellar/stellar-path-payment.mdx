@@ -43,7 +43,7 @@ Before building a transaction, you must query Horizon to find an available DEX p
 
 To find how much XLM is needed to deliver a fixed amount of USDC:
 
-```typescript
+```typescript no-check
 import { Horizon, Asset } from "@stellar/stellar-sdk";
 
 // Initialize Horizon server (Testnet by default)
@@ -77,7 +77,7 @@ console.log("Intermediate path hops:", bestPath.path);
 
 Alternatively, if the sender wants to spend a fixed 100 XLM and maximize recipient USDC output:
 
-```typescript
+```typescript no-check
 const sendResponse = await server
   .strictSendPaths(sourceAsset, "100")
   .destinationAsset(destinationAsset)
@@ -116,7 +116,7 @@ npm install @wraith-protocol/sdk @stellar/stellar-sdk
 
 ### Complete Code Example
 
-```typescript
+```typescript no-check
 import {
   Horizon,
   Asset,

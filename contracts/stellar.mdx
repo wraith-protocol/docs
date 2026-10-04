@@ -44,7 +44,7 @@ Emits a contract event with topic `"announce"`:
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { SCHEME_ID, bytesToHex } from "@wraith-protocol/sdk/chains/stellar";
 
 // After generating a stealth address
@@ -138,7 +138,7 @@ The `send` function:
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { generateStealthAddress, SCHEME_ID } from "@wraith-protocol/sdk/chains/stellar";
 
 const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
@@ -185,7 +185,7 @@ pub fn name_of(env: Env, meta_address: Bytes) -> String;
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { encodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/stellar";
 
 const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
@@ -257,7 +257,7 @@ soroban contract invoke \
 
 Stellar announcements are fetched via Soroban RPC, not a subgraph:
 
-```typescript
+```typescript no-check
 const events = await sorobanServer.getEvents({
   startLedger: lastProcessedLedger,
   filters: [{

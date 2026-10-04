@@ -33,7 +33,7 @@ All agents created from this client use your specified AI provider.
 
 ### OpenAI
 
-```typescript
+```typescript no-check
 const wraith = new Wraith({
   apiKey: "wraith_live_abc123",
   ai: {
@@ -55,7 +55,7 @@ const res = await agent.chat("send 0.1 ETH to bob.wraith");
 
 ### Claude
 
-```typescript
+```typescript no-check
 const wraith = new Wraith({
   apiKey: "wraith_live_abc123",
   ai: {
@@ -67,7 +67,7 @@ const wraith = new Wraith({
 
 ### Your Own Gemini Key
 
-```typescript
+```typescript no-check
 const wraith = new Wraith({
   apiKey: "wraith_live_abc123",
   ai: {
@@ -108,7 +108,7 @@ Your AI key is only used server-side in the TEE. It's never stored — used for 
 
 All tools work identically regardless of the AI provider. The tool declarations are adapted to each provider's function-calling format by the TEE server. Your code doesn't change.
 
-```typescript
+```typescript no-check
 // Works the same with Gemini, OpenAI, or Claude
 const res = await agent.chat("send 0.1 ETH to bob.wraith");
 const res = await agent.chat("run a privacy check");

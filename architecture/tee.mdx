@@ -27,21 +27,7 @@ The path includes the chain identifier to prevent key collision. The same agent 
 
 ### Implementation
 
-```tsx
-class TeeService {
-  async deriveAgentPrivateKey(agentId: string, chain: string): Promise<Uint8Array> {
-    // DStack derives key from hardware root secret + path
-    const raw = await dstack.getKey(`wraith/agent/${agentId}/${chain}`);
-    return sha256(raw);
-  }
-
-  async deriveAgentKeypair(agentId: string, chain: string) {
-    const connector = this.chainRegistry.get(chain);
-    const seed = await this.deriveAgentPrivateKey(agentId, chain);
-    return connector.deriveKeys(seed);
-  }
-}
-```
+The code path that reads a DStack hardware secret and connects it to Wraith's internal chain services is server implementation detail. The public SDK does not export `TeeService`, `chainRegistry`, or a DStack adapter, so there is no supported client-side code example for this internal operation. Applications should use the documented Wraith client API rather than constructing this internal service themselves.
 
 ### Per-Chain Key Derivation
 
@@ -58,12 +44,16 @@ The chain connector determines how the raw seed becomes usable keys:
 
 Every time an operation needs agent keys (sending a payment, scanning, withdrawing), the keys are re-derived from the TEE root secret. No private key material touches disk.
 
-```typescript no-check
+```typescript
 // Every chat message re-derives keys
-async chat(agentId: string, message: string) {
-  const agent = await this.db.agents.findOneBy({ id: agentId });
-  const stealthKeys = await this.tee.deriveAgentKeypair(agent.id, agent.chain);
-  // Use keys for this operation, then they're garbage collected
+class AgentService {
+  constructor(private db: any, private tee: any) {}
+
+  async chat(agentId: string, message: string) {
+    const agent = await this.db.agents.findOneBy({ id: agentId });
+    const stealthKeys = await this.tee.deriveAgentKeypair(agent.id, agent.chain);
+    // Use keys for this operation, then they're garbage collected
+  }
 }
 ```
 
@@ -71,7 +61,7 @@ async chat(agentId: string, message: string) {
 
 Agent creation requires an EIP-191 signature (EVM) or ed25519 signature (Stellar) from the owner wallet. This proves the creator controls the wallet without revealing any private key.
 
-```typescript
+```typescript no-check
 // Verification flow
 const recoveredAddress = recoverMessageAddress({
   message: body.message,
@@ -86,7 +76,7 @@ if (recoveredAddress !== body.wallet) {
 
 Exporting an agent's private key requires a fresh wallet signature:
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: "wraith_..." });
@@ -103,7 +93,7 @@ The TEE verifies the signature matches the owner wallet before releasing the key
 
 Clients can verify the TEE is running authentic, unmodified code:
 
-```typescript
+```typescript no-check
 // GET /tee/attest/{agentId}
 const attestation = await fetch(`${baseUrl}/tee/attest/${agentId}`);
 // Returns cryptographic proof of code integrity

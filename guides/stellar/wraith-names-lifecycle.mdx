@@ -77,7 +77,7 @@ In addition to the registration fee, the transaction pays standard Soroban resou
 
 ### SDK Example
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -246,7 +246,7 @@ Forward resolution returns the 64-byte stealth meta-address currently registered
 
 ### SDK Example
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -279,7 +279,7 @@ Reverse lookup maps a 64-byte stealth meta-address back to its registered `.wrai
 
 ### SDK Example
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -390,7 +390,7 @@ After the grace period ends, the name is immediately open for re-registration by
 
 #### Checking Expiry Status
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });

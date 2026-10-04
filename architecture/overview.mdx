@@ -72,27 +72,33 @@ The AI can call multiple tools in one response. A cap (10 iterations) prevents i
 
 Each tool call routes to the appropriate chain connector:
 
-```typescript no-check
+```typescript
 import { Chain } from "@wraith-protocol/sdk";
 
 // The agent service resolves the connector automatically
-async executeTool(toolName: string, args: Record<string, unknown>, agent: Agent) {
-  const connector = this.chainRegistry.get(agent.chain);
-  const stealthKeys = await this.tee.deriveStealthKeys(agent.id, agent.chain);
+type Agent = { id: string; chain: Chain; address: string };
 
-  switch (toolName) {
-    case "send_payment":
-      return connector.sendPayment({
-        senderAddress: agent.address,
-        senderStealthKeys: stealthKeys,
-        recipientMetaAddress: args.recipient as string,
-        amount: args.amount as string,
-      });
-    case "scan_payments":
-      return connector.scanPayments(stealthKeys);
-    case "get_balance":
-      return connector.getBalance(agent.address);
-    // ... 13 more tools
+class AgentService {
+  constructor(private chainRegistry: any, private tee: any) {}
+
+  async executeTool(toolName: string, args: Record<string, unknown>, agent: Agent) {
+    const connector = this.chainRegistry.get(agent.chain);
+    const stealthKeys = await this.tee.deriveStealthKeys(agent.id, agent.chain);
+
+    switch (toolName) {
+      case "send_payment":
+        return connector.sendPayment({
+          senderAddress: agent.address,
+          senderStealthKeys: stealthKeys,
+          recipientMetaAddress: args.recipient as string,
+          amount: args.amount as string,
+        });
+      case "scan_payments":
+        return connector.scanPayments(stealthKeys);
+      case "get_balance":
+        return connector.getBalance(agent.address);
+      // ... 13 more tools
+    }
   }
 }
 ```
@@ -191,7 +197,7 @@ Wraith operates as a managed service, similar to Privy or Turnkey.
 | Default | Wraith's hosted Gemini model (included in API usage) |
 | Bring Your Own | Pass your own OpenAI/Claude/Gemini API key |
 
-```typescript
+```typescript no-check
 import { Wraith } from "@wraith-protocol/sdk";
 
 // Default — uses Wraith's Gemini
