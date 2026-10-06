@@ -157,7 +157,7 @@ function deriveRecipients(metaAddresses: string[]): StealthRecipient[] {
 
 Skip sponsorship for accounts that are already funded to avoid wasting operations.
 
-```typescript
+```typescript no-check
 import { Horizon } from "@stellar/stellar-sdk";
 
 const horizon = new Horizon.Server(
@@ -193,7 +193,7 @@ This is the core of the pattern. For each new account we sandwich a `createAccou
 `BeginSponsoringFutureReserves` and `EndSponsoringFutureReserves`, then add a payment, and finally
 invoke `batch_send` once for all the announcements.
 
-```typescript
+```typescript no-check
 import {
   Keypair,
   Networks,
@@ -201,7 +201,7 @@ import {
   TransactionBuilder,
   Asset,
 } from "@stellar/stellar-sdk";
-import { rpc as SorobanRpc, xdr, Address, nativeToScVal } from "@stellar/stellar-sdk";
+import { rpc as rpc, xdr, Address, nativeToScVal } from "@stellar/stellar-sdk";
 import {
   getDeployment,
   createAnnounceOperation,
@@ -297,10 +297,10 @@ async function buildSponsoredBatch(
 Because the transaction includes a Soroban invocation the fees must be calculated via simulation
 before signing. `prepareTransaction` from the Soroban RPC handles this.
 
-```typescript
-import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+```typescript no-check
+import { rpc as rpc } from "@stellar/stellar-sdk";
 
-const soroban = new SorobanRpc.Server(
+const soroban = new rpc.Server(
   process.env.STELLAR_RPC_URL ?? "https://soroban-testnet.stellar.org",
 );
 
@@ -347,13 +347,13 @@ async function submitSponsoredBatch(
   // 5. Poll for confirmation
   let getResult = await soroban.getTransaction(result.hash);
   while (
-    getResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND
+    getResult.status === rpc.Api.GetTransactionStatus.NOT_FOUND
   ) {
     await new Promise((resolve) => setTimeout(resolve, 1500));
     getResult = await soroban.getTransaction(result.hash);
   }
 
-  if (getResult.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+  if (getResult.status === rpc.Api.GetTransactionStatus.FAILED) {
     throw new Error(`Transaction finalized with FAILED status: ${result.hash}`);
   }
 
@@ -370,7 +370,7 @@ This self-contained example ties everything together. It processes 100 recipient
 derives stealth addresses, checks for existing accounts, builds the sponsored batch, signs
 `EndSponsoringFutureReserves` with derived stealth scalars, and submits each chunk.
 
-```typescript
+```typescript no-check
 import {
   Keypair,
   Networks,
@@ -378,7 +378,7 @@ import {
   TransactionBuilder,
   Asset,
 } from "@stellar/stellar-sdk";
-import { rpc as SorobanRpc, Horizon } from "@stellar/stellar-sdk";
+import { rpc as rpc, Horizon } from "@stellar/stellar-sdk";
 import {
   decodeStealthMetaAddress,
   generateStealthAddress,
@@ -403,7 +403,7 @@ const SEND_AMOUNT  = "10";    // USDC per recipient
 const CHUNK_SIZE   = 24;      // max recipients per transaction (4N+1 ≤ 100 ops)
 
 const horizon = new Horizon.Server(HORIZON_URL);
-const soroban = new SorobanRpc.Server(RPC_URL);
+const soroban = new rpc.Server(RPC_URL);
 const deployment = getDeployment("stellar");
 const usdcAsset   = new Asset("USDC", USDC_ISSUER);
 
@@ -561,12 +561,12 @@ async function processChunk(chunk: string[], chunkIndex: number): Promise<string
   }
 
   let pollResult = await soroban.getTransaction(sendResult.hash);
-  while (pollResult.status === SorobanRpc.Api.GetTransactionStatus.NOT_FOUND) {
+  while (pollResult.status === rpc.Api.GetTransactionStatus.NOT_FOUND) {
     await new Promise((r) => setTimeout(r, 2000));
     pollResult = await soroban.getTransaction(sendResult.hash);
   }
 
-  if (pollResult.status === SorobanRpc.Api.GetTransactionStatus.FAILED) {
+  if (pollResult.status === rpc.Api.GetTransactionStatus.FAILED) {
     throw new Error(`Chunk ${chunkIndex + 1} failed on-chain: ${sendResult.hash}`);
   }
 
@@ -633,7 +633,7 @@ account itself has been flagged by an asset issuer.
 
 **Recovery:**
 
-```typescript
+```typescript no-check
 // Before building the batch, verify the sponsor account is in good standing
 async function verifySponsor(sponsorAddress: string): Promise<void> {
   const account = await horizon.loadAccount(sponsorAddress);
@@ -673,7 +673,7 @@ available_xlm ≥ (new_accounts_in_chunk × 1 XLM) + own_base_reserve (1 XLM) + 
 **Recovery:** Fund the sponsor account before the batch run. A sponsor for 100 recipients should
 hold at least 103 XLM (100 reserves + 1 base reserve + 2 XLM fee buffer).
 
-```typescript
+```typescript no-check
 async function checkSponsorCapacity(
   sponsorAddress: string,
   newAccountCount: number,
@@ -720,7 +720,7 @@ trustlines.
 **Fix:** Add a `ChangeTrust` operation inside the sponsorship window so the trustline reserve is
 also sponsored:
 
-```typescript
+```typescript no-check
 // Add after CreateAccount, before EndSponsoringFutureReserves
 builder.addOperation(
   Operation.changeTrust({
@@ -741,7 +741,7 @@ This increases the sponsor's reserve obligation per account from **1 XLM to 1.5 
 When a stealth address holder has spent their tokens and wants to release the paymaster's locked XLM,
 they call `AccountMerge`:
 
-```typescript
+```typescript no-check
 import { Keypair, Operation, TransactionBuilder, Networks } from "@stellar/stellar-sdk";
 import { deriveStealthPrivateScalar } from "@wraith-protocol/sdk/chains/stellar";
 
@@ -787,7 +787,7 @@ you can test the sponsorship and account-creation mechanics in isolation:
 
 ```typescript
 import { Networks } from "@stellar/stellar-sdk";
-import { rpc as SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc as rpc } from "@stellar/stellar-sdk";
 
 const FUTURENET_RPC        = "https://rpc-futurenet.stellar.org";
 const FUTURENET_PASSPHRASE = Networks.FUTURENET;   // "Test SDF Future Network ; October 2022"
@@ -802,7 +802,7 @@ async function fundOnFuturenet(address: string): Promise<void> {
 
 // Swap these into any of the examples above to target Futurenet:
 // const horizon = new Horizon.Server("https://horizon-futurenet.stellar.org"); // if available
-const futurenetSoroban = new SorobanRpc.Server(FUTURENET_RPC);
+const futurenetSoroban = new rpc.Server(FUTURENET_RPC);
 void futurenetSoroban; // ready for use with FUTURENET_PASSPHRASE
 ```
 

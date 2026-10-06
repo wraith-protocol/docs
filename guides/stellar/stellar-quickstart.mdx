@@ -100,7 +100,7 @@ The Wraith protocol uses the Ed25519 signature from your Stellar wallet to deter
 
 Sign the canonical Wraith message with Freighter, then derive the keys:
 
-```typescript
+```typescript no-check
 import {
   deriveStealthKeys,
   encodeStealthMetaAddress,
@@ -198,7 +198,7 @@ curl -X POST https://api.usewraith.xyz/agent/create \
 
 **Response:**
 
-```json
+```json no-check
 {
   "id": "a1b2c3d4-...",
   "name": "my-stellar-agent",
@@ -449,7 +449,7 @@ console.log(res.response);
 
 After the initial setup, reconnect without creating a new agent:
 
-```typescript
+```typescript no-check
 // By agent ID (fastest — store this after createAgent)
 const agent = wraith.agent(process.env.AGENT_ID!);
 

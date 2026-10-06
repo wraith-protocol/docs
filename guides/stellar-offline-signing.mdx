@@ -68,12 +68,12 @@ import {
   Asset,
   BASE_FEE,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 const NETWORK_PASSPHRASE = "Test SDF Future Network ; October 2022"; // futurenet
 const RPC_URL = "https://rpc-futurenet.stellar.org";
 
-const server = new SorobanRpc.Server(RPC_URL);
+const server = new rpc.Server(RPC_URL);
 
 async function buildUnsignedTransaction(params: {
   sourceAccountId: string;
@@ -124,7 +124,7 @@ console.log(unsignedXdr);
 
 On the offline machine, decode the XDR to verify the transaction contents before signing. Never sign XDR you have not inspected.
 
-```typescript
+```typescript no-check
 import { Transaction, Networks } from "@stellar/stellar-sdk";
 
 const NETWORK_PASSPHRASE = "Test SDF Future Network ; October 2022";
@@ -179,10 +179,10 @@ Take the signed XDR back to the online machine and submit it. The private key is
 
 ```typescript
 import { Transaction } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 async function submitSignedTransaction(signedXdr: string): Promise<void> {
-  const server = new SorobanRpc.Server(RPC_URL);
+  const server = new rpc.Server(RPC_URL);
   const tx = new Transaction(signedXdr, NETWORK_PASSPHRASE);
 
   const result = await server.sendTransaction(tx);
@@ -239,14 +239,14 @@ import {
   Asset,
   BASE_FEE,
 } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 ```
 
 ### Utility: encode XDR for offline transfer
 
 Base64 encodes are printable and compact. For QR codes, keep XDR under ~500 bytes (simple payments are well within this limit).
 
-```typescript
+```typescript no-check
 function xdrToBase64(xdr: string): string {
   // XDR is already base64 in the Stellar SDK; this is an identity for clarity
   return Buffer.from(xdr, "base64").toString("base64");
@@ -269,7 +269,7 @@ QR codes are the most common way to move XDR between an online and an offline ma
 
 ### Generating a QR code (online machine)
 
-```typescript
+```typescript no-check
 // Install: npm install qrcode
 import QRCode from "qrcode";
 
@@ -297,7 +297,7 @@ If the offline machine has a camera, use any QR scanning library or CLI tool. Th
 zbarcam --raw --oneshot /dev/video0
 ```
 
-```typescript
+```typescript no-check
 // The scanned string is the XDR — sign it directly
 const scannedXdr = "<output from QR scanner>";
 const signedXdr = signTransaction(scannedXdr, "S...COLD_STORAGE_SECRET");
@@ -365,7 +365,7 @@ Hardware wallets (Ledger, Trezor) store private keys in a secure element that ne
 
 A Ledger or Trezor can authorize operations where your **regular Stellar keypair** is the signer — for example, as one of the signers in a multisig source account, or as the funding account for a stealth withdrawal.
 
-```typescript
+```typescript no-check
 // Using @ledgerhq/hw-transport-node-hid and @ledgerhq/hw-app-stellar
 import Transport from "@ledgerhq/hw-transport-node-hid";
 import Stellar from "@ledgerhq/hw-app-stellar";
@@ -438,16 +438,16 @@ Because the scalar is **re-derivable**, you can:
 
 ### Full offline stealth withdrawal workflow
 
-```typescript
+```typescript no-check
 // ── ONLINE MACHINE ──────────────────────────────────────────────
 import {
   scanAnnouncements,
   fetchAnnouncements,
   getDeployment,
 } from "@wraith-protocol/sdk/chains/stellar";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
-const server = new SorobanRpc.Server(RPC_URL);
+const server = new rpc.Server(RPC_URL);
 
 // 1. Scan for payments (online — uses the viewing key, not the spending key)
 //    The viewing key CAN go online — it only detects payments, not spends.

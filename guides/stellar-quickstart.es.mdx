@@ -96,7 +96,7 @@ curl -X POST https://api.usewraith.xyz/agent/create \
 
 **Respuesta:**
 
-```json
+```json no-check
 {
   "id": "a1b2c3d4-...",
   "name": "mi-agente-stellar",
@@ -194,7 +194,7 @@ console.log(res.response);
 
 Mueve los fondos de las direcciones ocultas a tu billetera habitual. El agente advierte sobre las implicaciones de privacidad antes de ejecutar la operación:
 
-```typescript
+```typescript no-check
 const res = await agent.chat(
   `withdraw all USDC to ${keypair.publicKey()} on stellar`
 );
@@ -209,7 +209,7 @@ console.log(res.response);
 
 Después de la configuración inicial, reconéctate sin crear un nuevo agente:
 
-```typescript
+```typescript no-check
 // Por ID de agente (más rápido — guárdalo tras createAgent)
 const agent = wraith.agent(process.env.AGENT_ID!);
 

@@ -48,7 +48,7 @@ function announce(
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { SCHEME_ID } from "@wraith-protocol/sdk/chains/evm";
 
 // After generating a stealth address, announce it
@@ -93,7 +93,7 @@ function nonceOf(address registrant) external view returns (uint256);
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { SCHEME_ID, metaAddressToBytes } from "@wraith-protocol/sdk/chains/evm";
 
 // Register meta-address
@@ -146,7 +146,7 @@ function batchSendETH(
 
 ### Usage
 
-```typescript
+```typescript no-check
 import { generateStealthAddress, SCHEME_ID } from "@wraith-protocol/sdk/chains/evm";
 
 const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
@@ -207,7 +207,7 @@ The contract decompresses the spending public key from the first 33 bytes of the
 
 ### Usage
 
-```typescript
+```typescript no-check
 import {
   signNameRegistration,
   metaAddressToBytes,

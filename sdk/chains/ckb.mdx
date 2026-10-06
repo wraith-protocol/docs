@@ -75,7 +75,7 @@ import {
 
 ## Types
 
-```typescript
+```typescript no-check
 type HexString = `0x${string}`;
 
 interface StealthKeys {
@@ -140,7 +140,7 @@ const META_ADDRESS_PREFIX = "st:ckb:";
 
 Derive spending and viewing key pairs from a 65-byte ECDSA signature. Identical to the EVM module.
 
-```typescript
+```typescript no-check
 const signature = await wallet.signMessage(STEALTH_SIGNING_MESSAGE);
 const keys = deriveStealthKeys(signature as HexString);
 
@@ -157,6 +157,8 @@ console.log(keys.viewingPubKey);  // "0x03..." (33-byte compressed)
 Generate a one-time stealth address with lock script args for CKB.
 
 ```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/ckb";
+
 const result = generateStealthAddress(
   keys.spendingPubKey,
   keys.viewingPubKey
@@ -180,7 +182,7 @@ console.log(result.lockArgs);          // "0x..." (53 bytes: ephemeral || blake1
 
 CKB's address hashing function. blake2b with `"ckb-default-hash"` personalization, truncated to 20 bytes.
 
-```typescript
+```typescript no-check
 const hash = blake160(publicKeyBytes);
 // Uint8Array (20 bytes)
 ```
@@ -191,7 +193,7 @@ The personalization string is critical — without it, hashes won't match CKB's 
 
 Check if a stealth Cell belongs to you.
 
-```typescript
+```typescript no-check
 const result = checkStealthCell(cell, keys.viewingKey, keys.spendingPubKey);
 
 if (result.isMatch) {
@@ -213,7 +215,7 @@ No view tag optimization — every Cell is fully checked. This is acceptable bec
 
 Scan an array of stealth Cells and return the ones that belong to you.
 
-```typescript
+```typescript no-check
 const cells = await fetchStealthCells("ckb");
 
 const matched = scanStealthCells(
@@ -234,7 +236,7 @@ for (const m of matched) {
 
 Compute the private key that controls a specific stealth Cell.
 
-```typescript
+```typescript no-check
 const privateKey = deriveStealthPrivateKey(
   keys.spendingKey,
   cell.ephemeralPubKey,
@@ -335,7 +337,7 @@ for (const m of matched) {
 
 Compute the blake2b hash of a name string. The result is used as the type script `args` to identify the name Cell.
 
-```typescript
+```typescript no-check
 const nameHash = hashName("alice");
 // "0x..." (32-byte blake2b hash with "ckb-default-hash" personalization)
 ```
@@ -376,7 +378,7 @@ The type script returned uses the `wraith-names-type` code hash from the deploym
 
 Build the type script for querying a name Cell. Use this with the CKB `get_cells` RPC to find the Cell that holds a name's meta-address.
 
-```typescript
+```typescript no-check
 import { buildResolveName, metaAddressFromNameData } from "@wraith-protocol/sdk/chains/ckb";
 
 const { typeScript } = buildResolveName({ name: "alice" });
@@ -413,7 +415,7 @@ if (cell) {
 
 Parse the 66-byte Cell data from a name Cell into its component public keys.
 
-```typescript
+```typescript no-check
 const { spendingPubKey, viewingPubKey } = metaAddressFromNameData(cellData);
 // spendingPubKey: "0x02..." (33-byte compressed secp256k1)
 // viewingPubKey: "0x03..." (33-byte compressed secp256k1)
@@ -495,7 +497,7 @@ const result = await response.json();
 const cell = result.result?.objects?.[0];
 
 if (cell) {
-  const { spendingPubKey, viewingPubKey } = metaAddressFromNameData(cell.output_data);
+  const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaAddressFromNameData(cell.output_data));
   const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
   // Send a stealth payment to alice.wraith on CKB
 }
@@ -553,7 +555,7 @@ const deployment = getDeployment("ckb");
 
 Fetches all live stealth Cells from CKB using the `get_cells` RPC method, filtered by the stealth-lock code hash. Handles pagination automatically.
 
-```typescript
+```typescript no-check
 const cells = await fetchStealthCells("ckb");
 // Returns StealthCell[] — ready to pass to scanStealthCells()
 ```

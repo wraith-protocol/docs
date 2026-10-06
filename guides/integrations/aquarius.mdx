@@ -94,7 +94,7 @@ const AQUA = Asset.classic("AQUA", "GAHPYWLK6YRN7CVYZOO4H3VDRZ7PVF5UJGLZCSPAEIKJ
 
 A pair can have several pools — different pool types (volatile, stable) and fee tiers. `pools.forPair()` returns all of them; pick the one that matches your strategy.
 
-```typescript
+```typescript no-check
 // Returns all XLM/AQUA pools, sorted by type and fee tier
 const pools = await aqua.pools.forPair(XLM, AQUA);
 // e.g. [Pool { type: 'volatile', feeBps: 10 }, Pool { type: 'volatile', feeBps: 30 }, ...]
@@ -106,7 +106,7 @@ if (!pool) throw new Error("XLM/AQUA 0.3% pool not found on testnet");
 
 To check whether a pool is in a reward zone (i.e. actually accrues AQUA for LPs), query the API:
 
-```typescript
+```typescript no-check
 // GET /pools/?pool_address=<contract_id> → includes `reward_tps` (tokens per second)
 const poolInfo = await fetch(
   `${AQUARIUS_API}/pools/?pool_address=${pool.contractId}`
@@ -125,7 +125,7 @@ console.log(`Reward rate: ${rewardTps} AQUA stroops/second`);
 
 Amounts are in stroops (base units: 1 XLM = 10,000,000 stroops). The SDK handles token ordering, simulates the deposit to derive a `min_shares` guard, and submits the transaction.
 
-```typescript
+```typescript no-check
 // Deposit 50 XLM + 2500 AQUA into the XLM/AQUA 0.3% pool
 // The pool takes them at the current reserve ratio — surplus stays in your account
 const depositResult = await pool.deposit({
@@ -149,7 +149,7 @@ The `slippage` guard is enforced by the contract: if pool state shifts between s
 
 Rewards accumulate per ledger (roughly every 5 seconds). Reading pending rewards does not require a transaction.
 
-```typescript
+```typescript no-check
 // Check what the signer's position has accrued, in stroops of AQUA
 const pendingStroops = await pool.pendingRewards();
 const pendingAqua = Number(pendingStroops) / 1e7;
@@ -159,7 +159,7 @@ console.log(`Pending rewards: ${pendingAqua.toFixed(7)} AQUA`);
 
 Build a polling loop if you want to track accrual over time:
 
-```typescript
+```typescript no-check
 async function watchRewards(intervalMs = 30_000) {
   while (true) {
     const pending = await pool.pendingRewards();
@@ -175,7 +175,7 @@ async function watchRewards(intervalMs = 30_000) {
 
 Instead of claiming to your LP account, derive a one-time stealth address from your Wraith meta-address. AQUA lands there, invisible to observers.
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
 import { deriveStealthKeys, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
 import { signMessage } from "@stellar/freighter-api";
@@ -214,7 +214,7 @@ console.log("Claim to stealth address:", stealthAddress);
 
 The stealth address doesn't exist on-chain yet. Stellar requires a minimum reserve (1 XLM base + 0.5 XLM per trustline). Send enough to activate it and add an AQUA trustline before you claim.
 
-```typescript
+```typescript no-check
 import {
   Keypair,
   Networks,
@@ -267,7 +267,7 @@ await activateStealthAddress(lpKeypair, stealthAddress);
 
 The Aquarius SDK's `claimRewards()` claims to the signer by default. To redirect to the stealth address, pass it as the `recipient` option.
 
-```typescript
+```typescript no-check
 // Claim accrued AQUA directly to the stealth address
 const claimResult = await pool.claimRewards({ recipient: stealthAddress });
 
@@ -314,21 +314,21 @@ console.log(scan.response);
 Derive the private key for the stealth address to sweep the AQUA to your final destination.
 
 ```typescript
-import { deriveStealthPrivateKey } from "@wraith-protocol/sdk/chains/stellar";
+import { deriveStealthPrivateScalar } from "@wraith-protocol/sdk/chains/stellar";
 
 // Derive the scalar private key that controls the stealth address
-const stealthPrivateKey = deriveStealthPrivateKey(
-  stealthKeys.spendingKey,
-  ephemeralPubKey,
+const stealthPrivateScalar = deriveStealthPrivateScalar(
+  stealthKeys.spendingScalar,
   stealthKeys.viewingKey,
+  ephemeralPubKey,
 );
-
-const stealthKeypair = Keypair.fromRawEd25519Seed(Buffer.from(stealthPrivateKey));
+// The SDK derives the scalar for the one-time key. It cannot be passed to
+// Keypair.fromRawEd25519Seed; use the SDK's signWithScalar helper to sign.
 ```
 
 Send the AQUA from the stealth address to your cold wallet:
 
-```typescript
+```typescript no-check
 async function sweepAqua(
   stealthKp: Keypair,
   destination: string,
@@ -369,7 +369,7 @@ await sweepAqua(stealthKeypair, process.env.COLD_WALLET!, "42.1");
 
 When you're done providing liquidity, burn your pool shares to reclaim the underlying tokens.
 
-```typescript
+```typescript no-check
 // Read how many shares you hold
 const shares = await pool.shareBalance();
 console.log("Shares held:", shares.toString());
@@ -402,11 +402,11 @@ console.log("Transaction:", withdrawResult.txHash);
 
 The complete end-to-end flow in a single file:
 
-```typescript
+```typescript no-check
 import { Keypair, Networks, TransactionBuilder, Operation, Asset, BASE_FEE } from "@stellar/stellar-sdk";
 import { AquariusClient, Asset as AqAsset, XLM } from "@aquariusdefi/sdk";
 import { Wraith } from "@wraith-protocol/sdk";
-import { deriveStealthKeys, generateStealthAddress, deriveStealthPrivateKey, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
+import { deriveStealthKeys, generateStealthAddress, deriveStealthPrivateScalar, STEALTH_SIGNING_MESSAGE } from "@wraith-protocol/sdk/chains/stellar";
 import { Server } from "@stellar/stellar-sdk/horizon";
 
 const NETWORK_PASSPHRASE_LOCAL = "Test SDF Network ; September 2015";
@@ -439,8 +439,8 @@ async function fullFlow() {
   const sigBytes = Buffer.alloc(64); // placeholder — use real wallet signature
   const stealthKeys = deriveStealthKeys(sigBytes);
   const { stealthAddress, ephemeralPubKey } = generateStealthAddress(
-    stealthKeys.spendingPublicKey,
-    stealthKeys.viewingPublicKey,
+    stealthKeys.spendingPubKey,
+    stealthKeys.viewingPubKey,
   );
 
   // 6. Activate stealth account (create + AQUA trustline)

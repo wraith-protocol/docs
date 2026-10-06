@@ -40,7 +40,7 @@ Here is a complete example of the integration running on Stellar Futurenet:
 
 ```typescript
 import { FxdaoClient } from '@fxdao/sdk';
-import { StealthClient } from '@wraith-protocol/sdk';
+import { decodeStealthMetaAddress, generateStealthAddress } from '@wraith-protocol/sdk/chains/stellar';
 
 async function borrowAndRoute(
   collateralAmount: string, 
@@ -49,10 +49,13 @@ async function borrowAndRoute(
 ) {
   // Initialize clients for Futurenet
   const fxdao = new FxdaoClient({ network: 'futurenet' });
-  const stealth = new StealthClient({ network: 'futurenet' });
+  const recipientKeys = decodeStealthMetaAddress(stealthMetaAddress);
 
   // 1. Generate stealth address for the destination
-  const { stealthAddress } = await stealth.generateAddress(stealthMetaAddress);
+  const { stealthAddress } = generateStealthAddress(
+    recipientKeys.spendingPubKey,
+    recipientKeys.viewingPubKey,
+  );
 
   // 2. Open vault and mint USDx
   // Note: In a real-world scenario, this should be an atomic transaction

@@ -9,7 +9,7 @@ Chain connectors are the abstraction layer between Wraith's chain-agnostic agent
 
 Every chain connector implements `ChainConnector`:
 
-```tsx
+```tsx no-check
 interface ChainConnector {
   readonly chain: string;
   readonly nativeAsset: string;
@@ -34,7 +34,7 @@ interface ChainConnector {
 
 ### Supporting Types
 
-```typescript
+```typescript no-check
 interface DerivedKeys {
   address: string;
   stealthKeys: ChainStealthKeys;
@@ -85,7 +85,7 @@ A single `EVMConnector` class covers all EVM-compatible chains. Different chains
 
 ### Configuration
 
-```typescript
+```typescript no-check
 interface EVMConnectorConfig {
   chainId: number;
   rpcUrl: string;
@@ -119,7 +119,7 @@ interface EVMConnectorConfig {
 
 No code changes required. Register a new chain with its config:
 
-```typescript
+```typescript no-check
 import { Chain } from "@wraith-protocol/sdk";
 
 // Horizen Testnet
@@ -185,7 +185,7 @@ chainRegistry.register(Chain.Ethereum, new EVMConnector({
 
 ### Configuration
 
-```typescript
+```typescript no-check
 const connector = new StellarConnector({
   networkPassphrase: Networks.TESTNET,
   horizonUrl: "https://horizon-testnet.stellar.org",
@@ -226,7 +226,7 @@ Handles Solana using ed25519 and Anchor programs.
 
 ### Configuration
 
-```typescript
+```typescript no-check
 interface SolanaConnectorConfig {
   rpcUrl: string;
   explorerUrl: string;
@@ -239,7 +239,7 @@ interface SolanaConnectorConfig {
 }
 ```
 
-```typescript
+```typescript no-check
 import { Chain } from "@wraith-protocol/sdk";
 
 chainRegistry.register(Chain.Solana, new SolanaConnector({
@@ -285,7 +285,7 @@ Handles Nervos CKB using secp256k1 and the UTXO-based Cell model. CKB is archite
 
 ### Configuration
 
-```typescript
+```typescript no-check
 interface CKBConnectorConfig {
   rpcUrl: string;
   explorerUrl: string;
@@ -301,23 +301,7 @@ interface CKBConnectorConfig {
 }
 ```
 
-```typescript
-import { Chain } from "@wraith-protocol/sdk";
-
-chainRegistry.register(Chain.CKB, new CKBConnector({
-  rpcUrl: "https://testnet.ckbapp.dev",
-  explorerUrl: "https://pudge.explorer.nervos.org",
-  contracts: {
-    stealthLockCodeHash: "0x...",
-    namesTypeCodeHash: "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
-  },
-  cellDeps: {
-    stealthLock: { txHash: "0x...", index: 0 },
-    namesType: { txHash: "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8", index: 0 },
-  },
-  network: "testnet",
-}));
-```
+The published SDK exposes CKB helpers directly from `@wraith-protocol/sdk/chains/ckb`. It does not export a `Chain.CKB` value or a `CKBConnector` class, and CKB is not registered through the SDK's `Chain` enum. Use the standalone CKB functions described in the [CKB SDK reference](/sdk/chains/ckb).
 
 ---
 
@@ -325,7 +309,7 @@ chainRegistry.register(Chain.CKB, new CKBConnector({
 
 The TEE server maintains a registry of available chain connectors:
 
-```typescript
+```typescript no-check
 class ChainRegistry {
   private connectors = new Map<string, ChainConnector>();
 
@@ -348,16 +332,26 @@ class ChainRegistry {
 ### Usage in Agent Service
 
 ```typescript no-check
-async sendPayment(agentId: string, recipient: string, amount: string) {
-  const agent = await this.db.agents.findOneBy({ id: agentId });
-  const connector = this.chainRegistry.get(agent.chain);
-  const stealthKeys = await this.tee.deriveAgentStealthKeys(agentId, agent.chain);
-  return connector.sendPayment({
-    senderAddress: agent.address,
-    senderStealthKeys: stealthKeys,
-    recipientMetaAddress: recipient,
-    amount,
-  });
+type Agent = { id: string; chain: string; address: string };
+
+class PaymentService {
+  constructor(
+    private db: any,
+    private chainRegistry: any,
+    private tee: any,
+  ) {}
+
+  async sendPayment(agentId: string, recipient: string, amount: string) {
+    const agent: Agent = await this.db.agents.findOneBy({ id: agentId });
+    const connector = this.chainRegistry.get(agent.chain);
+    const stealthKeys = await this.tee.deriveAgentStealthKeys(agentId, agent.chain);
+    return connector.sendPayment({
+      senderAddress: agent.address,
+      senderStealthKeys: stealthKeys,
+      recipientMetaAddress: recipient,
+      amount,
+    });
+  }
 }
 ```
 

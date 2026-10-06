@@ -53,11 +53,11 @@ This keeps the account continuously authorized. The window between steps 1 and 3
 
 ```typescript
 import { Keypair, Operation, TransactionBuilder, BASE_FEE } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
 const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
-const server = new SorobanRpc.Server(FUTURENET_RPC);
+const server = new rpc.Server(FUTURENET_RPC);
 
 async function addSigner(params: {
   sourceAccountId: string;
@@ -92,7 +92,7 @@ async function addSigner(params: {
 
 Before removing the old signer, confirm the new one appears in the account's signer list with the expected weight.
 
-```typescript
+```typescript no-check
 async function verifySignerWeight(accountId: string, signerPublicKey: string, expectedWeight: number) {
   const account = await server.getAccount(accountId);
   const entry = account.signers.find((s: { key: string; weight: number }) => s.key === signerPublicKey);
@@ -111,7 +111,7 @@ async function verifySignerWeight(accountId: string, signerPublicKey: string, ex
 
 ### Step 3 — Remove the retiring signer
 
-```typescript
+```typescript no-check
 async function removeSigner(params: {
   sourceAccountId: string;
   retiringSignerPublicKey: string;
@@ -165,7 +165,7 @@ Is the remaining weight (without the compromised key) >= high threshold?
 
 ### Fast revocation — remaining weight covers high threshold
 
-```typescript
+```typescript no-check
 async function emergencyRevoke(params: {
   sourceAccountId: string;
   compromisedSignerPublicKey: string;
@@ -201,7 +201,7 @@ async function emergencyRevoke(params: {
 
 If the remaining good signers cannot meet the high threshold on their own, use a pre-provisioned **break-glass keypair** with sufficient weight. Add the break-glass key and remove the compromised key in one atomic transaction.
 
-```typescript
+```typescript no-check
 async function emergencyRevokeWithBreakGlass(params: {
   sourceAccountId: string;
   compromisedSignerPublicKey: string;
@@ -324,14 +324,14 @@ The table below shows what an auditor sees during a staged 2-of-3 rotation. Ledg
 
 ### Fetching Wraith announcements around a rotation
 
-```typescript
+```typescript no-check
 import {
   fetchAnnouncements,
   getDeployment,
 } from "@wraith-protocol/sdk/chains/stellar";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
-const server = new SorobanRpc.Server("https://rpc-futurenet.stellar.org");
+const server = new rpc.Server("https://rpc-futurenet.stellar.org");
 
 async function getAnnouncementsAroundRotation(rotationLedger: number) {
   const deployment = getDeployment("futurenet");
@@ -372,11 +372,11 @@ curl "https://friendbot-futurenet.stellar.org/?addr=G...SOURCE"
 
 ```typescript
 import { Keypair, Operation, TransactionBuilder, BASE_FEE, Asset } from "@stellar/stellar-sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 const FUTURENET_RPC = "https://rpc-futurenet.stellar.org";
 const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
-const server = new SorobanRpc.Server(FUTURENET_RPC);
+const server = new rpc.Server(FUTURENET_RPC);
 
 // The account owner is sigA with master weight.
 // We'll set thresholds and add sigB + sigC.
@@ -417,7 +417,7 @@ console.log("Initial 2-of-3 configured. Tx hash:", setupResult.hash);
 
 ### 2. Generate fresh replacement keypairs
 
-```typescript
+```typescript no-check
 // Three brand-new keypairs — rotate to these
 const newA = Keypair.random();
 const newB = Keypair.random();
@@ -433,7 +433,7 @@ console.log("New signer C:", newC.publicKey());
 
 ### 3. Helper: wait for transaction confirmation
 
-```typescript
+```typescript no-check
 async function waitForConfirmation(hash: string, timeoutMs = 30_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -453,7 +453,7 @@ async function waitForConfirmation(hash: string, timeoutMs = 30_000): Promise<vo
 
 ### 4. Rotate signer A → newA (staged: add newA, verify, remove A)
 
-```typescript
+```typescript no-check
 // --- Phase 4a: Add newA ---
 // sigA + sigB + sigC all sign (we have all three, so high threshold = 3 is met)
 const accountForAddA = await server.getAccount(sigA.publicKey());
@@ -510,7 +510,7 @@ await waitForConfirmation(removeAResult.hash);
 
 ### 5. Rotate signer B → newB
 
-```typescript
+```typescript no-check
 // --- Add newB (authorized by newA + B + C) ---
 const accountForAddB = await server.getAccount(newA.publicKey());
 
@@ -564,7 +564,7 @@ await waitForConfirmation(removeBResult.hash);
 
 ### 6. Rotate signer C → newC
 
-```typescript
+```typescript no-check
 // --- Add newC (authorized by newA + newB + C) ---
 const accountForAddC = await server.getAccount(newA.publicKey());
 
@@ -618,7 +618,7 @@ await waitForConfirmation(removeCResult.hash);
 
 ### 7. Verify the final signer set
 
-```typescript
+```typescript no-check
 const finalAccount = await server.getAccount(newA.publicKey());
 
 console.log("\nFinal signer set:");

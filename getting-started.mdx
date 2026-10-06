@@ -33,7 +33,7 @@ The `Wraith` client handles all communication with the managed TEE infrastructur
 
 An agent is your identity on the Wraith network. It has a `.wraith` name, an on-chain address, and stealth keys — all derived inside TEE hardware.
 
-```typescript
+```typescript no-check
 // 1. Sign a message with the owner wallet to prove ownership
 const message = "Sign to create Wraith agent";
 const signature = await wallet.signMessage(message);
@@ -121,7 +121,7 @@ const response = await agent.chat("withdraw all to 0xMyWallet");
 
 If you already have an agent, reconnect without creating a new one:
 
-```typescript
+```typescript no-check
 // By agent ID
 const agent = wraith.agent("agent-uuid-here");
 

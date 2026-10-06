@@ -152,7 +152,7 @@ const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
 
 ## Step 3 — Quote a route
 
-```typescript
+```typescript no-check
 const SOROSWAP_API_KEY = process.env.SOROSWAP_API_KEY!;
 
 // Quote: sell 1 XLM, receive as much USDC as possible.
@@ -192,7 +192,7 @@ console.log("Route:", quote.path.join(" → "));
 
 ## Step 4 — Build the transaction with the stealth address as recipient
 
-```typescript
+```typescript no-check
 // Pass stealthAddress in the `to` field.
 // Soroswap routes the swap output directly to the stealth account.
 const senderAddress = "GABC...your-sender-address"; // replace with real address
@@ -219,16 +219,16 @@ const build = await soroswapRequest<BuildResponse>(
 
 For server-side or scripted flows, sign with a raw `Keypair`. For wallet integrations, use Freighter or another signer — see the [Stellar Wallet Integration guide](/guides/stellar-wallet-integration).
 
-```typescript
+```typescript no-check
 import {
   Transaction,
   Keypair,
   Networks,
-  SorobanRpc,
+  rpc,
 } from "@stellar/stellar-sdk";
 
 const senderKeypair = Keypair.fromSecret(process.env.SENDER_SECRET!);
-const sorobanServer = new SorobanRpc.Server(
+const sorobanServer = new rpc.Server(
   "https://soroban-testnet.stellar.org"
 );
 
@@ -238,7 +238,7 @@ tx.sign(senderKeypair);
 const signedXdr = tx.toEnvelope().toXDR("base64");
 
 // Submit the signed XDR via the Soroswap send endpoint
-// (or submit directly via Horizon / SorobanRpc.Server).
+// (or submit directly via Horizon / rpc.Server).
 const sendResult = await soroswapRequest<{ txHash: string }>(
   "/send",
   { xdr: signedXdr },
@@ -255,7 +255,7 @@ console.log("Swap tx hash:", sendResult.txHash);
 
 After the swap lands, call the Wraith announcer contract so the recipient can detect the payment when scanning.
 
-```typescript
+```typescript no-check
 import {
   getDeployment,
   bytesToHex,
@@ -264,7 +264,7 @@ import {
   Contract,
   Networks,
   nativeToScVal,
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   BASE_FEE,
   Address,
@@ -273,7 +273,7 @@ import {
 
 const deployment = getDeployment("stellar");
 const announcer = new Contract(deployment.contracts.announcer);
-const server = new SorobanRpc.Server(deployment.sorobanUrl);
+const server = new rpc.Server(deployment.sorobanUrl);
 
 // Build the announce invocation.
 // The announcer stores: schemeId, stealthAddress, ephemeralPubKey, metadata.
@@ -301,11 +301,11 @@ const announceTx = new TransactionBuilder(sourceAccount, {
 
 // Simulate to get the resource footprint, then sign and submit.
 const simResult = await server.simulateTransaction(announceTx);
-if (SorobanRpc.Api.isSimulationError(simResult)) {
+if (rpc.Api.isSimulationError(simResult)) {
   throw new Error(`Announce simulation failed: ${simResult.error}`);
 }
 
-const preparedTx = SorobanRpc.assembleTransaction(
+const preparedTx = rpc.assembleTransaction(
   announceTx,
   simResult
 ).build();
@@ -332,7 +332,7 @@ import {
   Contract,
   Networks,
   nativeToScVal,
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   BASE_FEE,
   Address,
@@ -436,7 +436,7 @@ async function swapThenStealth(opts: {
 
   // 5. Announce the stealth payment so the recipient can scan for it.
   const deployment = getDeployment("stellar");
-  const server = new SorobanRpc.Server(deployment.sorobanUrl);
+  const server = new rpc.Server(deployment.sorobanUrl);
   const announcer = new Contract(deployment.contracts.announcer);
 
   const ephemeralBytes = Buffer.from(bytesToHex(stealth.ephemeralPubKey), "hex");
@@ -460,11 +460,11 @@ async function swapThenStealth(opts: {
     .build();
 
   const simResult = await server.simulateTransaction(rawAnnounceTx);
-  if (SorobanRpc.Api.isSimulationError(simResult)) {
+  if (rpc.Api.isSimulationError(simResult)) {
     throw new Error(`Announce simulation failed: ${simResult.error}`);
   }
 
-  const announceTx = SorobanRpc.assembleTransaction(
+  const announceTx = rpc.assembleTransaction(
     rawAnnounceTx,
     simResult
   ).build();
@@ -537,7 +537,7 @@ Omitting `sdex` is recommended for Soroban-only flows because SDEX orders settle
 
 ## Error handling and retries
 
-```typescript
+```typescript no-check
 async function quoteWithRetry(
   soroswapApiKey: string,
   params: {

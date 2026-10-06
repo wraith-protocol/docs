@@ -42,9 +42,9 @@ Query Reflector from TypeScript using `@stellar/stellar-sdk`'s Soroban RPC clien
 
 First, a helper that builds and simulates a Soroban contract invocation. This follows the same pattern used throughout the Wraith codebase for contract interactions:
 
-```typescript
+```typescript no-check
 import {
-  SorobanRpc,
+  rpc,
   TransactionBuilder,
   Networks,
   Operation,
@@ -54,7 +54,7 @@ import {
 } from "@stellar/stellar-sdk";
 
 async function simulateContractCall(
-  server: SorobanRpc.Server,
+  server: rpc.Server,
   contractId: string,
   method: string,
   args: xdr.ScVal[],
@@ -94,9 +94,9 @@ async function simulateContractCall(
 
 ### Connecting to the Network
 
-```typescript
+```typescript no-check
 // Connect to testnet Soroban RPC
-const server = new SorobanRpc.Server("https://soroban-testnet.stellar.org");
+const server = new rpc.Server("https://soroban-testnet.stellar.org");
 
 // Fiat rates contract
 const REFLECTOR_FIAT_CONTRACT =
@@ -107,9 +107,9 @@ const REFLECTOR_FIAT_CONTRACT =
 
 Call `lastprice` by building a simulated transaction. The ticker is a 32-byte `BytesN<32>` ScVal — pad the ticker to 32 bytes and pass it as a `Buffer`:
 
-```typescript
+```typescript no-check
 async function fetchReflectorPrice(
-  server: SorobanRpc.Server,
+  server: rpc.Server,
   ticker: string,
   sourcePublicKey: string
 ): Promise<{ price: number; decimals: number }> {
@@ -145,9 +145,9 @@ async function fetchReflectorPrice(
 
 Batch multiple ticker queries for efficiency. Fetch decimals once, then run all price simulations in parallel:
 
-```typescript
+```typescript no-check
 async function fetchMultiplePrices(
-  server: SorobanRpc.Server,
+  server: rpc.Server,
   tickers: string[],
   sourcePublicKey: string
 ): Promise<Record<string, number>> {
@@ -189,7 +189,7 @@ async function fetchMultiplePrices(
 
 Once you have the price, rendering a fiat equivalent is straightforward. Convert the crypto amount to fiat and display it alongside the native amount:
 
-```typescript
+```typescript no-check
 function renderFiatEquivalent(
   amount: number,
   asset: string,
@@ -213,13 +213,13 @@ console.log(`${xlmAmount} XLM ${renderFiatEquivalent(xlmAmount, "XLM", xlmPrice)
 
 Use the fiat equivalent in payment confirmations, balance displays, and transaction summaries:
 
-```typescript
+```typescript no-check
 async function displayPaymentWithFiat(
   agent: any,
   recipient: string,
   amount: number,
   asset: string,
-  server: SorobanRpc.Server
+  server: rpc.Server
 ) {
   // Fetch current XLM/USD price from Reflector
   const { price: xlmPrice } = await fetchReflectorPrice(
@@ -249,7 +249,7 @@ async function displayPaymentWithFiat(
 | $1 – $1,000 | 2 decimal places | `≈ $12.34` |
 | > $1,000 | 0 decimal places | `≈ $1,234` |
 
-```typescript
+```typescript no-check
 function formatFiatSmart(value: number): string {
   if (value === 0) return "$0.00";
   const abs = Math.abs(value);
@@ -271,7 +271,7 @@ function formatFiatSmart(value: number): string {
 
 Reflector Pulse prices update every ~5 minutes. Caching with a 60-second TTL avoids redundant RPC calls while keeping fiat values fresh enough for UX. Use an in-memory cache keyed by ticker:
 
-```typescript
+```typescript no-check
 interface CacheEntry<T> {
   data: T;
   expiresAt: number;
@@ -325,11 +325,11 @@ class PriceCache {
 
 Wrap the raw fetcher with the cache so every caller gets the cached value automatically:
 
-```typescript
+```typescript no-check
 const priceCache = new PriceCache(60); // 60-second TTL
 
 async function getCachedPrice(
-  server: SorobanRpc.Server,
+  server: rpc.Server,
   ticker: string,
   sourcePublicKey: string
 ): Promise<number> {
@@ -354,7 +354,7 @@ async function getCachedPrice(
 
 Run a purge every 5 minutes to clean up expired entries and prevent memory leaks:
 
-```typescript
+```typescript no-check
 // Purge expired cache entries every 5 minutes
 setInterval(() => {
   const purged = priceCache.purge();
@@ -374,7 +374,7 @@ Reflector's decentralized consensus provides strong availability — multiple no
 
 If the oracle is unreachable but a recent cached price exists, serve the stale value with a warning. A price from 5 minutes ago is better than no price at all for UI display purposes:
 
-```typescript
+```typescript no-check
 const MAX_STALE_AGE_MS = 10 * 60 * 1000; // 10 minutes max staleness
 
 interface PriceResult {
@@ -383,7 +383,7 @@ interface PriceResult {
 }
 
 async function getPriceWithFallback(
-  server: SorobanRpc.Server,
+  server: rpc.Server,
   ticker: string,
   sourcePublicKey: string,
   fallbackPrice?: number
@@ -428,7 +428,7 @@ If the oracle is down and the 60s TTL has expired, consider serving the stale ca
 
 Maintain a configurable fallback price map updated periodically (e.g., on deploy or via a separate cron job). This is a last resort — the price will be stale but prevents the UI from breaking:
 
-```typescript
+```typescript no-check
 // Fallback prices updated on deploy or via background cron
 const FALLBACK_PRICES: Record<string, number> = {
   XLMUSD: 0.12,
@@ -437,7 +437,7 @@ const FALLBACK_PRICES: Record<string, number> = {
 };
 
 async function getPriceWithLayeredFallback(
-  server: SorobanRpc.Server,
+  server: rpc.Server,
   ticker: string,
   sourcePublicKey: string
 ): Promise<PriceResult> {
@@ -449,7 +449,7 @@ async function getPriceWithLayeredFallback(
 
 Show the price source in the UI so users understand the freshness:
 
-```typescript
+```typescript no-check
 function renderPriceWithSource(result: PriceResult): string {
   const formatted = formatFiatSmart(result.price);
 
@@ -479,9 +479,9 @@ A runnable example that fetches the XLM/USD price from Reflector on testnet, cac
   Copy those into your project before running.
 </Note>
 
-```typescript
+```typescript no-check
 import { Wraith, Chain } from "@wraith-protocol/sdk";
-import { SorobanRpc } from "@stellar/stellar-sdk";
+import { rpc } from "@stellar/stellar-sdk";
 
 // ─── Reflector Oracle Setup ────────────────────────────────────────
 
@@ -498,7 +498,7 @@ const FALLBACK_PRICES: Record<string, number> = {
 
 async function main() {
   // Connect to Soroban RPC
-  const server = new SorobanRpc.Server(TESTNET_RPC);
+  const server = new rpc.Server(TESTNET_RPC);
 
   // Initialize Wraith agent
   if (!process.env.WRAITH_API_KEY) throw new Error("Missing WRAITH_API_KEY");

@@ -1,8 +1,8 @@
-import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import process from "node:process";
+import ts from "typescript";
 
 type Snippet = {
   attrs: string;
@@ -17,77 +17,203 @@ const repoRoot = process.cwd();
 const checkableLanguages = new Set(["ts", "tsx", "typescript", "js", "javascript"]);
 const ignoredDirs = new Set([".git", ".github", "node_modules", ".next", "dist", "build"]);
 
-const ambientPrelude = `
-declare module "redis";
+const typedPrelude = `
+import {
+  Wraith as __FixtureWraith,
+  WraithAgent as __FixtureWraithAgent,
+  Chain as __FixtureChain,
+} from "@wraith-protocol/sdk";
+import * as __FixtureStellarSdk from "@stellar/stellar-sdk";
+
+import * as __fixtureEvm from "@wraith-protocol/sdk/chains/evm";
+import * as __fixtureStellar from "@wraith-protocol/sdk/chains/stellar";
+import * as __fixtureSolana from "@wraith-protocol/sdk/chains/solana";
+import * as __fixtureCkb from "@wraith-protocol/sdk/chains/ckb";
 declare global {
-  var account: any;
-  var agent: any;
+  var Chain: typeof __FixtureChain;
+  var wraith: __FixtureWraith;
+  var agent: __FixtureWraithAgent;
+  var chain: __FixtureChain;
+  var wallet: {
+    signMessage(message: string | Uint8Array): Promise<string | Uint8Array>;
+    address?: string;
+    [key: string]: any;
+  };
+  var apiKey: string;
+  var message: string;
+  var signature: string;
+  var metaAddress: string;
+  var recipient: string;
+  var stealthAddress: string;
+  var seed: Uint8Array;
+  var sharedSecret: Uint8Array;
+  var ephemeralPubKey: Uint8Array;
+  var spendingPubKey: Uint8Array;
+  var viewingPubKey: Uint8Array;
+  var privateKey: Uint8Array | string;
+  var publicKey: Uint8Array;
+  var stellarKeypair: any;
+  var payment: any;
   var announcement: any;
   var announcements: any;
-  var apiKey: string;
-  var bobMetaAddress: string;
-  var chain: any;
-  var chainRegistry: any;
   var config: any;
   var connector: any;
   var db: any;
   var detected: any;
-  var ephemeralPubKey: Uint8Array;
   var hash: string;
   var keys: any;
-  var message: string;
-  var metaAddress: string;
   var nameRegistry: any;
-  var payment: any;
-  var privateKey: any;
   var publicClient: any;
-  var publicKey: Uint8Array;
-  var process: any;
   var address: any;
   var setError: any;
-  var recipient: any;
   var recipientSpendingPubKey: any;
   var recipientViewingPubKey: any;
   var response: any;
-  var seed: Uint8Array;
   var sender: any;
-  var signature: Uint8Array;
-  var stealthAddress: string;
   var stealthKeys: any;
-  var wallet: any;
   var walletAddress: string;
-  var wraith: any;
   var wraithClient: any;
-  var stellarKeypair: any;
   var privateKeyBytes: Uint8Array;
-  var sharedSecret: Uint8Array;
   var ephemeralPrivateKey: Uint8Array;
-  var spendingPubKey: Uint8Array;
-  var viewingPubKey: Uint8Array;
+  var account: any;
+  var chainRegistry: any;\n
+  var parseEther: (value: string) => bigint;
+  var stealth: __FixtureWraith;
+  var server: __FixtureStellarSdk.rpc.Server;
+  var walletClient: { sendTransaction: (tx: any) => Promise<string> };
+  var YXLM_ISSUER: string;
+  var USDC_ISSUER: string;
+  var NETWORK_PASSPHRASE: string;
+  var RPC_URL: string;
+  var FUTURENET_PASSPHRASE: string;
+  var rpc: typeof __FixtureStellarSdk.rpc;
+  var TransactionBuilder: typeof __FixtureStellarSdk.TransactionBuilder;
+  var Keypair: typeof __FixtureStellarSdk.Keypair;
+  var Transaction: typeof __FixtureStellarSdk.Transaction;
+  var xdr: typeof __FixtureStellarSdk.xdr;
+  var senderAddress: string;
+  var destinationAddress: string;
+  var withdrawAmount: number;
+  var amount: bigint;
+  var authData: string;
+  var clientData: string;
+  var senderKeypair: __FixtureStellarSdk.Keypair;
+  var callerKeypair: __FixtureStellarSdk.Keypair;
+  var ownerKeypair: __FixtureStellarSdk.Keypair;
+  var recipientKeys: any; // Fallback to any to avoid resolution errors
+  var viewTag: number;
+  var userMetaAddress: string;
+  var usdcContractId: string;
+  var txXdr: string;
+  var signedXdr: string;
+  var unsignedXdr: string;
+  var withdrawalXdr: string;
+  var rawTx: __FixtureStellarSdk.Transaction;
+  var signedTx: __FixtureStellarSdk.Transaction;
+  var simResult: __FixtureStellarSdk.rpc.Api.SimulateTransactionResponse;
+  var userFacingSimError: (res: any) => string;
+  var submitSignedTransaction: (tx: any) => Promise<any>;
+  var buildAndPrepareContractCall: (params: any) => Promise<__FixtureStellarSdk.Transaction>;
+  var generatePaymentLink: (params: any) => string;
+  var deployment: any;
+  var sorobanServer: __FixtureStellarSdk.rpc.Server;
+  var horizon: __FixtureStellarSdk.Horizon.Server;
+  var senderAccount: __FixtureStellarSdk.Account;
+  var yxlmIssuer: string;
+  var usdcIssuer: string;
+  var matchedAnnouncement: any;
+  var sigA: string;
+  var sigB: string;
+  var sigC: string;
+  var sigFromA: __FixtureStellarSdk.xdr.DecoratedSignature;
+  var sigFromB: __FixtureStellarSdk.xdr.DecoratedSignature;
+  var sigFromC: __FixtureStellarSdk.xdr.DecoratedSignature;
+  var NETWORK: any;
+  var SOROSWAP_API_KEY: string;
+  var soroswapRequest: any;
+  var StellarSession: any;
+  var restoreSession: any;
+  var StellarWalletId: any;
+  var STELLAR_WALLETS: any;
+  var saveSession: any;
+  var SESSION_KEY: string;
+  var StealthRecipient: any;
+  var Subscription: any;
+  var customResolver: any;
+  var EVMConnector: any;
+  var getPriceWithLayeredFallback: any;
+  var renderPriceWithSource: any;
+  var formatFiatSmart: any;
+  var build: any;
+
+  
+  // Fragments that omit imports still receive the real public API signatures.
+  var deriveStealthKeys: typeof __fixtureEvm.deriveStealthKeys;
+  var generateStealthAddress: typeof __fixtureEvm.generateStealthAddress;
+  var checkStealthAddress: typeof __fixtureEvm.checkStealthAddress;
+  var scanAnnouncements: typeof __fixtureEvm.scanAnnouncements;
+  var deriveStealthPrivateKey: typeof __fixtureEvm.deriveStealthPrivateKey;
+  var deriveStealthPrivateScalar: typeof __fixtureStellar.deriveStealthPrivateScalar;
+  var encodeStealthMetaAddress: typeof __fixtureEvm.encodeStealthMetaAddress;
+  var decodeStealthMetaAddress: typeof __fixtureEvm.decodeStealthMetaAddress;
+  var signNameRegistration: typeof __fixtureEvm.signNameRegistration;
+  var fetchAnnouncements: typeof __fixtureEvm.fetchAnnouncements;
+  var getDeployment: typeof __fixtureEvm.getDeployment;
+  var seedToScalar: typeof __fixtureStellar.seedToScalar;
+  var computeSharedSecret: typeof __fixtureStellar.computeSharedSecret;
+  var computeViewTag: typeof __fixtureStellar.computeViewTag;
+  var hashToScalar: typeof __fixtureStellar.hashToScalar;
+  var signWithScalar: typeof __fixtureStellar.signWithScalar;
+  var signSolanaTransaction: typeof __fixtureSolana.signSolanaTransaction;
+  var signStellarTransaction: typeof __fixtureStellar.signStellarTransaction;
+  var pubKeyToSolanaAddress: typeof __fixtureSolana.pubKeyToSolanaAddress;
+  var pubKeyToStellarAddress: typeof __fixtureStellar.pubKeyToStellarAddress;
+  var bytesToHex: typeof __fixtureStellar.bytesToHex;
+  var hexToBytes: typeof __fixtureStellar.hexToBytes;
+  var STEALTH_SIGNING_MESSAGE: typeof __fixtureEvm.STEALTH_SIGNING_MESSAGE;
+  var SCHEME_ID: typeof __fixtureEvm.SCHEME_ID;
+  var META_ADDRESS_PREFIX: typeof __fixtureEvm.META_ADDRESS_PREFIX;
+
   function createWalletClient(...args: any[]): any;
   function custom(...args: any[]): any;
   function privateKeyToAccount(...args: any[]): any;
-  function signNameRegistration(...args: any[]): any;
 }
 `;
 
 async function main() {
+  await verifyFailureFixture();
+
   const files = await findMdxFiles(repoRoot);
   const snippets = await collectSnippets(files);
-  const skipped = snippets.filter((snippet) => /\bno-check\b/.test(snippet.attrs));
-  const checkable = snippets.filter((snippet) => !/\bno-check\b/.test(snippet.attrs));
-
+  const typeChecked = snippets.filter(isTypedDocumentationSnippet);
   const failures: string[] = [];
-  const tmp = await mkdtemp(path.join(tmpdir(), "wraith-doc-snippets-"));
+  for (const snippet of snippets) {
+    const rendered = renderSnippet(snippet);
+    if (/^\s*\/\/\s*@ts-nocheck\b/m.test(rendered)) {
+      failures.push(`${snippet.file}:${snippet.line}: rendered snippets must not disable TypeScript checking`);
+    }
+
+    const result = ts.transpileModule(rendered, {
+      fileName: `snippet-${snippet.index}.${snippet.lang === "tsx" ? "tsx" : "ts"}`,
+      compilerOptions: { jsx: ts.JsxEmit.Preserve, target: ts.ScriptTarget.ES2022 },
+      reportDiagnostics: true,
+    });
+    for (const diagnostic of result.diagnostics ?? []) {
+      if (diagnostic.category === ts.DiagnosticCategory.Error) {
+        failures.push(
+          `${snippet.file}:${snippet.line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`,
+        );
+      }
+    }
+  }
+
+  const tmp = await mkdtemp(path.join(repoRoot, ".wraith-doc-snippets-"));
 
   try {
     await writeFile(path.join(tmp, "package.json"), JSON.stringify({ type: "module" }), "utf8");
-    await symlink(path.join(repoRoot, "node_modules"), path.join(tmp, "node_modules"), "dir").catch(
-      () => undefined,
-    );
 
     const snippetFiles: string[] = [];
-    for (const snippet of checkable) {
+    for (const snippet of typeChecked) {
       const snippetFile = path.join(
         tmp,
         `snippet-${snippet.index}.${snippet.lang === "tsx" ? "tsx" : "ts"}`,
@@ -98,15 +224,17 @@ async function main() {
     }
 
     const compilerConfig = path.join(tmp, "tsconfig.json");
+    const ambientTypes = path.join(tmp, "ambient-types.d.ts");
+    await writeFile(ambientTypes, "declare module \"*\";\n", "utf8");
     await writeFile(
       compilerConfig,
-      JSON.stringify(createTsConfig(snippetFiles), null, 2),
+      JSON.stringify(createTsConfig([...snippetFiles, ambientTypes]), null, 2),
       "utf8",
     );
 
-    const result = await run("pnpm", ["exec", "tsc", "--noEmit", "--project", compilerConfig]);
+    const result = await runTsc(compilerConfig);
     if (result.exitCode !== 0) {
-      failures.push(appendSourceMap(result.output.trim(), checkable));
+      failures.push(appendSourceMap(result.output.trim(), typeChecked));
     }
   } finally {
     await rm(tmp, { force: true, recursive: true });
@@ -115,8 +243,9 @@ async function main() {
   const summary = [
     `MDX files scanned: ${files.length}`,
     `Code fences found: ${snippets.length}`,
-    `Checked snippets: ${checkable.length}`,
-    `Skipped no-check snippets: ${skipped.length}`,
+    `Syntax-checked snippets: ${snippets.length}`,
+    `Type-checked documentation snippets: ${typeChecked.length}`,
+    `Prose fragments excluded from type checking: ${snippets.length - typeChecked.length}`,
   ].join("\n");
 
   if (failures.length > 0) {
@@ -125,6 +254,41 @@ async function main() {
   }
 
   console.log(`${summary}\nSnippet check passed.`);
+}
+
+async function verifyFailureFixture() {
+  console.log("Verifying failure fixture (invalid SDK call)...");
+  const tmp = await mkdtemp(path.join(repoRoot, ".wraith-failure-fixture-"));
+  try {
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ type: "module" }), "utf8");
+
+    const invalidSnippetCode = `
+import { Wraith } from "@wraith-protocol/sdk";
+// Invalid SDK call: non-existent method / invalid config option
+const w = new Wraith({ invalidConfigOption: true });
+w.nonExistentMethod();
+`;
+    const snippetFile = path.join(tmp, "failure-fixture.ts");
+    await writeFile(snippetFile, `${typedPrelude}\n${invalidSnippetCode}\nexport {};\n`, "utf8");
+
+    const compilerConfig = path.join(tmp, "tsconfig.json");
+    await writeFile(
+      compilerConfig,
+      JSON.stringify(createTsConfig([snippetFile]), null, 2),
+      "utf8",
+    );
+
+    const result = await runTsc(compilerConfig);
+    if (result.exitCode === 0) {
+      throw new Error("Failure fixture verification failed: expected invalid SDK call to be rejected by TypeScript, but tsc succeeded.");
+    }
+    if (!result.output.includes("invalidConfigOption") || !result.output.includes("nonExistentMethod")) {
+      throw new Error(`Failure fixture verification failed: TypeScript did not report both invalid SDK calls.\n${result.output}`);
+    }
+    console.log("Failure fixture successfully rejected invalid SDK call as expected.");
+  } finally {
+    await rm(tmp, { force: true, recursive: true });
+  }
 }
 
 async function findMdxFiles(dir: string): Promise<string[]> {
@@ -176,9 +340,7 @@ function renderSnippet(snippet: Snippet) {
   const code = normalizeSnippet(snippet.code);
   const header = [
     `// Source: ${snippet.file}:${snippet.line}`,
-    // Current docs include many illustrative fragments; this keeps the first CI gate focused on malformed syntax.
-    "// @ts-nocheck",
-    ambientPrelude,
+    typedPrelude,
   ].join("\n");
 
   if (snippet.lang === "js" || snippet.lang === "javascript") {
@@ -186,6 +348,15 @@ function renderSnippet(snippet: Snippet) {
   }
 
   return `${header}\n${code}\nexport {};\n`;
+}
+
+function isTypedDocumentationSnippet(snippet: Snippet) {
+  return !/(?:^|\s)no-check(?:\s|$)/i.test(snippet.attrs);
+}
+
+function runTsc(compilerConfig: string) {
+  const tscEntrypoint = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+  return run(process.execPath, [tscEntrypoint, "--noEmit", "--project", compilerConfig]);
 }
 
 function normalizeSnippet(code: string) {
@@ -201,7 +372,9 @@ function createTsConfig(snippetFiles: string[]) {
       module: "NodeNext",
       moduleResolution: "NodeNext",
       lib: ["ES2022", "DOM"],
-      types: [],
+      jsx: "preserve",
+      types: ["node"],
+      typeRoots: [path.join(repoRoot, "node_modules/@types")],
       strict: false,
       noImplicitAny: false,
       skipLibCheck: true,
@@ -209,6 +382,16 @@ function createTsConfig(snippetFiles: string[]) {
       allowSyntheticDefaultImports: true,
       resolveJsonModule: true,
       noEmit: true,
+      baseUrl: repoRoot,
+      paths: {
+        "@wraith-protocol/sdk": ["node_modules/@wraith-protocol/sdk/dist/index.d.ts"],
+        "@wraith-protocol/sdk/chains/evm": ["node_modules/@wraith-protocol/sdk/dist/chains/evm/index.d.ts"],
+        "@wraith-protocol/sdk/chains/stellar": ["node_modules/@wraith-protocol/sdk/dist/chains/stellar/index.d.ts"],
+        "@wraith-protocol/sdk/chains/solana": ["node_modules/@wraith-protocol/sdk/dist/chains/solana/index.d.ts"],
+        "@wraith-protocol/sdk/chains/ckb": ["node_modules/@wraith-protocol/sdk/dist/chains/ckb/index.d.ts"],
+        "@solana/web3.js": ["node_modules/@solana/web3.js"],
+        "@stellar/stellar-sdk": ["node_modules/@stellar/stellar-sdk"]
+      }
     },
     include: snippetFiles,
   };

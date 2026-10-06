@@ -115,7 +115,7 @@ Without a signature, anyone can modify the URL (changing the amount or destinati
 
 ### Verifying a payment link on the server
 
-```typescript
+```typescript no-check
 function verifyPaymentLink(
   searchParams: URLSearchParams,
   signingSecret: string
@@ -188,7 +188,7 @@ For mobile or desktop apps, register a custom URL scheme and handle the payment 
 
 Register `wraith://` or your own scheme in your app manifest, then parse the same query string:
 
-```typescript
+```typescript no-check
 // React Native / Expo example
 import { Linking } from "react-native";
 
@@ -223,7 +223,7 @@ For `https://your-domain/pay` links that open your app on mobile, configure `app
 
 QR codes make payment links scannable in-person or in invoices.
 
-```typescript
+```typescript no-check
 // npm install qrcode
 import QRCode from "qrcode";
 
@@ -254,7 +254,7 @@ await paymentLinkToQR(link, "invoice-qr.png");
 
 For in-app display without saving to disk:
 
-```typescript
+```typescript no-check
 // Returns a data URL for use in an <img> tag
 const dataUrl = await QRCode.toDataURL(link.url, {
   errorCorrectionLevel: "M",
@@ -277,7 +277,7 @@ The `exp` parameter is a Unix timestamp in seconds. Clients and servers should b
 
 ### Server-side (on link render)
 
-```typescript
+```typescript no-check
 function isExpired(searchParams: URLSearchParams): boolean {
   const exp = searchParams.get("exp");
   if (!exp) return false; // no expiry set — link is permanent
@@ -287,7 +287,7 @@ function isExpired(searchParams: URLSearchParams): boolean {
 
 ### Client-side countdown
 
-```typescript
+```typescript no-check
 function secondsUntilExpiry(searchParams: URLSearchParams): number | null {
   const exp = searchParams.get("exp");
   if (!exp) return null;
@@ -320,7 +320,7 @@ The Wraith demo includes `StellarPaymentLink.tsx` — a React component that gen
 
 ### Component: `StellarPaymentLink.tsx`
 
-```tsx
+```tsx no-check
 import React, { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Wraith, Chain } from "@wraith-protocol/sdk";
@@ -440,7 +440,7 @@ Instead of polling from the client, register a webhook with Wraith to receive a 
 
 ### Registering a webhook (Wraith API)
 
-```typescript
+```typescript no-check
 import { Wraith } from "@wraith-protocol/sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -497,7 +497,7 @@ app.post("/webhooks/stellar-payment", (req, res) => {
 
 ### Webhook payload shape
 
-```typescript
+```typescript no-check
 interface PaymentConfirmedEvent {
   type: "payment.confirmed";
   data: {

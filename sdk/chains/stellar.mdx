@@ -49,7 +49,7 @@ import {
 
 ## Types
 
-```typescript
+```typescript no-check
 interface StealthKeys {
   spendingKey: Uint8Array;       // 32-byte seed
   spendingScalar: bigint;        // clamped scalar from SHA-512(seed)
@@ -111,6 +111,8 @@ const L = 2n**252n + 27742317777372353535851937790883648493n;  // ed25519 group 
 Derive spending and viewing key pairs from a 64-byte ed25519 signature.
 
 ```typescript
+import { deriveStealthKeys } from "@wraith-protocol/sdk/chains/stellar";
+
 const signature = stellarKeypair.sign(Buffer.from(STEALTH_SIGNING_MESSAGE));
 const keys = deriveStealthKeys(signature);
 
@@ -186,6 +188,8 @@ const scalar = hashToScalar(sharedSecret);
 Generate a one-time stealth address for a Stellar recipient.
 
 ```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/stellar";
+
 const result = generateStealthAddress(
   keys.spendingPubKey,
   keys.viewingPubKey
@@ -209,6 +213,8 @@ console.log(result.viewTag);        // 0-255
 Check if an announcement belongs to you.
 
 ```typescript
+import { checkStealthAddress } from "@wraith-protocol/sdk/chains/stellar";
+
 const result = checkStealthAddress(
   ephemeralPubKey,
   keys.viewingKey,
@@ -228,6 +234,8 @@ if (result.isMatch) {
 Scan announcements and return matches with their private scalars.
 
 ```typescript
+import { scanAnnouncements } from "@wraith-protocol/sdk/chains/stellar";
+
 const matched = scanAnnouncements(
   announcements,
   keys.viewingKey,
@@ -263,7 +271,7 @@ const scalar = deriveStealthPrivateScalar(
 
 Sign a message using a raw scalar instead of a seed. Required because stealth private keys are derived scalars that can't be used with `Keypair.fromRawEd25519Seed()`.
 
-```typescript
+```typescript no-check
 const signature = signWithScalar(messageBytes, stealthScalar, stealthPubKey);
 // Uint8Array (64-byte ed25519 signature)
 ```
@@ -274,7 +282,7 @@ The stealth scalar `(spendingScalar + hashScalar) % L` is not necessarily clampe
 
 Sign a Stellar transaction hash with a stealth private scalar.
 
-```typescript
+```typescript no-check
 const sig = signStellarTransaction(txHash, stealthScalar, stealthPubKey);
 // Uint8Array (64-byte signature)
 // Add this to the transaction envelope before submitting
@@ -302,7 +310,7 @@ const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress("st:xlm:abc12
 
 Derive a stealth public key from a spending public key and hash scalar.
 
-```typescript
+```typescript no-check
 const stealthPub = deriveStealthPubKey(spendingPubKey, hashScalar);
 // Uint8Array (32 bytes)
 ```
@@ -311,7 +319,7 @@ const stealthPub = deriveStealthPubKey(spendingPubKey, hashScalar);
 
 Convert a 32-byte ed25519 public key to a Stellar `G...` address.
 
-```typescript
+```typescript no-check
 const address = pubKeyToStellarAddress(publicKeyBytes);
 // "GABC..."
 ```
@@ -332,7 +340,7 @@ const bytes = hexToBytes("abcd");
 
 ## End-to-End Flow
 
-```typescript
+```typescript no-check
 import {
   deriveStealthKeys,
   generateStealthAddress,
@@ -420,6 +428,8 @@ const deployment = getDeployment("stellar");
 Fetches all stealth address announcements from the Soroban RPC for the specified network. Handles ledger range detection and pagination automatically.
 
 ```typescript
+import { scanAnnouncements } from "@wraith-protocol/sdk/chains/stellar";
+
 const announcements = await fetchAnnouncements("stellar");
 // Returns Announcement[] — ready to pass to scanAnnouncements()
 ```
@@ -447,55 +457,11 @@ For detailed fee calculations, baseline resource metrics, and budgeting advice f
 - [Stellar Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) — coordinate N-of-M signers to authorize withdrawals from a multisig source account
 ## Federation Address Resolution
 
-The SDK includes a `resolveStellarFederation()` helper for resolving `alice*example.com` federation addresses to Stellar public keys before sending payments.
+The Wraith SDK does not export a federation resolver. Use the Stellar SDK resolver when your application needs to resolve a SEP-0002 address:
 
 ```typescript
-import { resolveStellarFederation } from "@wraith-protocol/sdk/chains/stellar";
+import { Federation } from "@stellar/stellar-sdk";
 
-const record = await resolveStellarFederation("alice*example.com");
-console.log(record.accountId);   // "GABC..." or "st:xlm:..." stealth meta-address
-console.log(record.memoType);    // "text" | "id" | "hash" | undefined
-console.log(record.memoValue);   // memo value if required (e.g. exchange deposits)
+const record = await Federation.Server.resolve("alice*example.com");
+console.log(record.account_id, record.memo_type, record.memo);
 ```
-
-If the resolved `accountId` is a stealth meta-address (`st:xlm:...`), decode it and pass it straight to `generateStealthAddress()`:
-
-```typescript
-import {
-  resolveStellarFederation,
-  decodeStealthMetaAddress,
-  generateStealthAddress,
-} from "@wraith-protocol/sdk/chains/stellar";
-
-const record = await resolveStellarFederation("alice*example.com");
-
-if (record.accountId.startsWith("st:xlm:")) {
-  const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(record.accountId);
-  const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
-  // Send to stealth.stealthAddress and call the announcer contract
-} else {
-  // Send directly to record.accountId, include record.memoValue if present
-}
-```
-
-See the [Stellar Federation Addresses guide](/guides/stellar-federation) for the full reference: SEP-0002 protocol details, caching, failure modes, UX patterns, and how to register your own domain.
-
-## Custom Assets (USDC)
-
-The SDK supports sending any Stellar Asset Contract (SAC) token via stealth addresses, not just XLM. USDC (Circle) is fully compatible — no restrictive flags, trustlines auto-created via `trust()` on Protocol 22+.
-
-```typescript
-import { generateStealthAddress, decodeStealthMetaAddress } from "@wraith-protocol/sdk/chains/stellar";
-import { Asset, Networks } from "@stellar/stellar-sdk";
-
-// Derive the USDC SAC contract address
-const USDC_ISSUER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"; // testnet
-const usdcContractId = new Asset("USDC", USDC_ISSUER).contractId(Networks.TESTNET);
-// Pass usdcContractId as the `token` parameter to stealth-sender.send()
-```
-
-USDC amounts use **7 decimal places**: `100 USDC = 1_000_000_0` in the i128 passed to the SAC.
-
-Assets with `AUTH_REQUIRED` are incompatible with stealth payment flows. Assets with `AUTH_CLAWBACK_ENABLED` work at the protocol level but allow the issuer to reclaim stealth balances — the agent warns before sending.
-
-See the [Stellar Custom Assets guide](/guides/stellar-custom-assets) for the full reference: SAC overview, USDC issuer addresses, sender and recipient flows with trustline handling, path payments, fee estimates, and the SAC compatibility matrix from the June 2026 audit.

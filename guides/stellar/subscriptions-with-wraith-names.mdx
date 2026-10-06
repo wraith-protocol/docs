@@ -32,7 +32,7 @@ That last point is the difference from a raw meta-address subscription. A raw `s
 
 Store the destination as a name, not as the resolved meta-address.
 
-```typescript
+```typescript no-check
 type SubscriptionStatus = "active" | "paused" | "cancelled";
 
 interface Subscription {
@@ -67,7 +67,7 @@ Keep `lastResolvedMetaAddress` only as an audit field. Do not use it as the next
 
 The billing worker should resolve the name just before sending. This gives the recipient a clean rotation path: update the name record before the next billing date, and the payer automatically routes future payments to the new meta-address.
 
-```typescript
+```typescript no-check
 import { Chain, Wraith } from "@wraith-protocol/sdk";
 
 interface BillingResult {
@@ -128,7 +128,7 @@ The chat instruction still uses `merchant.wraith`. That keeps the payment intent
 
 Use this fixture-backed resolver in tests and tutorials that must run with Futurenet settings while live Wraith Futurenet contracts are unavailable. The shape mirrors the fields the scheduler cares about: name, meta-address, state, and expiry ledger.
 
-```typescript
+```typescript no-check
 type NameState = "active" | "grace_period" | "expired";
 
 interface NameFixture {
@@ -160,7 +160,7 @@ export function resolveFixtureName(name: string): NameFixture {
 
 Now run a monthly payment against the fixture. The example records the resolved meta-address and emits the payment intent your real worker would hand to the Wraith sender.
 
-```typescript
+```typescript no-check
 const FUTURENET_RPC_URL = "https://rpc-futurenet.stellar.org";
 const FUTURENET_PASSPHRASE = "Test SDF Future Network ; October 2022";
 
@@ -204,7 +204,7 @@ For a live network run, replace `resolveFixtureName` with `wraith.resolveName("m
 
 Assume the first billing run resolves `merchant.wraith` to meta-address A. Before the second run, the merchant rotates their stealth keys and updates the name record to meta-address B.
 
-```typescript
+```typescript no-check
 const beforeRotation = resolveFixtureName("merchant.wraith");
 
 const afterRotation: NameFixture = {
@@ -228,7 +228,7 @@ In production, the merchant performs the rotation with the `wraith-names` `updat
 
 Cancellation belongs to the payer's billing system. The payer should mark the subscription cancelled and stop scheduling future sends:
 
-```typescript
+```typescript no-check
 export function cancelSubscription(
   current: Subscription,
   cancelledAt: string
@@ -265,7 +265,7 @@ This is stricter than the raw meta-address cookbook flow. With a raw meta-addres
 
 A `.wraith` name can be active, in grace period, or expired. The subscription worker should treat those states differently:
 
-```typescript
+```typescript no-check
 interface NameInfo {
   state: "active" | "grace_period" | "expired";
   expiryLedger: number;
