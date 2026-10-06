@@ -1,0 +1,268 @@
+---
+title: "Solana Security Checklist"
+description: "Pre-release security checklist for builders integrating Wraith Protocol stealth payments on Solana"
+---
+
+Use this checklist before shipping any integration that touches Wraith Protocol on Solana. Each item maps to a known risk in the [Threat Model](/reference/threat-model) and links to the relevant program or SDK reference.
+
+This list is scoped to what a builder controls — key handling, network selection, account validation, rent, and operational decisions. It is suitable for use as a pull request review checklist or a pre-mainnet sign-off.
+
+---
+
+## Key Handling
+
+<AccordionGroup>
+
+<Accordion title="Never log or persist the viewing private key">
+The viewing key is required to scan announcements. Exposing it lets any observer link all incoming stealth payments to a single meta-address, breaking unlinkability. See [R-02](/reference/threat-model#r-02----view-key-exposure).
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+
+// BAD — do not log key material
+const { viewingKey } = await wraith.generateStealthKeys();
+console.log("viewing key:", viewingKey); // never do this
+
+// GOOD — keep the key in memory only for the scan duration
+const payments = await wraith.scanPayments({ chain: Chain.Solana });
+```
+</Accordion>
+
+<Accordion title="Generate a fresh ephemeral key for every payment">
+Reusing the same ephemeral key pair across two payments links both stealth addresses to the same sender session, breaking unlinkability. The SDK generates a fresh key on every `generateStealthAddress()` call. Custom implementations must not cache or reuse ephemeral keys. See [R-01](/reference/threat-model#r-01----ephemeral-key-reuse).
+
+```typescript
+import { generateStealthAddress } from "@wraith-protocol/sdk/chains/solana";
+
+// GOOD — called once per payment, produces a fresh ephemeral key each time
+const stealth1 = generateStealthAddress(spendingPubKey, viewingPubKey);
+const stealth2 = generateStealthAddress(spendingPubKey, viewingPubKey);
+
+// stealth1.ephemeralPubKey !== stealth2.ephemeralPubKey — always
+```
+</Accordion>
+
+<Accordion title="Validate the meta-address bytes before registering a name">
+`wraith-names` stores meta-addresses as `[u8; 64]`. Registering garbage bytes (e.g., a zeroed array) creates a name that resolves to an unusable meta-address. Senders will derive stealth addresses the recipient can never spend. Validate the key material before building the registration instruction. See [L-13](/reference/threat-model#wraith-names-solana).
+
+```typescript
+import { encodeStealthMetaAddress, isValidMetaAddress } from "@wraith-protocol/sdk/chains/solana";
+
+const metaAddress = encodeStealthMetaAddress(keys.spendingPubKey, keys.viewingPubKey);
+if (!isValidMetaAddress(metaAddress)) throw new Error("Invalid meta-address");
+```
+</Accordion>
+
+<Accordion title="Store spending and viewing keys separately">
+The spending key authorizes fund movement. The viewing key only permits scanning. Grant scanning access (viewing key) without ever co-locating the spending key. If you run a scanning service, it should never hold the spending key.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Network Selection
+
+<AccordionGroup>
+
+<Accordion title="Use a dedicated RPC endpoint — not the public Solana mainnet RPC for production">
+The public Solana RPC endpoint at `api.mainnet-beta.solana.com` rate-limits aggressively and may return stale or incomplete transaction logs. Use a dedicated RPC provider for announcement scanning and transaction submission in production.
+
+```typescript
+import { Connection, clusterApiUrl } from "@solana/web3.js";
+
+// Development
+const conn = new Connection(clusterApiUrl("devnet"), "confirmed");
+
+// Production — use a dedicated RPC provider
+const conn = new Connection("https://your-dedicated-rpc.example.com", "confirmed");
+```
+</Accordion>
+
+<Accordion title="Confirm the program ID matches the deployed program before building instructions">
+Anchor instructions are keyed to a program ID. If you hard-code the wrong program ID (e.g., devnet program ID in a mainnet deployment), transactions are silently sent to a non-existent program or the wrong one. Always read the program ID from a versioned deployment config.
+
+```typescript
+import { PROGRAM_IDS } from "@wraith-protocol/sdk/chains/solana";
+
+// Read from your deployment config — never hard-code
+const programId = PROGRAM_IDS[cluster]; // "mainnet-beta" | "devnet"
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Replay and Replay Prevention
+
+<AccordionGroup>
+
+<Accordion title="Use a recent blockhash and set an appropriate expiry">
+Solana transactions include a recent blockhash as a replay-prevention mechanism. A blockhash older than ~150 slots (~60 seconds) is rejected. Fetch a fresh blockhash immediately before signing and submitting.
+
+```typescript
+const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+const tx = new Transaction({ recentBlockhash: blockhash, feePayer: payer.publicKey });
+// Submit before lastValidBlockHeight is passed
+```
+</Accordion>
+
+<Accordion title="Do not reuse or cache blockhashes across multiple transactions">
+Submitting two different transactions with the same blockhash and the same nonce can produce duplicate transaction IDs. Build and sign each transaction with its own fresh blockhash.
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Fees and Accounts
+
+<AccordionGroup>
+
+<Accordion title="Create the stealth ATA before sending SPL tokens">
+`send_spl` transfers tokens to the stealth address's Associated Token Account (ATA). If the ATA does not exist, the transaction fails. Create the ATA before calling `send_spl`, or bundle the ATA creation into the same transaction. See [L-08](/reference/threat-model#wraith-sender-solana).
+
+```typescript
+import {
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
+  getAccount,
+} from "@solana/spl-token";
+import { PublicKey } from "@solana/web3.js";
+
+const ata = await getAssociatedTokenAddress(mint, new PublicKey(stealth.stealthAddress));
+
+// Check if ATA exists; create it if not
+try {
+  await getAccount(connection, ata);
+} catch {
+  transaction.add(
+    createAssociatedTokenAccountInstruction(payer, ata, new PublicKey(stealth.stealthAddress), mint)
+  );
+}
+```
+</Accordion>
+
+<Accordion title="Fund the stealth account with the rent-exempt minimum before SOL transfers">
+A Solana account must hold at least the rent-exempt minimum (~0.00089 SOL) to remain open. For stealth accounts receiving SOL, confirm the amount sent is at least the rent-exempt minimum. See [L-08](/reference/threat-model#wraith-sender-solana).
+
+```typescript
+import { LAMPORTS_PER_SOL } from "@solana/web3.js";
+
+const rentExempt = await connection.getMinimumBalanceForRentExemption(0);
+if (amount < rentExempt) {
+  throw new Error(`Amount ${amount} lamports is below rent-exempt minimum ${rentExempt}`);
+}
+```
+</Accordion>
+
+<Accordion title="Derive and verify the stealth ATA before passing it to send_spl">
+`send_spl`'s `stealth_token_account` account is not verified as the canonical ATA of the stealth address on-chain. Passing the wrong token account sends tokens to an unintended recipient. Always derive the ATA from the stealth address and the mint before building the instruction. See [L-06](/reference/threat-model#wraith-sender-solana).
+
+```typescript
+import { getAssociatedTokenAddress } from "@solana/spl-token";
+
+const stealthTokenAccount = await getAssociatedTokenAddress(
+  mint,
+  new PublicKey(stealth.stealthAddress),
+  false, // allowOwnerOffCurve: false for standard accounts
+);
+
+await program.methods
+  .sendSpl(amount, SCHEME_ID, /* ... */)
+  .accounts({
+    sender: wallet.publicKey,
+    senderTokenAccount: senderAta,
+    stealthTokenAccount, // verified ATA — not a caller-supplied arbitrary address
+    tokenProgram: TOKEN_PROGRAM_ID,
+  })
+  .rpc();
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Upgrades and Program Lifecycle
+
+<AccordionGroup>
+
+<Accordion title="Burn or transfer the upgrade authority after mainnet deployment">
+If the program upgrade authority is retained after deployment, a compromised deployer key can silently replace program logic. After auditing and deploying to mainnet, burn the upgrade authority or transfer it to a time-locked multisig. See [R-08](/reference/threat-model#r-08----script--program-upgrade-authority), [L-16](/reference/threat-model#wraith-names-solana).
+
+```bash
+# Burn upgrade authority (irreversible — do this only after thorough testing)
+solana program set-upgrade-authority <program-id> --final
+```
+</Accordion>
+
+<Accordion title="Publish program IDs and program hash for independent verification">
+After mainnet deployment, publish program IDs and their on-chain program data hash. Integrators can verify the deployed binary matches the audited source.
+
+```bash
+# Get the deployed program hash
+solana program dump <program-id> /tmp/deployed.so
+sha256sum /tmp/deployed.so
+# Compare against the hash of the audited source build
+```
+</Accordion>
+
+<Accordion title="Confirm announcement events are queryable before go-live">
+Announcement events are emitted via Anchor's `emit!()` macro into transaction logs. Confirm your scanning infrastructure can parse these logs for the target RPC endpoint and commitment level before switching to mainnet.
+
+```typescript
+import { Program } from "@coral-xyz/anchor";
+
+// Parse announcement events from a confirmed transaction
+const txDetails = await connection.getTransaction(txSig, {
+  commitment: "confirmed",
+  maxSupportedTransactionVersion: 0,
+});
+
+program.coder.events.decode(/* log string from txDetails.meta.logMessages */);
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Recovery
+
+<AccordionGroup>
+
+<Accordion title="Warn users that a lost owner key permanently locks their .wraith name PDA">
+If a user loses the wallet that owns a `wraith-names` PDA, they cannot call `update` or `release`. The name is permanently locked and the rent is unrecoverable. Surface this warning in your UI before name registration. See [L-15](/reference/threat-model#wraith-names-solana).
+</Accordion>
+
+<Accordion title="Account for immediate re-registrability after name release">
+When a name is released via `release`, the PDA is closed and the name is immediately available for re-registration by anyone. If a user plans to release and re-register a name (e.g., to update meta-address without a round-trip), they must do it atomically or accept the race window. See [L-14](/reference/threat-model#wraith-names-solana).
+</Accordion>
+
+<Accordion title="Validate the stealth address derivation before scanning">
+`send_sol` uses `UncheckedAccount` for the stealth address receiver. If a scanning service or custom integration computes a stealth address incorrectly, the payment may land at the wrong address. Validate derivation end-to-end in your test suite. See [L-05](/reference/threat-model#wraith-sender-solana).
+
+```typescript
+import { computeStealthAddress, verifyStealthAddress } from "@wraith-protocol/sdk/chains/solana";
+
+// Derive and verify before submitting any payment
+const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
+console.assert(verifyStealthAddress(stealth, spendingPubKey, viewingPubKey), "Derivation error");
+```
+</Accordion>
+
+</AccordionGroup>
+
+---
+
+## Linking to SDK and Contract APIs
+
+| Area | Reference |
+|---|---|
+| Key generation and stealth address derivation | [`@wraith-protocol/sdk/chains/solana`](/sdk/chains/solana) |
+| Program interfaces | [Solana Contracts](/contracts/solana) |
+| Full STRIDE threat analysis | [Threat Model — Solana](/reference/threat-model#solana-programs) |
+| Residual risks (R-01 to R-08) | [Threat Model — Residual Risks](/reference/threat-model#residual-risks) |
+| Privacy guidance for withdrawals | [Privacy Best Practices](/guides/privacy-best-practices) |
