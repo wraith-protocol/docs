@@ -75,6 +75,12 @@ jobs:
       - name: Check nav coverage
         run: pnpm run check:nav-coverage
 
+- name: Check network docs
+        run: pnpm run check:network-docs
+
+      - name: Unit-test the network docs checker
+        run: pnpm run test:network-docs
+
       - name: Check contract registry
         run: pnpm run check:contract-registry
 
@@ -133,7 +139,6 @@ jobs:
 
       - name: Check extended snippets (Rust / Python / shell / JSON / TOML / YAML)
         run: pnpm run check:snippets-extended
-
   stellar-testnet-snippets:
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest

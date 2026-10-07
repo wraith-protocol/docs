@@ -20,7 +20,9 @@
     "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
-    "test": "npm run check:snippets && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run test:redirects-and-anchors"
+    "test": "npm run check:snippets && npm run check:nav-coverage && npm run check:network-docs",
+    "check:network-docs": "tsx scripts/check-network-docs.ts",
+    "test:network-docs": "tsx --test scripts/tests/network-docs.test.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.95.0",
