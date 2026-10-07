@@ -270,7 +270,7 @@ const signature = signWithScalar(messageBytes, stealthScalar, stealthPubKey);
 
 The stealth scalar `(spendingScalar + hashScalar) % L` is not necessarily clamped, so standard Stellar signing functions don't work.
 
-### `signStellarTransaction(txHash, stealthScalar, stealthPubKey)`
+### `signStellarTransaction(txHash, stealthScalar, stealthPubKey)` {#signstellartransaction}
 
 Sign a Stellar transaction hash with a stealth private scalar.
 
@@ -388,6 +388,8 @@ for (const m of matched) {
 ## Chain Deployments
 
 The SDK ships with deployed contract addresses and RPC URLs for supported Stellar networks.
+The [Contract Registry](/reference/contract-registry) mirrors these values with artifact
+hashes and deployment ledgers, and is the canonical page to verify against.
 
 ### `getDeployment(chain)`
 
@@ -440,7 +442,7 @@ For detailed fee calculations, baseline resource metrics, and budgeting advice f
 - [Stellar Offline Transaction Signing](/guides/stellar-offline-signing) — build online, sign air-gapped, submit without the private key touching the internet
 ## See Also
 
-- [Stellar React Hooks](/sdk/stellar-react-hooks) — React hooks for stealth address operations
+- [React Native SDK integration](/guides/integrations/react-native) — use the Wraith SDK in React Native applications
 - [Wraith Names on Stellar](/guides/wraith-names-stellar) — core protocol identity lifecycle and subdomains
 - [Stellar Multisig Stealth Withdrawals](/guides/stellar-multisig-withdrawal) — coordinate N-of-M signers to authorize withdrawals from a multisig source account
 ## Federation Address Resolution

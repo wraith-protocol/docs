@@ -1,0 +1,106 @@
+{
+  "$comment": "Canonical Wraith contract registry. Source of truth: @wraith-protocol/sdk getDeployment() plus the contracts repo audit-prep/DEPLOYMENT_MANIFEST.md. Validated offline by scripts/check-contract-registry.mjs. Do not hand-edit addresses without a matching SDK release.",
+  "sdkVersion": "1.4.5",
+  "verifiedAt": "2026-09-26",
+  "sources": {
+    "sdkManifest": "@wraith-protocol/sdk → getDeployment() (resolved from the lockfile, so CI always checks the same version)",
+    "contractsManifest": "https://raw.githubusercontent.com/wraith-protocol/contracts/<pin>/audit-prep/DEPLOYMENT_MANIFEST.md",
+    "readiness": "https://raw.githubusercontent.com/wraith-protocol/contracts/<pin>/MAINNET_READINESS.md",
+    "onChainExplorerApi": "https://api.stellar.expert/explorer/{network}/contract/{contract-id} → wasm hash + created timestamp",
+    "onChainLedgerApi": "https://horizon-testnet.stellar.org/ledgers/{sequence} → closed_at timestamp for the deployment ledger"
+  },
+  "pinnedContractsRepoCommit": "7bc1c6c11e755aac9f4ddcfbe12d774a918f5724",
+  "networks": {
+    "stellar-testnet": {
+      "label": "Stellar Testnet",
+      "network": "testnet",
+      "passphrase": "Test SDF Network ; September 2015",
+      "status": "live",
+      "explorerBase": "https://stellar.expert/explorer/testnet/contract",
+      "contracts": {
+        "stealth-announcer": {
+          "sdkKey": "announcer",
+          "address": "CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL",
+          "version": "v2",
+          "artifactHash": "7ef72be0b50f6b25ddd935aa0c0abcf18af28754a2e16fb5b40dcf9a4b497fc8",
+          "deploymentLedger": 1977426,
+          "deployedAt": "2026-04-11",
+          "upgradeable": false
+        },
+        "stealth-registry": {
+          "sdkKey": null,
+          "address": null,
+          "version": "v1",
+          "artifactHash": null,
+          "deploymentLedger": null,
+          "deployedAt": null,
+          "upgradeable": false
+        },
+        "stealth-sender": {
+          "sdkKey": null,
+          "address": null,
+          "version": "v1",
+          "artifactHash": null,
+          "deploymentLedger": null,
+          "deployedAt": null,
+          "upgradeable": true
+        },
+        "wraith-names": {
+          "sdkKey": "names",
+          "address": "CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV",
+          "version": "v1",
+          "artifactHash": "d850b75b39eacadfb576d18b238080266d22265d6161dc903d38f83cd33233eb",
+          "deploymentLedger": 1978203,
+          "deployedAt": "2026-04-11",
+          "upgradeable": true
+        },
+        "stealth-splitter": {
+          "sdkKey": null,
+          "address": null,
+          "version": "v1",
+          "artifactHash": null,
+          "deploymentLedger": null,
+          "deployedAt": null,
+          "upgradeable": true
+        },
+        "stealth-batch-sender": {
+          "sdkKey": null,
+          "address": null,
+          "version": "v1",
+          "artifactHash": null,
+          "deploymentLedger": null,
+          "deployedAt": null,
+          "upgradeable": true
+        }
+      }
+    },
+    "stellar-futurenet": {
+      "label": "Stellar Futurenet",
+      "network": "futurenet",
+      "passphrase": "Test SDF Future Network ; October 2022",
+      "status": "not-deployed",
+      "explorerBase": "https://stellar.expert/explorer/futurenet/contract",
+      "contracts": {
+        "stealth-announcer": { "sdkKey": null, "address": null, "version": null, "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false },
+        "stealth-registry": { "sdkKey": null, "address": null, "version": null, "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false },
+        "stealth-sender": { "sdkKey": null, "address": null, "version": null, "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
+        "wraith-names": { "sdkKey": null, "address": null, "version": null, "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true }
+      }
+    },
+    "stellar-mainnet": {
+      "label": "Stellar Mainnet",
+      "network": "mainnet",
+      "passphrase": "Public Global Stellar Network ; September 2015",
+      "status": "pending",
+      "explorerBase": "https://stellar.expert/explorer/public/contract",
+      "contracts": {
+        "stealth-announcer": { "sdkKey": null, "address": null, "version": "v2", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false },
+        "stealth-registry": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false },
+        "stealth-sender": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
+        "wraith-names": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
+        "stealth-splitter": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
+        "stealth-batch-sender": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true }
+      }
+    }
+  }
+}

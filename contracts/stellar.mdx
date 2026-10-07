@@ -23,7 +23,7 @@ Emits announcement events. No persistent storage.
 
 ### Interface
 
-```rust
+```rust no-check
 pub fn announce(
     env: Env,
     caller: Address,
@@ -68,7 +68,7 @@ Maps addresses to 64-byte stealth meta-addresses.
 
 ### Interface
 
-```rust
+```rust no-check
 pub fn register_keys(
     env: Env,
     registrant: Address,
@@ -105,7 +105,7 @@ Atomic send + announce. Initializes with the announcer contract address.
 
 ### Interface
 
-```rust
+```rust no-check
 pub fn init(env: Env, admin: Address, announcer: Address);
 
 pub fn send(
@@ -169,7 +169,7 @@ Name to meta-address mapping. Names are hashed via SHA-256 for storage keys.
 
 ### Interface
 
-```rust
+```rust no-check
 pub fn register(env: Env, caller: Address, name: String, meta_address: Bytes);
 pub fn update(env: Env, caller: Address, name: String, new_meta_address: Bytes);
 pub fn release(env: Env, caller: Address, name: String);
@@ -215,6 +215,12 @@ Set `STELLAR_BINDINGS_DIR` to the generated TypeScript bindings directory, then 
 
 ## Deployment
 
+<Note>
+  Live addresses, versions, artifact hashes, and deployment ledgers are published in
+  the [Contract Registry](/reference/contract-registry). Verify any address against it
+  before deploying or integrating.
+</Note>
+
 ### Build
 
 ```bash
@@ -226,7 +232,7 @@ cd contracts/wraith-names && soroban contract build
 
 ### Deploy
 
-```bash
+```bash no-check
 soroban contract deploy \
   --wasm target/wasm32-unknown-unknown/release/stealth_announcer.wasm \
   --network testnet \
@@ -237,7 +243,7 @@ soroban contract deploy \
 
 After deploying both the announcer and sender:
 
-```bash
+```bash no-check
 soroban contract invoke \
   --id <sender-contract-id> \
   --network testnet \

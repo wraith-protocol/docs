@@ -8,12 +8,36 @@ on:
       - main
 
 jobs:
-  check-snippets:
-    name: Compile docs snippets
+  extract-sdk-version:
+    name: Extract SDK version
     runs-on: ubuntu-latest
+    outputs:
+      sdk-version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Extract SDK version from package.json
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').dependencies['@wraith-protocol/sdk']")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected SDK version: $VERSION"
+
+  check-snippets:
+    name: Compile docs snippets
+    runs-on: ubuntu-latest
+    needs: extract-sdk-version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -26,25 +50,100 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Download published SDK artifact
+        run: |
+          echo "Downloading @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}"
+          cd /tmp
+          npm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}
+
+      - name: Install dependencies with pinned SDK
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm remove @wraith-protocol/sdk
+          pnpm add /tmp/wraith-protocol-sdk-${{ needs.extract-sdk-version.outputs.sdk-version }}.tgz
+
+      - name: Record tested SDK version
+        run: |
+          echo "Testing against SDK version: ${{ needs.extract-sdk-version.outputs.sdk-version }}"
 
       - name: Check snippets
         run: pnpm run check:snippets
 
+      - name: Check placeholders
+        run: pnpm run check:placeholders
+
       - name: Check nav coverage
         run: pnpm run check:nav-coverage
 
-      - name: Check network docs
+- name: Check network docs
         run: pnpm run check:network-docs
 
       - name: Unit-test the network docs checker
         run: pnpm run test:network-docs
 
+      - name: Check contract registry
+        run: pnpm run check:contract-registry
+
+      - name: Check redirects and anchors
+        env:
+          DOCS_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          DOCS_DIFF_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: pnpm run check:redirects-and-anchors
+
+      - name: Test redirects and anchors check
+        run: pnpm run test:redirects-and-anchors
+
+  check-snippets-extended:
+    name: Compile Rust / Python / shell / config snippets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Rust — pinned stable toolchain for reproducibility.
+      # -----------------------------------------------------------------------
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.78.0"
+
+      # -----------------------------------------------------------------------
+      # Python — pinned minor version; patch resolved by setup-python.
+      # -----------------------------------------------------------------------
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # bash is already present on ubuntu-latest; print versions for the log.
+      - name: Verify toolchains
+        run: |
+          rustc --version
+          python3 --version
+          bash --version | head -1
+
+      - name: Check extended snippets (Rust / Python / shell / JSON / TOML / YAML)
+        run: pnpm run check:snippets-extended
   stellar-testnet-snippets:
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest
     continue-on-error: true
+    needs: extract-sdk-version
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -60,8 +159,21 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Download published SDK artifact
+        run: |
+          echo "Downloading @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}"
+          cd /tmp
+          npm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}
+
+      - name: Install dependencies with pinned SDK
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm remove @wraith-protocol/sdk
+          pnpm add /tmp/wraith-protocol-sdk-${{ needs.extract-sdk-version.outputs.sdk-version }}.tgz
+
+      - name: Record tested SDK version
+        run: |
+          echo "Testing against SDK version: ${{ needs.extract-sdk-version.outputs.sdk-version }}"
 
       - name: Validate Stellar testnet snippets
         run: pnpm run check:stellar-testnet
@@ -69,6 +181,7 @@ jobs:
   playground-smoke:
     name: Playground smoke test
     runs-on: ubuntu-latest
+    needs: extract-sdk-version
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -84,8 +197,21 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Download published SDK artifact
+        run: |
+          echo "Downloading @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}"
+          cd /tmp
+          npm pack @wraith-protocol/sdk@${{ needs.extract-sdk-version.outputs.sdk-version }}
+
+      - name: Install dependencies with pinned SDK
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm remove @wraith-protocol/sdk
+          pnpm add /tmp/wraith-protocol-sdk-${{ needs.extract-sdk-version.outputs.sdk-version }}.tgz
+
+      - name: Record tested SDK version
+        run: |
+          echo "Testing against SDK version: ${{ needs.extract-sdk-version.outputs.sdk-version }}"
 
       - name: Verify playground fixtures are in sync
         run: pnpm run check:playground-fixtures

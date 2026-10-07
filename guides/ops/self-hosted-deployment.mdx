@@ -100,7 +100,7 @@ Names:     CDDD...
 
 The deploy script automatically wires the contracts. Specifically, it calls:
 
-```bash
+```bash no-check
 soroban contract invoke \
     --id <SENDER_ID> \
     --source wraith-deployer \
@@ -117,7 +117,7 @@ contract IDs and is the canonical record of your deployment.
 
 Share this file with any consumer application. Its structure:
 
-```json
+```json no-check
 {
   "network": "futurenet",
   "contracts": {

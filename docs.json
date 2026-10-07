@@ -7,6 +7,9 @@
     "light": "/assets/images/logo-black.png"
   },
   "favicon": "/assets/images/logo-black.png",
+  "redirects": [
+    { "source": "/README", "destination": "/introduction" }
+  ],
   "colors": {
     "primary": "#c6c6c7",
     "light": "#e6e1e5",
@@ -98,9 +101,12 @@
             "pages": [
               "reference/audits",
               "reference/auditor-guide",
+              "reference/contract-registry",
+              "reference/compatibility-matrix",
               "reference/error-codes",
               "reference/security-disclosure",
               "reference/sep-compatibility",
+              "reference/stellar-event-schemas",
               "reference/stellar-networks",
               "reference/threat-model"
             ]

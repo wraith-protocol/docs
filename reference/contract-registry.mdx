@@ -1,0 +1,134 @@
+---
+title: "Contract Registry"
+description: "Canonical Wraith contract addresses, versions, artifact hashes, and deployment ledgers for Stellar Testnet, Futurenet, and Mainnet"
+keywords: "Stellar, contract registry, testnet, futurenet, mainnet, soroban, contract id, wasm hash, deployment ledger, explorer"
+---
+
+This page is the **canonical registry** for Wraith Protocol contract deployments. An address only ships here after it is recorded in the SDK deployment manifest and the contracts repo deployment manifest. If you find a contract address anywhere else in the docs, compare it against this page.
+
+The machine-readable copy lives at [`scripts/contract-registry.json`](https://github.com/wraith-protocol/docs/blob/develop/scripts/contract-registry.json). CI cross-verifies every recorded fact against pinned authoritative sources — the `@wraith-protocol/sdk` `getDeployment()` manifest from the lockfile, the live on-chain WASM hash and creation timestamp for each deployed contract, and the contracts-repo deployment manifest at a pinned commit — and fails when any of them disagree or when a stale placeholder is reintroduced.
+
+<Note>
+  Public testnet contract state can change at any time, and testnet is reset roughly
+  quarterly. Mainnet is not deployed yet. Treat **Not deployed** rows as authoritative
+  until a release says otherwise.
+</Note>
+
+## Status legend
+
+| Status | Meaning |
+|---|---|
+| **Live** | Deployed and usable today. Address, version, artifact hash, and ledger are recorded. |
+| **Pending** | Deployment is planned but not complete. Do not use a placeholder address. |
+| **Not deployed** | No Wraith contracts on this network. |
+
+## Stellar Testnet — Live
+
+Live and safe for integration testing. Addresses match `getDeployment("stellar")` in `@wraith-protocol/sdk`.
+
+| Contract | Address | Version | Artifact hash (WASM) | Deployed ledger | Explorer |
+|---|---|---|---|---|---|
+| `stealth-announcer` | `CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL` | v2 | `7ef72be0b50f6b25ddd935aa0c0abcf18af28754a2e16fb5b40dcf9a4b497fc8` | `1977426` | [View](https://stellar.expert/explorer/testnet/contract/CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL) |
+| `stealth-registry` | Not deployed | v1 | — | — | — |
+| `stealth-sender` | Not deployed | v1 | — | — | — |
+| `wraith-names` | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` | v1 | `d850b75b39eacadfb576d18b238080266d22265d6161dc903d38f83cd33233eb` | `1978203` | [View](https://stellar.expert/explorer/testnet/contract/CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV) |
+| `stealth-splitter` | Not deployed | v1 | — | — | — |
+| `stealth-batch-sender` | Not deployed | v1 | — | — | — |
+
+```typescript
+import { getDeployment } from "@wraith-protocol/sdk/chains/stellar";
+
+const deployment = getDeployment("stellar");
+
+console.log(deployment.network); // "testnet"
+console.log(deployment.contracts.announcer);
+// CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL
+console.log(deployment.contracts.names);
+// CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV
+```
+
+## Stellar Futurenet — Not deployed
+
+Futurenet runs unreleased Soroban protocol versions. Wraith contracts are **not deployed** there, and `getDeployment("futurenet")` throws instead of returning fabricated addresses. Use Futurenet only for previewing Soroban changes.
+
+| Contract | Address | Version | Artifact hash | Deployed ledger | Explorer |
+|---|---|---|---|---|---|
+| `stealth-announcer` | Not deployed | — | — | — | — |
+| `stealth-registry` | Not deployed | — | — | — | — |
+| `stealth-sender` | Not deployed | — | — | — | — |
+| `wraith-names` | Not deployed | — | — | — | — |
+
+See [Stellar Networks](/reference/stellar-networks#futurenet) for Futurenet passphrase and RPC details.
+
+## Stellar Mainnet — Pending
+
+Mainnet deployment is gated on the security audit and remediation, per the contracts repo deployment manifest. Current target versions are `v2` for `stealth-announcer` and `v1` for the rest. Addresses will be published on this page the moment they are live.
+
+| Contract | Address | Version | Artifact hash | Deployed ledger | Explorer |
+|---|---|---|---|---|---|
+| `stealth-announcer` | Not deployed | v2 | — | — | — |
+| `stealth-registry` | Not deployed | v1 | — | — | — |
+| `stealth-sender` | Not deployed | v1 | — | — | — |
+| `wraith-names` | Not deployed | v1 | — | — | — |
+| `stealth-splitter` | Not deployed | v1 | — | — | — |
+| `stealth-batch-sender` | Not deployed | v1 | — | — | — |
+
+<Warning>
+  Never substitute a guessed or placeholder contract address for a contract that has not yet been deployed.
+  `getDeployment("stellar")` throws for an unknown network, and calls against an
+  absent contract id fail on-chain.
+</Warning>
+
+## Governance and upgradeability
+
+| Contract | Admin | Upgrade path |
+|---|---|---|
+| `stealth-announcer` | None | Immutable — no upgrade mechanism |
+| `stealth-registry` | None | Immutable — no upgrade mechanism |
+| `stealth-sender` | 3-of-5 multisig | Upgradeable with a 7-day timelock (120,960 ledgers), emergency pause |
+| `wraith-names` | 3-of-5 multisig | Upgradeable with a 7-day timelock; no pause |
+
+## Verify a deployed contract
+
+Confirm the artifact hash above matches the WASM installed on-chain before you trust an address:
+
+```bash
+# Fetch the deployed WASM for a contract id
+stellar contract fetch \
+  --id CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL \
+  --network testnet \
+  --out deployed.wasm
+
+# Compare the hash with the registry
+sha256sum deployed.wasm
+# 7ef72be0b50f6b25ddd935aa0c0abcf18af28754a2e16fb5b40dcf9a4b497fc8
+```
+
+## Other chains
+
+EVM, Solana, and CKB deployments are published through the SDK rather than this Stellar-focused page. Read them from the SDK:
+
+```typescript
+import { getDeployment as getEvmDeployment } from "@wraith-protocol/sdk/chains/evm";
+import { getDeployment as getSolanaDeployment } from "@wraith-protocol/sdk/chains/solana";
+import { getDeployment as getCkbDeployment } from "@wraith-protocol/sdk/chains/ckb";
+
+console.log(getEvmDeployment("horizen").contracts);
+console.log(getSolanaDeployment("solana").contracts);
+console.log(getCkbDeployment("ckb").contracts);
+```
+
+<CardGroup cols={2}>
+  <Card title="Stellar Networks" href="/reference/stellar-networks" icon="network-wired">
+    Passphrases, RPC endpoints, Friendbot, and reset cadence for every Stellar network
+  </Card>
+  <Card title="Stellar Contracts" href="/contracts/stellar" icon="file-code">
+    Interface specs for stealth-announcer, stealth-registry, stealth-sender, and wraith-names
+  </Card>
+  <Card title="Stellar Mainnet Deployment" href="/guides/stellar-mainnet-deployment" icon="server">
+    Operator guide for the mainnet rollout
+  </Card>
+  <Card title="Stellar Quickstart" href="/guides/stellar/stellar-quickstart" icon="bolt">
+    Create an agent and send your first stealth payment against the live testnet contracts
+  </Card>
+</CardGroup>

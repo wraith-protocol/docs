@@ -7,9 +7,10 @@ keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, p
 This guide is for **operators** deploying and running Wraith Stellar contracts on mainnet: validators, custody providers, and Spectre instance hosts. It covers everything from hardware requirements to upgrade governance.
 
 <Warning>
-  All contract addresses on this page are **placeholder values** (`CPLACEHOLDER...`). They will be
-  replaced with canonical mainnet addresses once the Stellar mainnet deployment completes. Do not
-  use these addresses in production until that update lands.
+  Wraith contracts are not deployed on Stellar mainnet yet. The
+  [Contract Registry](/reference/contract-registry) publishes canonical addresses,
+  versions, artifact hashes, and deployment ledgers the moment the deployment lands.
+  Do not use guessed addresses in production.
 </Warning>
 
 ---
@@ -85,7 +86,7 @@ stellar account fund <OPERATOR_ADDRESS> --network mainnet
 | Admin | 50 XLM | Init + governance transactions |
 | Operator (Spectre) | 200 XLM | Ongoing transaction fees |
 
-Keep the operator account above **50 XLM** at all times. Set up an alert at that threshold (see [Monitoring](#monitoring--alerting)).
+Keep the operator account above **50 XLM** at all times. Set up an alert at that threshold (see [Monitoring](#monitoring-and-alerting)).
 
 ### Soroban Contract Storage Fees
 
@@ -98,42 +99,41 @@ Soroban contracts require rent payments for persistent storage. The `stealth-reg
 
 ## Contract Address Registry
 
-The following are the **canonical mainnet contract addresses** for Wraith Stellar contracts. All values are placeholders until the mainnet deployment is complete.
-
-<Warning>
-  These addresses are placeholders. They will be updated in this page and in
-  `contracts/stellar/MAINNET_READINESS.md` when mainnet deploy goes live.
-</Warning>
+The [Contract Registry](/reference/contract-registry) is the canonical source for Wraith
+contract addresses. Nothing is deployed on mainnet yet, so every mainnet row reads
+**Not deployed** until the audit-gated rollout completes.
 
 ### Mainnet
 
 | Contract | Address | Version |
 |---|---|---|
-| `stealth-announcer` | `CPLACEHOLDER_ANNOUNCER_MAINNET` | v2 |
-| `stealth-registry` | `CPLACEHOLDER_REGISTRY_MAINNET` | v1 |
-| `stealth-sender` | `CPLACEHOLDER_SENDER_MAINNET` | v1 |
-| `wraith-names` | `CPLACEHOLDER_NAMES_MAINNET` | v1 |
+| `stealth-announcer` | Not deployed | v2 |
+| `stealth-registry` | Not deployed | v1 |
+| `stealth-sender` | Not deployed | v1 |
+| `wraith-names` | Not deployed | v1 |
 
 ### Testnet (reference)
 
 | Contract | Address | Version |
 |---|---|---|
-| `stealth-announcer` | `CPLACEHOLDER_ANNOUNCER_TESTNET` | v2 |
-| `stealth-registry` | `CPLACEHOLDER_REGISTRY_TESTNET` | v1 |
-| `stealth-sender` | `CPLACEHOLDER_SENDER_TESTNET` | v1 |
-| `wraith-names` | `CPLACEHOLDER_NAMES_TESTNET` | v1 |
+| `stealth-announcer` | `CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL` | v2 |
+| `stealth-registry` | Not deployed | v1 |
+| `stealth-sender` | Not deployed | v1 |
+| `wraith-names` | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` | v1 |
 
 ### Configuring the Spectre Server
 
-Set these contract IDs in your environment:
+Set contract IDs from the registry. Until mainnet goes live, point the server at the
+live testnet values to stage the deployment:
 
-```bash
+```bash no-check
 # .env or environment config
-STELLAR_NETWORK=mainnet
-STELLAR_ANNOUNCER_CONTRACT_ID=CPLACEHOLDER_ANNOUNCER_MAINNET
-STELLAR_REGISTRY_CONTRACT_ID=CPLACEHOLDER_REGISTRY_MAINNET
-STELLAR_SENDER_CONTRACT_ID=CPLACEHOLDER_SENDER_MAINNET
-STELLAR_NAMES_CONTRACT_ID=CPLACEHOLDER_NAMES_MAINNET
+# Mainnet contract IDs are not published yet — see /reference/contract-registry.
+STELLAR_NETWORK=testnet
+STELLAR_ANNOUNCER_CONTRACT_ID=CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL
+STELLAR_NAMES_CONTRACT_ID=CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV
+# STELLAR_REGISTRY_CONTRACT_ID — not deployed on testnet yet
+# STELLAR_SENDER_CONTRACT_ID   — not deployed on testnet yet
 STELLAR_OPERATOR_SECRET=<your-operator-secret-key>
 ```
 
@@ -155,7 +155,7 @@ Wraith uses Soroban RPC for event fetching (`getEvents`) and transaction submiss
 
 ### Configuring the RPC URL
 
-```bash
+```bash no-check
 STELLAR_RPC_URL=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
 STELLAR_HORIZON_URL=https://horizon.stellar.org
 STELLAR_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
@@ -224,7 +224,7 @@ const events = await sorobanServer.getEvents({
 
 Configure multiple RPC endpoints in priority order:
 
-```bash
+```bash no-check
 STELLAR_RPC_URL_PRIMARY=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
 STELLAR_RPC_URL_FALLBACK=https://<slug>.stellar-mainnet.quiknode.pro/<API_KEY>
 ```
@@ -475,7 +475,7 @@ sha256sum target/wasm32-unknown-unknown/release/stealth_announcer.wasm
 
 Once review and sign-off are complete, the admin key executes the upgrade via Soroban's `update_current_contract_wasm`:
 
-```bash
+```bash no-check
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --network mainnet \
@@ -528,8 +528,9 @@ stellar account set-options \
 
 ## Related Resources
 
+- [Contract Registry](/reference/contract-registry) — canonical addresses, artifact hashes, and deployment ledgers
 - [Stellar Contracts Reference](/contracts/stellar) — full contract interface documentation
 - [Stellar Event Schemas (v2)](/reference/stellar-event-schemas) — announcement event topics and filtering
 - [Architecture Overview](/architecture/overview) — Spectre TEE server internals
 - [TEE Security](/architecture/tee) — key derivation and attestation model
-- `contracts/stellar/MAINNET_READINESS.md` — pre-launch checklist in the contracts repo
+- [`MAINNET_READINESS.md`](https://github.com/wraith-protocol/contracts/blob/develop/MAINNET_READINESS.md) — pre-launch checklist in the contracts repo

@@ -70,7 +70,7 @@ Track announcement scanning and event synchronization health:
 
 **Collection**: Expose metrics from your indexer service. Example Rust Prometheus exporter:
 
-```rust
+```rust no-check
 use prometheus::{Histogram, IntGauge, register_histogram, register_int_gauge};
 
 lazy_static! {

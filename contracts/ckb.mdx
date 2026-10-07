@@ -75,7 +75,7 @@ A lock script that verifies secp256k1 signatures against the stealth public key 
 
 ### Verification Flow
 
-```rust
+```rust no-check
 fn program_entry() -> i8 {
     let script = load_script();
     let args = script.args().raw_data();
@@ -108,7 +108,7 @@ The script uses `ckb-std` crypto syscalls or `ckb-auth` for secp256k1 signature 
 
 CKB's standard address hashing:
 
-```rust
+```rust no-check
 fn blake160(data: &[u8]) -> [u8; 20] {
     let hash = blake2b_256_with_personalization(data, b"ckb-default-hash");
     hash[0..20]
@@ -209,7 +209,7 @@ To **transfer** a name, consume the name Cell and create a new one with the same
 
 ### Verification Flow
 
-```rust
+```rust no-check
 fn program_entry() -> i8 {
     let script = load_script();
 

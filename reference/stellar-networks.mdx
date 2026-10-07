@@ -12,7 +12,7 @@ Quick reference for every Stellar network supported by Wraith Protocol — what 
 |---|---|---|---|
 | [Testnet](#testnet) | Development and integration testing | Live | ✓ |
 | [Futurenet](#futurenet) | Experimental Soroban preview features | Not deployed | ✓ |
-| [Mainnet](#mainnet) | Production | Pending mainnet launch | ✗ |
+| [Mainnet](#mainnet) | Production | Not yet deployed | ✗ |
 
 ---
 
@@ -61,20 +61,21 @@ await fetch(`https://friendbot.stellar.org?addr=${keypair.publicKey()}`);
 
 ### Wraith contract IDs
 
-<!-- Last verified: 2026-07-29. Re-run `npm run generate:stellar-reference` to refresh from bindings. -->
+<!-- Verified against scripts/contract-registry.json by `npm run check:contract-registry`. -->
 
 | Contract | Testnet address | Version |
 |---|---|---|
 | `stealth-announcer` | `CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL` | v2 |
-| `stealth-registry` | `CPLACEHOLDER_REGISTRY_TESTNET` | v1 |
-| `stealth-sender` | `CPLACEHOLDER_SENDER_TESTNET` | v1 |
+| `stealth-registry` | Not deployed | v1 |
+| `stealth-sender` | Not deployed | v1 |
 | `wraith-names` | `CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV` | v1 |
 
 <Note>
-  `stealth-registry` and `stealth-sender` addresses are pending deployment.
-  Track progress in `contracts/stellar/MAINNET_READINESS.md` in the contracts repo.
-  The `stealth-announcer` and `wraith-names` addresses above are live and sourced
-  from `getDeployment("stellar")` in the SDK.
+  This table is a quick reference. The [Contract Registry](/reference/contract-registry)
+  is the single source of truth and adds artifact hashes, deployment ledgers, and
+  explorer links. `stealth-announcer` and `wraith-names` are live and sourced from
+  `getDeployment("stellar")` in the SDK; `stealth-registry` and `stealth-sender`
+  are not deployed yet.
 </Note>
 
 ### Connecting with the SDK
@@ -111,8 +112,7 @@ STELLAR_HORIZON_URL=https://horizon-testnet.stellar.org
 STELLAR_RPC_URL=https://soroban-testnet.stellar.org
 STELLAR_ANNOUNCER_CONTRACT_ID=CCJLJ2QRBJAAKIG6ELNQVXLLWMKKWVN5O2FKWUETHZGMPAD4MHK7WVWL
 STELLAR_NAMES_CONTRACT_ID=CDEMB3MAE62ZOCCKZPTYSXR5CS5WVENPOU5MDVK4PNKTZXFVDC74AFBV
-# STELLAR_REGISTRY_CONTRACT_ID — pending deployment
-# STELLAR_SENDER_CONTRACT_ID   — pending deployment
+# stealth-registry and stealth-sender are not deployed on testnet yet
 ```
 
 ---
@@ -158,13 +158,13 @@ const soroban = new Server(FUTURENET_RPC);
 ## Mainnet
 
 The Stellar public network. **Wraith contracts are not yet deployed on mainnet.**
-Contract addresses will be published here and in `contracts/stellar/MAINNET_READINESS.md`
-once the mainnet deployment is complete.
+Addresses are published in the [Contract Registry](/reference/contract-registry) as
+soon as the mainnet deployment completes. Subscribe to the `#announcements` channel
+for the launch notification.
 
 <Warning>
-  All contract addresses below are **placeholder values** (`CPLACEHOLDER…`).
-  Do not use these in production. Subscribe to the `#announcements` channel for
-  the mainnet launch notification.
+  There are no mainnet contract addresses yet. Never substitute a guessed or
+  unverified address — use the [Contract Registry](/reference/contract-registry).
 </Warning>
 
 ### Connection details
@@ -194,14 +194,14 @@ failover configuration, and retention window guidance.
 
 | Contract | Mainnet address | Version |
 |---|---|---|
-| `stealth-announcer` | `CPLACEHOLDER_ANNOUNCER_MAINNET` | v2 |
-| `stealth-registry` | `CPLACEHOLDER_REGISTRY_MAINNET` | v1 |
-| `stealth-sender` | `CPLACEHOLDER_SENDER_MAINNET` | v1 |
-| `wraith-names` | `CPLACEHOLDER_NAMES_MAINNET` | v1 |
+| `stealth-announcer` | Not deployed | v2 |
+| `stealth-registry` | Not deployed | v1 |
+| `stealth-sender` | Not deployed | v1 |
+| `wraith-names` | Not deployed | v1 |
 
 ### Environment variables
 
-```bash
+```bash no-check
 STELLAR_NETWORK=mainnet
 STELLAR_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
 STELLAR_HORIZON_URL=https://horizon.stellar.org
@@ -236,6 +236,9 @@ STELLAR_RPC_URL=https://mainnet.stellar.validationcloud.io/v1/<YOUR_API_KEY>
   </Card>
   <Card title="Stellar Quickstart" href="/guides/stellar-quickstart" icon="bolt">
     Create an agent, fund it on testnet, and send your first stealth payment
+  </Card>
+  <Card title="Contract Registry" href="/reference/contract-registry" icon="address-book">
+    Canonical addresses, versions, artifact hashes, and deployment ledgers for every network
   </Card>
   <Card title="Stellar Event Schemas (v2)" href="/reference/stellar-event-schemas" icon="list">
     Soroban announcement event topics and view-tag filtering

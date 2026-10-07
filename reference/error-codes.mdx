@@ -21,7 +21,7 @@ Contract errors surface as `HostError: Error(Contract, #N)` in Soroban RPC respo
 | `#1` | `InvalidMetaAddressLength` | The meta-address payload is not exactly 64 bytes | Passing the human-readable `st:xlm:` prefix to `register_keys` instead of the raw 64-byte key material | Decode first: `decodeStealthMetaAddress("st:xlm:...")` returns raw bytes; pass those |
 | `#2` | `Unauthorized` | Caller is not the registered `registrant` | Invoking `register_keys` from a different keypair than the one in the auth envelope | Sign the transaction with the same keypair that you intend to register |
 
-See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hostError-contract-trapped) in the troubleshooting guide.
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hosterror-errorcontract-n-contract-trapped) in the troubleshooting guide.
 
 ---
 
@@ -34,7 +34,7 @@ See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshoot
 | `#3` | `ArityMismatch` | `batch_send` vectors have different lengths | Passing `stealth_addresses`, `amounts`, `ephemeral_pub_keys`, or `metadatas` arrays of unequal length | Ensure all four arrays are the same length before building the invocation |
 | `#4` | `ZeroAmount` | `amount == 0` | Passing `0` as the SAC token amount (e.g. wrong decimal scaling for USDC) | USDC uses 7 decimals: 1 USDC = `10_000_000` in the `i128`; verify your scaling |
 
-See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hostError-contract-trapped) and [`op_no_trust`](/guides/stellar-troubleshooting#18-op_no_trust--missing-trustline).
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hosterror-errorcontract-n-contract-trapped) and [`op_no_trust`](/guides/stellar-troubleshooting#18-op_no_trust--missing-trustline).
 
 ---
 
@@ -50,7 +50,7 @@ See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshoot
 | `#6` | `Unauthorized` | Caller is not the registered owner of the name | Attempting to `update` or `release` a name from a different keypair | Sign with the same keypair used during `register` |
 | `#7` | `NameAlreadyRegistered` | Calling `register` on a name that already exists | Race condition, or forgetting a previous registration | Call `resolve` first; if it returns data the name is taken |
 
-See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hostError-contract-trapped) in the troubleshooting guide.
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hosterror-errorcontract-n-contract-trapped) in the troubleshooting guide.
 
 ---
 
@@ -122,13 +122,13 @@ The table below maps each numbered entry in [stellar-troubleshooting.mdx](/guide
 | 4 | `op_no_destination` | Stellar protocol error — see Horizon docs |
 | 5 | `429 Too Many Requests` | Network / rate limiting |
 | 6 | `502 / 504 Gateway` | Network / node availability |
-| 7 | `retention window exceeded` | [`retention_window_exceeded`](#retention_window_exceeded) |
+| 7 | `retention window exceeded` | [`retention_window_exceeded`](#soroban-rpc--indexer-errors) |
 | 8 | `tx_too_late` | Stellar protocol error — see Horizon docs |
 | 9 | `Freighter not installed` | Browser / wallet environment |
 | 10 | `Network mismatch` | Browser / wallet environment |
 | 11 | `User rejected signature` | Browser / wallet UX |
 | 12 | `tx_bad_auth` / `op_bad_auth` | Stellar protocol error — see Horizon docs |
-| 13 | `Derived address matches recipient` | [`Point at infinity`](#point-at-infinity) |
+| 13 | `Derived address matches recipient` | [`Point at infinity`](/guides/stellar-troubleshooting#13-derived-address-matches-recipient) |
 | 14 | `Zero-balance scan returning matches` | Scan logic / stale ledger state |
 | 15 | `Name resolution null` | Federation / DNS availability |
 | 16 | `Stealth payload too large for memo` | Stellar memo size constraint (32 bytes) |

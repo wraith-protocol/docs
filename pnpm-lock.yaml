@@ -15,18 +15,24 @@ importers:
         specifier: ^13.1.0
         version: 13.3.0
       '@wraith-protocol/sdk':
-        specifier: ^1.4.5
+        specifier: 1.4.5
         version: 1.4.5(@solana/web3.js@1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6))(@stellar/stellar-sdk@13.3.0)(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
     devDependencies:
       '@playwright/test':
         specifier: ^1.49.1
         version: 1.62.1
+      '@types/js-yaml':
+        specifier: 4.0.9
+        version: 4.0.9
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
       tsx:
         specifier: ^4.19.2
         version: 4.23.0
+      js-yaml:
+        specifier: 4.3.2
+        version: 4.3.2
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -270,6 +276,9 @@ packages:
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
 
+  '@types/js-yaml@4.0.9':
+    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
+
   '@types/node@12.20.55':
     resolution: {integrity: sha512-J8xLz7q2OFulZ2cyGTLE1TbbZcjpno7FaN6zdJNrgAdrJ+DZzh/uFR6YrTb4C+nXakvud8Q4+rbhoIWlYQbUFQ==}
 
@@ -317,6 +326,9 @@ packages:
 
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
+
+  argparse@2.0.1:
+    resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
 
   available-typed-arrays@1.0.7:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
@@ -570,6 +582,10 @@ packages:
   jayson@4.3.0:
     resolution: {integrity: sha512-AauzHcUcqs8OBnCHOkJY280VaTiCm57AbuO7lqzcw7JapGj50BisE3xhksye4zlTSR1+1tAz67wLTl8tEH1obQ==}
     engines: {node: '>=8'}
+    hasBin: true
+
+  js-yaml@4.3.2:
+    resolution: {integrity: sha512-SFNOvSJ+Dgf/9An904Yx+CgSlIPCkIpao4qo51lpee25TIRejdH3rhR4EZMGoNx3/TP3O+wzWuiTFl4sqbltzA==}
     hasBin: true
 
   json-stringify-safe@5.0.1:
@@ -953,6 +969,8 @@ snapshots:
     dependencies:
       '@types/node': 22.20.1
 
+  '@types/js-yaml@4.0.9': {}
+
   '@types/node@12.20.55': {}
 
   '@types/node@22.20.1':
@@ -998,6 +1016,8 @@ snapshots:
       humanize-ms: 1.2.1
 
   asynckit@0.4.0: {}
+
+  argparse@2.0.1: {}
 
   available-typed-arrays@1.0.7:
     dependencies:
@@ -1278,6 +1298,10 @@ snapshots:
       - utf-8-validate
 
   json-stringify-safe@5.0.1: {}
+
+  js-yaml@4.3.2:
+    dependencies:
+      argparse: 2.0.1
 
   math-intrinsics@1.1.0: {}
 

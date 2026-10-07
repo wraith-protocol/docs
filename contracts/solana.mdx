@@ -21,7 +21,7 @@ Emits announcement events via Anchor's `emit!()` macro. Stateless — no on-chai
 
 ### Instruction
 
-```rust
+```rust no-check
 pub fn announce(
     ctx: Context<Announce>,
     scheme_id: u32,
@@ -33,7 +33,7 @@ pub fn announce(
 
 ### Accounts
 
-```rust
+```rust no-check
 #[derive(Accounts)]
 pub struct Announce<'info> {
     #[account(mut)]
@@ -43,7 +43,7 @@ pub struct Announce<'info> {
 
 ### Event
 
-```rust
+```rust no-check
 #[event]
 pub struct AnnouncementEvent {
     pub scheme_id: u32,
@@ -85,7 +85,7 @@ Atomic SOL or SPL token transfer + announcement in one instruction. Sends funds 
 
 Transfer SOL to a stealth address and emit an announcement.
 
-```rust
+```rust no-check
 pub fn send_sol(
     ctx: Context<SendSol>,
     amount: u64,
@@ -98,7 +98,7 @@ pub fn send_sol(
 
 **Accounts:**
 
-```rust
+```rust no-check
 #[derive(Accounts)]
 pub struct SendSol<'info> {
     #[account(mut)]
@@ -114,7 +114,7 @@ pub struct SendSol<'info> {
 
 Transfer SPL tokens to a stealth address's associated token account and emit an announcement.
 
-```rust
+```rust no-check
 pub fn send_spl(
     ctx: Context<SendSpl>,
     amount: u64,
@@ -127,7 +127,7 @@ pub fn send_spl(
 
 **Accounts:**
 
-```rust
+```rust no-check
 #[derive(Accounts)]
 pub struct SendSpl<'info> {
     #[account(mut)]
@@ -178,7 +178,7 @@ PDA-based name to meta-address mapping. Names are stored in Program Derived Addr
 
 Register a new `.wraith` name.
 
-```rust
+```rust no-check
 pub fn register(
     ctx: Context<Register>,
     name: String,
@@ -190,7 +190,7 @@ pub fn register(
 
 Update the meta-address for a name you own.
 
-```rust
+```rust no-check
 pub fn update(
     ctx: Context<Update>,
     new_meta_address: [u8; 64],
@@ -201,7 +201,7 @@ pub fn update(
 
 Release a name. Closes the PDA account and returns rent to the owner.
 
-```rust
+```rust no-check
 pub fn release(ctx: Context<Release>) -> Result<()>
 ```
 
@@ -209,13 +209,13 @@ pub fn release(ctx: Context<Release>) -> Result<()>
 
 Look up a name's meta-address. Read-only.
 
-```rust
+```rust no-check
 pub fn resolve(ctx: Context<Resolve>) -> Result<[u8; 64]>
 ```
 
 ### Account Structure
 
-```rust
+```rust no-check
 #[account]
 pub struct NameRecord {
     pub name: String,               // max 32 bytes
@@ -229,7 +229,7 @@ pub struct NameRecord {
 
 Name records are stored at PDAs derived from the name:
 
-```rust
+```rust no-check
 seeds = [b"name", name.as_bytes()]
 ```
 
@@ -243,7 +243,7 @@ This means names are globally unique and can be resolved without knowing the own
 
 ### Error Codes
 
-```rust
+```rust no-check
 #[error_code]
 pub enum WraithError {
     #[msg("Name must be 3-32 characters")]

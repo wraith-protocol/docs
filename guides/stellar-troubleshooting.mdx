@@ -252,12 +252,12 @@ const tx = new StellarSdk.TransactionBuilder(account, { fee: "100" })
 
 ## Soroban Contract Errors
 
-### 17. `HostError: Error(Contract, #)` / Contract Trapped
+### 17. `HostError: Error(Contract, #)` / Contract Trapped {#17-hosterror-errorcontract-n-contract-trapped}
 **Meaning**: The smart contract executed a `panic!` or returned a specific error code.  
 **Cause**: A contract assertion failed (e.g., unauthorized caller, arithmetic overflow).  
 **Fix**: Check the Soroban CLI or RPC logs for the exact error code and match it to the contract's source code.  
 **Reference**: [Error Code Reference → stealth-registry](/reference/error-codes#stealth-registry) · [stealth-sender](/reference/error-codes#stealth-sender) · [wraith-names](/reference/error-codes#wraith-names)
-```rust
+```rust no-check
 // In your Soroban contract:
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
