@@ -11,14 +11,16 @@
  * A registry that only validates its own shape is not canonical, so this check
  * cross-verifies every recorded fact against pinned authoritative sources:
  *
- *   1. Registry shape and address validity.
+ *   1. Registry shape and address validity. A contract version has the same
+ *      `upgradeable` flag on every network.
  *   2. Addresses must match the @wraith-protocol/sdk `getDeployment()` manifest
  *      resolved from the lockfile (the same package version CI installs).
  *   3. Artifact hashes and deployment timestamps must match on-chain state
  *      reported by the Stellar Expert API and Horizon.
  *   4. Upgradeability claims and mainnet deployment status must match the
  *      contracts-repo deployment manifest, fetched at the commit pinned in the
- *      registry.
+ *      registry. Every contract listed on any network needs a governance
+ *      entry there, and a pin without the manifest (HTTP 404) fails.
  *   5. A shipped .mdx page still carries a stale placeholder contract id.
  *   6. A deployed registry address is not documented anywhere.
  *   7. The network guide, SDK, quickstart (demo), or contracts page stopped
@@ -31,9 +33,10 @@
  * .github/workflows/snippets.yml.
  */
 import { readFile, readdir } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
 
 const repoRoot = process.cwd();
 const registryPath = path.join(repoRoot, "scripts", "contract-registry.json");
@@ -187,7 +190,7 @@ async function main() {
 // ----------------------------------------------------------------------
 
 /** Validate the registry shape and return the set of deployed contract ids. */
-function validateRegistry(registry, failures) {
+export function validateRegistry(registry, failures) {
   const deployed = new Set();
   const networks = registry.networks;
 
@@ -215,6 +218,10 @@ function validateRegistry(registry, failures) {
 
     for (const [contractKey, contract] of Object.entries(network.contracts ?? {})) {
       const where = `${networkKey}/${contractKey}`;
+
+      if (typeof contract.upgradeable !== "boolean") {
+        failures.push(`scripts/contract-registry.json: ${where} needs a boolean "upgradeable".`);
+      }
 
       // sdkKey: name of the contract in the SDK manifest, or null when the SDK
       // does not publish it. A non-null sdkKey with a null address (or vice
@@ -253,7 +260,38 @@ function validateRegistry(registry, failures) {
     }
   }
 
+  failures.push(...checkUpgradeableAcrossNetworks(networks));
+
   return deployed;
+}
+
+/**
+ * Upgradeability is a property of the contract code, so the same contract
+ * version must carry the same `upgradeable` flag on every network. Only the
+ * mainnet rows are cross-checked against the pinned contracts manifest; this
+ * keeps the testnet and futurenet rows from drifting away from them.
+ */
+export function checkUpgradeableAcrossNetworks(networks) {
+  const failures = [];
+  const seen = new Map();
+  for (const [networkKey, network] of Object.entries(networks)) {
+    for (const [contractKey, contract] of Object.entries(network.contracts ?? {})) {
+      if (contract.version == null) {
+        continue;
+      }
+      const key = `${contractKey}@${contract.version}`;
+      const first = seen.get(key);
+      if (!first) {
+        seen.set(key, { networkKey, upgradeable: contract.upgradeable });
+      } else if (first.upgradeable !== contract.upgradeable) {
+        failures.push(
+          `scripts/contract-registry.json: ${contractKey} ${contract.version} is upgradeable=${first.upgradeable} ` +
+            `on ${first.networkKey} but upgradeable=${contract.upgradeable} on ${networkKey}.`,
+        );
+      }
+    }
+  }
+  return failures;
 }
 
 // ----------------------------------------------------------------------
@@ -472,7 +510,15 @@ async function verifyAgainstContractsManifest(registry, failures, warnings) {
   const pin = registry.pinnedContractsRepoCommit;
   const manifestUrl = `https://raw.githubusercontent.com/wraith-protocol/contracts/${pin}/audit-prep/DEPLOYMENT_MANIFEST.md`;
 
-  const manifest = await fetchText(manifestUrl);
+  const manifest = await fetchWithRetry(manifestUrl, (text) => text, MANIFEST_NOT_FOUND);
+  if (manifest === MANIFEST_NOT_FOUND) {
+    failures.push(
+      `Contracts manifest not found at pinned commit ${pin.slice(0, 8)} (HTTP 404). ` +
+        "pinnedContractsRepoCommit must name a wraith-protocol/contracts commit that has " +
+        "audit-prep/DEPLOYMENT_MANIFEST.md.",
+    );
+    return;
+  }
   if (!manifest) {
     warnings.push(
       `Contracts manifest at pinned commit ${pin.slice(0, 8)} unreachable; upgradeability cross-check skipped this run.`,
@@ -514,41 +560,63 @@ async function verifyAgainstContractsManifest(registry, failures, warnings) {
     );
   }
 
-  // Upgradeability claims must match the manifest's governance section.
-  const governance = parseGovernanceSection(manifest);
-  for (const [contractKey, contract] of Object.entries(mainnetContracts)) {
-    const expected = governance.get(contractKey);
-    if (!expected) {
-      warnings.push(`${contractKey}: no governance entry found in the pinned manifest.`);
-      continue;
+  failures.push(...checkGovernance(registry.networks, parseGovernanceSection(manifest)));
+}
+
+/**
+ * Every contract listed on any network needs an entry in the manifest's
+ * governance section: without one its `upgradeable` flag is unverified. The
+ * mainnet rows' flags must match that entry; the other networks follow from
+ * checkUpgradeableAcrossNetworks.
+ */
+export function checkGovernance(networks, governance) {
+  const failures = [];
+  const listed = new Set(Object.values(networks).flatMap((network) => Object.keys(network.contracts ?? {})));
+  for (const contractKey of listed) {
+    if (!governance.has(contractKey)) {
+      failures.push(
+        `${contractKey}: no governance entry in the pinned contracts manifest. Add it to the ` +
+          "Governance Configuration section of audit-prep/DEPLOYMENT_MANIFEST.md, then re-pin " +
+          "pinnedContractsRepoCommit.",
+      );
     }
-    if (Boolean(contract.upgradeable) !== expected.upgradeable) {
+  }
+  for (const [contractKey, contract] of Object.entries(networks["stellar-mainnet"]?.contracts ?? {})) {
+    const expected = governance.get(contractKey);
+    if (expected && contract.upgradeable !== expected.upgradeable) {
       failures.push(
         `${contractKey}: registry upgradeable=${contract.upgradeable} but the pinned manifest ` +
           `classifies it as ${expected.label}.`,
       );
     }
   }
+  return failures;
 }
 
+/** Governance subsections of the contracts manifest and what each one means. */
+const governanceSections = [
+  { heading: "Frozen Contracts", upgradeable: false, label: "frozen (no upgrade mechanism)" },
+  {
+    heading: "Non-Upgradeable Contracts",
+    upgradeable: false,
+    label: "non-upgradeable (pause admin, no upgrade mechanism)",
+  },
+  { heading: "Upgradeable Contracts", upgradeable: true, label: "upgradeable (multisig + timelock)" },
+];
+
 /**
- * Pull the "Frozen Contracts" and "Upgradeable Contracts" blocks out of the
- * manifest markdown and return a map of contract key -> {upgradeable, label}.
+ * Pull the governance subsections out of the manifest markdown and return a
+ * map of contract key -> {upgradeable, label}.
  */
-function parseGovernanceSection(manifest) {
+export function parseGovernanceSection(manifest) {
   const governance = new Map();
 
-  const frozen = manifest.match(/### Frozen Contracts[^\n]*\n([\s\S]*?)(?=\n### |\n## )/);
-  if (frozen) {
-    for (const match of frozen[1].matchAll(/^\*\*([a-z0-9-]+):\*\*/gm)) {
-      governance.set(match[1], { upgradeable: false, label: "frozen (no upgrade mechanism)" });
-    }
-  }
-
-  const upgradeable = manifest.match(/### Upgradeable Contracts[^\n]*\n([\s\S]*?)(?=\n### |\n## )/);
-  if (upgradeable) {
-    for (const match of upgradeable[1].matchAll(/^\*\*([a-z0-9-]+):\*\*/gm)) {
-      governance.set(match[1], { upgradeable: true, label: "upgradeable (multisig + timelock)" });
+  for (const { heading, upgradeable, label } of governanceSections) {
+    const section = manifest.match(new RegExp(`### ${heading}[^\\n]*\\n([\\s\\S]*?)(?=\\n### |\\n## )`));
+    if (section) {
+      for (const match of section[1].matchAll(/^\*\*([a-z0-9-]+):\*\*/gm)) {
+        governance.set(match[1], { upgradeable, label });
+      }
     }
   }
 
@@ -563,11 +631,10 @@ async function fetchJson(url) {
   return fetchWithRetry(url, (text) => JSON.parse(text));
 }
 
-async function fetchText(url) {
-  return fetchWithRetry(url, (text) => text);
-}
+/** Returned by fetchWithRetry for a 404 when the caller asks to tell it apart. */
+const MANIFEST_NOT_FOUND = Symbol("manifest not found");
 
-async function fetchWithRetry(url, parse) {
+async function fetchWithRetry(url, parse, notFound = null) {
   for (let attempt = 1; attempt <= FETCH_RETRIES; attempt++) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -575,7 +642,7 @@ async function fetchWithRetry(url, parse) {
         return parse(await response.text());
       }
       if (response.status === 404) {
-        return null; // Definitive: the resource does not exist.
+        return notFound; // Definitive: the resource does not exist.
       }
       // Other statuses (429/5xx) are worth retrying.
     } catch {
@@ -628,7 +695,10 @@ function lineNumberAt(text, index) {
   return text.slice(0, index).split("\n").length;
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+// Compare real paths so a run through a symlinked checkout still starts main().
+if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

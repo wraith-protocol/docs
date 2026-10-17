@@ -87,6 +87,8 @@ Mainnet deployment is gated on the security audit and remediation, per the contr
 | `stealth-registry` | None | Immutable — no upgrade mechanism |
 | `stealth-sender` | 3-of-5 multisig | Upgradeable with a 7-day timelock (120,960 ledgers), emergency pause |
 | `wraith-names` | 3-of-5 multisig | Upgradeable with a 7-day timelock; no pause |
+| `stealth-splitter` | None | Immutable — no upgrade mechanism, no pause |
+| `stealth-batch-sender` | Pause admin, set once at `init` | No upgrade mechanism. The admin can only pause and unpause `batch_send`; a separate signer multisig can only rotate its own signers, behind a 7-day timelock |
 
 ## Verify a deployed contract
 

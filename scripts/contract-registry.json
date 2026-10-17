@@ -1,7 +1,7 @@
 {
   "$comment": "Canonical Wraith contract registry. Source of truth: @wraith-protocol/sdk getDeployment() plus the contracts repo audit-prep/DEPLOYMENT_MANIFEST.md. Validated offline by scripts/check-contract-registry.mjs. Do not hand-edit addresses without a matching SDK release.",
   "sdkVersion": "1.4.5",
-  "verifiedAt": "2026-09-26",
+  "verifiedAt": "2026-10-17",
   "sources": {
     "sdkManifest": "@wraith-protocol/sdk → getDeployment() (resolved from the lockfile, so CI always checks the same version)",
     "contractsManifest": "https://raw.githubusercontent.com/wraith-protocol/contracts/<pin>/audit-prep/DEPLOYMENT_MANIFEST.md",
@@ -9,7 +9,7 @@
     "onChainExplorerApi": "https://api.stellar.expert/explorer/{network}/contract/{contract-id} → wasm hash + created timestamp",
     "onChainLedgerApi": "https://horizon-testnet.stellar.org/ledgers/{sequence} → closed_at timestamp for the deployment ledger"
   },
-  "pinnedContractsRepoCommit": "7bc1c6c11e755aac9f4ddcfbe12d774a918f5724",
+  "pinnedContractsRepoCommit": "fde37d6e5d3353ceeae005bf27eae54b860322fa",
   "networks": {
     "stellar-testnet": {
       "label": "Stellar Testnet",
@@ -61,7 +61,7 @@
           "artifactHash": null,
           "deploymentLedger": null,
           "deployedAt": null,
-          "upgradeable": true
+          "upgradeable": false
         },
         "stealth-batch-sender": {
           "sdkKey": null,
@@ -70,7 +70,7 @@
           "artifactHash": null,
           "deploymentLedger": null,
           "deployedAt": null,
-          "upgradeable": true
+          "upgradeable": false
         }
       }
     },
@@ -98,8 +98,8 @@
         "stealth-registry": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false },
         "stealth-sender": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
         "wraith-names": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
-        "stealth-splitter": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true },
-        "stealth-batch-sender": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": true }
+        "stealth-splitter": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false },
+        "stealth-batch-sender": { "sdkKey": null, "address": null, "version": "v1", "artifactHash": null, "deploymentLedger": null, "deployedAt": null, "upgradeable": false }
       }
     }
   }
