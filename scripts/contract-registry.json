@@ -9,7 +9,7 @@
     "onChainExplorerApi": "https://api.stellar.expert/explorer/{network}/contract/{contract-id} → wasm hash + created timestamp",
     "onChainLedgerApi": "https://horizon-testnet.stellar.org/ledgers/{sequence} → closed_at timestamp for the deployment ledger"
   },
-  "pinnedContractsRepoCommit": "fde37d6e5d3353ceeae005bf27eae54b860322fa",
+  "pinnedContractsRepoCommit": "affc51c679856cfe67076b20826da00288e266e8",
   "networks": {
     "stellar-testnet": {
       "label": "Stellar Testnet",
