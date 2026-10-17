@@ -636,6 +636,29 @@ announcer contract.
 ```python no-check
 from wraith_crypto import decode_meta_address, generate_stealth_address
 
+# ── Test fixture ────────────────────────────────────────────────────────────────
+# This meta-address is deterministically derived from:
+#   spendingPubKey = ed25519 pubkey of SHA-256("wraith:spending:demo")
+#   viewingPubKey  = ed25519 pubkey of SHA-256("wraith:viewing:demo")
+#
+# It matches the fixtures in scripts/playground/scanner.js and
+# scripts/playground/generate-fixtures.mjs — you can verify those values
+# independently by running: node scripts/playground/generate-fixtures.mjs
+#
+# ── Production ──────────────────────────────────────────────────────────────────
+# Replace RECIPIENT_META_ADDRESS with the real recipient's meta-address.
+# Sources in increasing order of convenience:
+#   1. Wraith Names contract:  GET /agent/info/{name}.wraith  →  metaAddress
+#   2. Passed out-of-band (QR code, URL param, user input)
+#   3. Your own agent's metaAddresses[Chain.Stellar] after createAgent()
+# Never hardcode a production meta-address in source control.
+# ───────────────────────────────────────────────────────────────────────────────
+
+RECIPIENT_META_ADDRESS = (
+    "st:xlm:"
+    "45e84a059a47ee5d6fb721dcdbb31cecd928161e24b1e789e85d1e0510c99e86"  # spendingPubKey
+    "d25639f6da0834e32d912626fd59d01e79a126ff10a59d034d2e46124e1ca791"  # viewingPubKey
+)
 # The recipient shares their meta-address — either directly or via a .wraith name.
 # For this quickstart we use a literal; in production resolve it from the names contract.
 RECIPIENT_META_ADDRESS = "st:xlm:<spending_hex><viewing_hex>"
@@ -647,6 +670,14 @@ print("One-time stealth address:", stealth.stealth_address)
 print("Ephemeral pub key:       ", stealth.ephemeral_pub_key.hex())
 print("View tag:                ", stealth.view_tag)
 ```
+
+<Info>
+  The meta-address above is a **test fixture** derived from well-known demo seeds.
+  Any `generate_stealth_address` call against it produces a valid, scannable
+  stealth address — but these keys are public, so never send real funds to them.
+  Swap in a real meta-address (from the Wraith Names contract or shared
+  out-of-band) before going to production.
+</Info>
 
 ### 6b — Fund the stealth address and call the announcer
 
