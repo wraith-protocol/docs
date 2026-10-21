@@ -176,8 +176,8 @@ jobs:
       - name: Validate Stellar testnet snippets
         run: pnpm run check:stellar-testnet
 
-  mint-validation:
-    name: Mint config validation and preview redirect checks
+  broken-links:
+    name: Broken-link check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -197,12 +197,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate Mint navigation and configuration
-        run: npx --yes mintlify@4.2.1082 validate
+      # Internal-only check runs on every PR (fast, no network).
+      # External check runs additionally on pushes to develop / main.
+      - name: Check internal links (routes, anchors, assets)
+        run: pnpm run check:broken-links:internal
 
-      - name: Run preview redirect unit tests
-        run: pnpm run test:preview-redirect
+      - name: Check external links
+        if: github.event_name == 'push'
+        run: pnpm run check:broken-links
 
+      - name: Test broken links SSRF protection
+        run: pnpm run test:broken-links
 
   playground-smoke:
     name: Playground smoke test

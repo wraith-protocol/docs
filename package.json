@@ -25,7 +25,10 @@
     "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
-    "test": "npm run check:snippets && npm run check:integration-guides && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run test:redirects-and-anchors"
+    "check:broken-links": "node scripts/check-broken-links.mjs",
+    "check:broken-links:internal": "node scripts/check-broken-links.mjs --no-external",
+    "test:broken-links": "node scripts/check-broken-links.test.mjs",
+    "test": "npm run check:snippets && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run test:redirects-and-anchors && npm run test:broken-links"
   },
   "dependencies": {
     "@solana/web3.js": "^1.99.0",
