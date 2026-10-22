@@ -44,28 +44,56 @@ request must hit a route documented on the page, and each fixture is compiled wi
 When an example calls an endpoint, add one fixture per request it makes. `no-check`
 is not allowed on that page.
 
-### Python quickstart
+### Rust quickstart crate
 
-`guides/quickstarts/python.mdx` runs end to end in CI, offline, as part of
-`check:snippets-extended`:
+`guides/quickstarts/rust.mdx` is backed by a real crate,
+`snippets/rust-quickstart`, that CI builds with `cargo build` / `cargo test` /
+`cargo fmt --check`. Fences in that guide that belong to the crate are tagged:
+
+````mdx
+```rust crate
+// src/stealth.rs
+...
+```
+````
+
+- `crate` fences are **not** compiled standalone by
+  `check:snippets-extended` (they reference crate-internal modules). Instead,
+  `scripts/check-rust-quickstart.ts` extracts every `// src/<file>` fence,
+  concatenates continuation fences, and byte-compares the result against
+  `snippets/rust-quickstart/src/<file>.rs` (after stripping crate-only
+  regions). If the crate and the guide drift apart, CI fails.
+- The first fence for a file keeps its `// src/<file>` marker line. Later
+  fences start with `// src/<file> (continued)`; that line is dropped when the
+  fences are concatenated.
+- Code that exists only in the crate (unit tests, test fixtures) is wrapped in
+  markers and hidden from the guide:
+
+  ```rust
+  // crate-only-begin: reason, not shown in the guide
+  #[cfg(test)]
+  mod tests { /* ... */ }
+  // crate-only-end
+  ```
+
+- Fences that intentionally diverge from the crate (aspirational APIs,
+  self-contained `main` variants) use `no-check` plus a marker line and must be
+  listed with a reason in the `EXEMPT` map of
+  `scripts/check-rust-quickstart.ts`. The script also fails on stale exemptions
+  and on crate sources that no fence covers, so every `src/*.rs` file is
+  either shown in the guide or explicitly exempted.
+- `Cargo.toml` is compared structurally: feature names, default features, and
+  dependency names (including optional flags) must match. Version strings may
+  differ so the guide can pin looser ranges.
+
+After editing either side, regenerate or fix until both pass:
 
 ```bash
-npm run check:python-quickstart
+npm run check:rust-quickstart
+# print the crate source (crate-only regions stripped) for a file:
+npx tsx scripts/check-rust-quickstart.ts --emit stealth.rs
+cd snippets/rust-quickstart && cargo build --features testnet && cargo test && cargo fmt --check
 ```
-
-`scripts/python-quickstart/run_quickstart.py` builds `wraith_crypto.py` from the
-fence that starts with `# wraith_crypto.py` (plus any `# Add to wraith_crypto.py`
-fences), then runs every other Python fence in page order in one session. The
-Soroban RPC, Horizon, and Soroban transaction calls go to local fakes that serve
-recorded announcer events and verify each transaction's signatures. Results are
-compared with `scripts/python-quickstart/vectors.json`, which
-`npm run generate:python-quickstart-vectors` computes from the pinned SDK.
-
-Dependencies are pinned in `scripts/python-quickstart/requirements.txt`. The
-`--bootstrap` flag creates a virtualenv with those pins under
-`node_modules/.cache`. Every Python fence in the guide must run. A fence that
-cannot run needs both words after the language, `python Pseudocode no-check`, so
-readers see it is pseudocode.
 
 ## Navigation coverage
 

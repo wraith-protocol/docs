@@ -21,6 +21,8 @@ A Rust quickstart for developers building backends, indexers, relayers, or CLIs 
 
 There is no first-class `@wraith-protocol/sdk` Rust crate yet. This guide **reimplements the stealth spec directly** using audited crates (`ed25519-dalek`, `x25519-dalek`, `curve25519-dalek`, `stellar-strkey`, `stellar-xdr`, `soroban-client`). See [Where the Rust story is thinner](#where-the-rust-story-is-thinner) for what is planned.
 
+Every `src/` file below is compiled in CI as part of the `snippets/rust-quickstart` crate — the code you copy is the code that is built and tested on each PR.
+
 ## Prerequisites
 
 - Rust toolchain (stable)
@@ -32,7 +34,7 @@ There is no first-class `@wraith-protocol/sdk` Rust crate yet. This guide **reim
 
 Feature flags select the network at compile time. `testnet` is the default and is where the Wraith contracts are live. `futurenet` and `mainnet` flip the RPC URL, passphrase, and Friendbot availability — the example compiles and runs on all three.
 
-```toml no-check
+```toml
 # Cargo.toml
 [package]
 name = "wraith-rust-quickstart"
@@ -44,27 +46,30 @@ default = ["testnet"]
 testnet = []
 futurenet = []
 mainnet = []
+# "network" enables the scan + send modules (reqwest / tokio / soroban-client).
+# Leave it off for a pure compile/type-check of the crypto modules.
+network = ["dep:reqwest", "dep:serde_json", "dep:tokio"]
 
 [dependencies]
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+ed25519-dalek    = { version = "2", features = ["rand_core"] }
+x25519-dalek     = { version = "2", features = ["static_secrets"] }
 curve25519-dalek = "4"
-sha2 = "0.10"
-rand = "0.8"
-hex = "0.4"
-stellar-strkey = "0.0.6"
-stellar-xdr = { version = "20", features = ["std", "base64"] }
-soroban-client = "0.10"
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", features = ["json"] }
-serde_json = "1"
-anyhow = "1"
+sha2    = "0.10"
+rand    = "0.8"
+hex     = "0.4"
+stellar-strkey   = "0.0.8"
+anyhow  = "1"
+
+# Optional — only needed when "network" is enabled.
+reqwest    = { version = "0.12", features = ["json"], optional = true }
+serde_json = { version = "1",                         optional = true }
+tokio      = { version = "1",    features = ["full"], optional = true }
 
 [profile.release]
 opt-level = 3
 ```
 
-```rust no-check
+```rust crate
 // src/network.rs
 // Compile-time network selection. Flip with --features futurenet / --features mainnet.
 
@@ -105,11 +110,10 @@ pub const STEALTH_SIGNING_MESSAGE: &str =
 
 Decode the `S...` secret seed with `stellar-strkey`, then build an `ed25519-dalek` signing key. Keep the seed in memory only — never log it.
 
-```rust no-check
+```rust crate
 // src/keypair.rs
 use anyhow::Result;
-use ed25519_dalek::{Signer, SigningKey};
-use stellar_strkey::Decode;
+use ed25519_dalek::SigningKey;
 
 pub struct Account {
     pub seed: [u8; 32],
@@ -118,30 +122,69 @@ pub struct Account {
 }
 
 pub fn load_keypair(secret: &str) -> Result<Account> {
-    // `S...` -> 32-byte ed25519 seed
-    let seed = stellar_strkey::Decode::ed25519_secret_seed(secret)?;
+    // `S...` -> 32-byte ed25519 seed via stellar-strkey ed25519::PrivateKey
+    let private = stellar_strkey::ed25519::PrivateKey::from_string(secret)
+        .map_err(|e| anyhow::anyhow!("invalid stellar secret: {e:?}"))?;
+    let seed: [u8; 32] = private.0;
     let signing_key = SigningKey::from_bytes(&seed);
-    let address = stellar_strkey::Ed25519PublicKey(signing_key.verifying_key().to_bytes()).to_string();
-
-    Ok(Account { seed, signing_key, address })
+    let address =
+        stellar_strkey::ed25519::PublicKey(signing_key.verifying_key().to_bytes()).to_string();
+    Ok(Account {
+        seed,
+        signing_key,
+        address,
+    })
 }
+```
 
-#[tokio::main]
-async fn main() -> Result<()> {
+The binary entry point loads the key from `STELLAR_SECRET`, signs the domain-separated message, and prints the derived stealth keys. With `--features network` the same binary becomes a scanner instead (see Step 3).
+
+```rust crate
+// src/main.rs
+//
+// Entry point for `cargo run`.  When the "network" feature is active the binary
+// scans the Soroban testnet for stealth payments addressed to the keypair
+// supplied via STELLAR_SECRET.  Without "network" it just derives keys and
+// prints them — useful for local testing without an RPC call.
+
+pub mod keypair;
+pub mod network;
+pub mod scan;
+pub mod send;
+pub mod stealth;
+
+#[cfg(not(feature = "network"))]
+fn main() -> anyhow::Result<()> {
+    use ed25519_dalek::Signer;
+    use network::STEALTH_SIGNING_MESSAGE;
+
     let secret = std::env::var("STELLAR_SECRET")?;
-    let account = load_keypair(&secret)?;
-    println!("loaded account {}", account.address);
+    let account = keypair::load_keypair(&secret)?;
+    println!("loaded account: {}", account.address);
 
     // The 64-byte signature drives stealth key derivation.
-    let sig: [u8; 64] = account.signing_key.sign(STEALTH_SIGNING_MESSAGE.as_bytes()).to_bytes();
-    println!("derivation signature (hex): {}", hex::encode(sig));
+    let sig: [u8; 64] = account
+        .signing_key
+        .sign(STEALTH_SIGNING_MESSAGE.as_bytes())
+        .to_bytes();
+    let keys = stealth::derive_stealth_keys(&sig);
+    println!("spending pub : {}", hex::encode(keys.spending_pub));
+    println!("viewing  pub : {}", hex::encode(keys.viewing_pub));
     Ok(())
+}
+
+#[cfg(feature = "network")]
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let secret = std::env::var("STELLAR_SECRET")?;
+    scan::run_scan(&secret).await
 }
 ```
 
 Run it:
 
 ```bash
+export STELLAR_SECRET=S...   # your funded testnet account
 cargo run --features testnet
 # or: cargo run --features futurenet
 ```
@@ -150,17 +193,23 @@ cargo run --features testnet
 
 This is the core of the Rust path: a self-contained reimplementation of the Wraith Stellar stealth spec (ed25519 + X25519, domain-separated SHA-256). It mirrors `deriveStealthKeys` / `generateStealthAddress` / `scanAnnouncements` from `@wraith-protocol/sdk/chains/stellar`.
 
-```rust no-check
+```rust crate
 // src/stealth.rs
-use anyhow::Result;
+//
+// Self-contained reimplementation of the Wraith Stellar stealth spec.
+// Mirrors deriveStealthKeys / generateStealthAddress / scanAnnouncements
+// from @wraith-protocol/sdk/chains/stellar.
+//
+// Cryptographic primitives: ed25519 + X25519, domain-separated SHA-256.
+
 use curve25519_dalek::{
-    constants::ED25519_BASEPOINT_POINT,
-    edwards::CompressedEdwardsY,
-    EdwardsPoint, Scalar,
+    constants::ED25519_BASEPOINT_POINT, edwards::CompressedEdwardsY, EdwardsPoint, Scalar,
 };
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256, Sha512};
 use x25519_dalek::{PublicKey as X25519PublicKey, StaticSecret};
+
+// ── Public types ──────────────────────────────────────────────────────────────
 
 pub struct StealthKeys {
     pub spending_seed: [u8; 32],
@@ -183,9 +232,9 @@ pub struct MatchedStealth {
 }
 ```
 
-```rust no-check
+```rust crate
 // src/stealth.rs (continued)
-// --- domain-separated derivation (mirrors the TS spec) ---
+// ── Domain-separated derivation (mirrors the TS spec) ────────────────────────
 
 fn derive_seed(tag: &str, sig: &[u8; 64]) -> [u8; 32] {
     let mut h = Sha256::new();
@@ -197,7 +246,7 @@ fn derive_seed(tag: &str, sig: &[u8; 64]) -> [u8; 32] {
     b
 }
 
-// ed25519 private scalar: SHA-512(seed)[0..32], clamped.
+/// ed25519 private scalar: SHA-512(seed)[0..32], clamped (RFC 8032 §5.1.5).
 fn seed_to_scalar(seed: &[u8; 32]) -> Scalar {
     let h = Sha512::digest(seed);
     let mut a = [0u8; 32];
@@ -226,18 +275,20 @@ pub fn derive_stealth_keys(sig: &[u8; 64]) -> StealthKeys {
 }
 ```
 
-```rust no-check
+```rust crate
 // src/stealth.rs (continued)
-// --- X25519 ECDH between ed25519 keys (Montgomery form) ---
+// ── X25519 ECDH between ed25519 keys (Montgomery form) ───────────────────────
 
 fn edwards_pub_to_mont_pub(pub_bytes: &[u8; 32]) -> [u8; 32] {
-    let compressed = CompressedEdwardsY::from_slice(pub_bytes);
+    let compressed = CompressedEdwardsY::from_slice(pub_bytes)
+        .expect("32-byte slice always fits CompressedEdwardsY");
     let point = compressed.decompress().expect("valid ed25519 public key");
     point.to_montgomery().to_bytes()
 }
 
 fn x25519_shared(priv_seed: &[u8; 32], peer_pub: &[u8; 32]) -> [u8; 32] {
-    let a = seed_to_scalar(priv_seed).to_bytes(); // clamped scalar == x25519 private
+    // The clamped ed25519 scalar bytes are a valid x25519 private key.
+    let a = seed_to_scalar(priv_seed).to_bytes();
     let secret = StaticSecret::from(a);
     let peer = X25519PublicKey::from(edwards_pub_to_mont_pub(peer_pub));
     secret.diffie_hellman(&peer).to_bytes()
@@ -258,28 +309,34 @@ pub fn compute_view_tag(shared: &[u8; 32]) -> u8 {
 }
 ```
 
-```rust no-check
+```rust crate
 // src/stealth.rs (continued)
-// --- generate a one-time stealth address for a recipient ---
+// ── Generate a one-time stealth address for a recipient ───────────────────────
+//
+// Callers supply the recipient's viewing *seed* (not just the public key)
+// because ECDH requires the private scalar.  After calling derive_stealth_keys
+// the viewing_seed is available directly on StealthKeys.
 
 pub fn generate_stealth_address(
     spending_pub: &[u8; 32],
-    viewing_pub: &[u8; 32],
+    viewing_seed: &[u8; 32],
     ephemeral_seed: &[u8; 32],
 ) -> GeneratedStealth {
-    let eph_pub = SigningKey::from_bytes(ephemeral_seed).verifying_key().to_bytes();
+    let eph_pub = SigningKey::from_bytes(ephemeral_seed)
+        .verifying_key()
+        .to_bytes();
     // shared = X25519(viewing_priv, ephemeral_pub)
-    let shared = x25519_shared(viewing_seed_for_pub(viewing_pub), &eph_pub);
+    let shared = x25519_shared(viewing_seed, &eph_pub);
     let view_tag = compute_view_tag(&shared);
     let h_scalar = hash_to_scalar("wraith:scalar:", &shared);
 
     let spend_point = CompressedEdwardsY::from_slice(spending_pub)
+        .expect("32-byte slice always fits CompressedEdwardsY")
         .decompress()
         .expect("valid spending pub");
-    let stealth_point: EdwardsPoint =
-        spend_point + h_scalar * ED25519_BASEPOINT_POINT;
+    let stealth_point: EdwardsPoint = spend_point + h_scalar * ED25519_BASEPOINT_POINT;
     let stealth_pub = stealth_point.compress().to_bytes();
-    let stealth_address = stellar_strkey::Ed25519PublicKey(stealth_pub).to_string();
+    let stealth_address = stellar_strkey::ed25519::PublicKey(stealth_pub).to_string();
 
     GeneratedStealth {
         stealth_address,
@@ -287,19 +344,11 @@ pub fn generate_stealth_address(
         view_tag,
     }
 }
-
-// Helper: recover the viewing seed from its public key is impossible, so callers
-// pass both the viewing seed (for ECDH) and the viewing pub (for the API shape).
-fn viewing_seed_for_pub(_pub: &[u8; 32]) -> &'static [u8; 32] {
-    unreachable!("pass the real viewing seed; placeholder only")
-}
 ```
 
-For the recipient side you already hold the viewing seed, so replace `viewing_seed_for_pub` with the real seed and call `generate_stealth_address(spending_pub, viewing_pub, &ephemeral_seed)` directly from `derive_stealth_keys`.
-
-```rust no-check
+```rust crate
 // src/stealth.rs (continued)
-// --- scan announcements and recover the stealth private scalar ---
+// ── Scan announcements and recover the stealth private scalar ─────────────────
 
 pub fn scan_announcements(
     announcements: &[(String, [u8; 32], u8)], // (stealth_address, ephemeral_pub, view_tag)
@@ -308,6 +357,7 @@ pub fn scan_announcements(
     spending_scalar: Scalar,
 ) -> Vec<MatchedStealth> {
     let spend_point = CompressedEdwardsY::from_slice(spending_pub)
+        .expect("32-byte slice always fits CompressedEdwardsY")
         .decompress()
         .expect("valid spending pub");
     let mut matched = Vec::new();
@@ -321,7 +371,7 @@ pub fn scan_announcements(
         let h_scalar = hash_to_scalar("wraith:scalar:", &shared);
         let stealth_point = spend_point + h_scalar * ED25519_BASEPOINT_POINT;
         let stealth_pub = stealth_point.compress().to_bytes();
-        if stellar_strkey::Ed25519PublicKey(stealth_pub).to_string() == *addr {
+        if stellar_strkey::ed25519::PublicKey(stealth_pub).to_string() == *addr {
             matched.push(MatchedStealth {
                 stealth_address: addr.clone(),
                 stealth_scalar: spending_scalar + h_scalar,
@@ -332,8 +382,10 @@ pub fn scan_announcements(
     matched
 }
 
-// Sign a message with a raw stealth scalar (ed25519 scalar signing, RFC 8032 style).
+// ── Sign with a raw stealth scalar (ed25519 / RFC 8032) ───────────────────────
+//
 // Needed to spend funds received at a stealth address.
+
 pub fn sign_with_scalar(scalar_le: &[u8; 32], message: &[u8], pubkey: &[u8; 32]) -> [u8; 64] {
     let a = Scalar::from_bytes_mod_order(*scalar_le);
     let mut h = Sha512::new();
@@ -359,13 +411,18 @@ pub fn sign_with_scalar(scalar_le: &[u8; 32], message: &[u8], pubkey: &[u8; 32])
 
 Announcements are Soroban contract events, not a subgraph. Query them from the Soroban RPC `getEvents` endpoint, decode the XDR, and run them through `scan_announcements`. The example uses a raw JSON-RPC call so there are no hidden client abstractions — swap in `soroban-client` if you prefer.
 
+<Note>
+  This fence is shown as a self-contained `main` so you can run it on its own. The crate compiles the same logic as `run_scan`, gated behind `--features network` so the crypto-only build never pulls in `reqwest` or `tokio`.
+</Note>
+
 ```rust no-check
 // src/scan.rs
 use anyhow::Result;
+use ed25519_dalek::Signer;
 use serde_json::Value;
 
+use crate::network::{ANNOUNCER, RPC_URL, STEALTH_SIGNING_MESSAGE};
 use crate::stealth::scan_announcements;
-use crate::{ANNOUNCER, RPC_URL};
 
 pub async fn fetch_announcements(start_ledger: u32) -> Result<Vec<(String, [u8; 32], u8)>> {
     let client = reqwest::Client::new();
@@ -390,7 +447,7 @@ pub async fn fetch_announcements(start_ledger: u32) -> Result<Vec<(String, [u8; 
         // `data` is base64 XDR of a ContractEvent. Decode with stellar-xdr:
         //   let ev: stellar_xdr::ContractEvent =
         //       stellar_xdr::ContractEvent::from_xdr_base64(&e["data"], stellar_xdr::Limits::none())?;
-        // Topics (index >=1) carry: caller, scheme_id, stealth_address(Address),
+        // Topics (index >= 1) carry: caller, scheme_id, stealth_address(Address),
         // ephemeral_pub_key(Bytes), metadata(Bytes, first byte == view tag).
         // Extract (stealth_address, ephemeral_pub[32], metadata[0]) and push below.
         let stealth_address = e["topics"][3].as_str().unwrap().to_string();
@@ -433,15 +490,15 @@ use anyhow::Result;
 use rand::rngs::OsRng;
 use rand::RngCore;
 
+use crate::network::{ANNOUNCER, RPC_URL, SCHEME_ID};
 use crate::stealth::generate_stealth_address;
-use crate::{ANNOUNCER, RPC_URL, SCHEME_ID};
 
 pub async fn send_stealth_payment(
     sender_seed: &[u8; 32],
     sender_address: &str,
     token: &str,            // Stellar Asset Contract id, e.g. XLM or USDC SAC
     recipient_spending: &[u8; 32],
-    recipient_viewing: &[u8; 32],
+    recipient_viewing_seed: &[u8; 32],  // recipient's viewing seed (from derive_stealth_keys)
     amount: i128,
 ) -> Result<String> {
     // 1. Fresh ephemeral key for this payment
@@ -449,13 +506,13 @@ pub async fn send_stealth_payment(
     OsRng.fill_bytes(&mut eph_seed);
 
     // 2. Recipient's one-time address
-    let stealth = generate_stealth_address(recipient_spending, recipient_viewing, &eph_seed);
+    let stealth = generate_stealth_address(recipient_spending, recipient_viewing_seed, &eph_seed);
 
     // 3. Build + submit a `stealth-sender.send` invocation.
     //    Shape is stable across soroban-client 0.9–0.11; adapt builder methods to your version.
     //    Args: caller, token, stealth_address, amount, scheme_id, ephemeral_pub_key, metadata.
     //    `metadata` is a single byte (the view tag) or more; keep it >= 1 byte.
-    let client = soroban_client::Client::new(RPC_URL, crate::NETWORK_PASSPHRASE).await?;
+    let client = soroban_client::Client::new(RPC_URL, crate::network::NETWORK_PASSPHRASE).await?;
     let account = client.account(sender_address).await?;
     let tx = client
         .tx_builder(&account)

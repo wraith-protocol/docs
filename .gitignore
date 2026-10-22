@@ -2,3 +2,6 @@ node_modules/
 .npm/
 test-results/
 playwright-report/
+
+# Rust build artifacts
+snippets/rust-quickstart/target/

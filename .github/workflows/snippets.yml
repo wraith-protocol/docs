@@ -103,7 +103,8 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.78.0"
+          toolchain: "1.89.0"
+          components: rustfmt
 
       # -----------------------------------------------------------------------
       # Python — pinned minor version; patch resolved by setup-python.
@@ -134,19 +135,34 @@ jobs:
           python3 --version
           bash --version | head -1
 
+      # Runs both the extended fence checks and the Rust quickstart
+      # guide/crate extraction check (check:snippets-extended chains both).
       - name: Check extended snippets (Rust / Python / shell / JSON / TOML / YAML)
         run: pnpm run check:snippets-extended
 
-  # ---------------------------------------------------------------------------
-  # Stellar testnet snippet validation — split into two steps so that
-  # deterministic content regressions block merges while provider outages
-  # are surfaced as annotations without blocking.
-  #
-  # Exit codes from check-stellar-testnet-snippets.ts:
-  #   0  – passed
-  #   1  – content regression   → always a hard failure
-  #   2  – provider outage      → warning annotation, does NOT block merge
-  # ---------------------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # Compile the Rust quickstart crate — this is the ground-truth check
+      # that all documented crypto code actually compiles and its tests pass.
+      # The second pass enables the "network" feature so the scan / send
+      # modules (reqwest / tokio) are type-checked too; it is compile-only,
+      # no RPC calls are made.
+      # -----------------------------------------------------------------------
+      - name: Compile Rust quickstart crate
+        working-directory: snippets/rust-quickstart
+        run: cargo build --features testnet 2>&1
+
+      - name: Type-check Rust quickstart network modules
+        working-directory: snippets/rust-quickstart
+        run: cargo check --features testnet,network 2>&1
+
+      - name: Check Rust quickstart formatting
+        working-directory: snippets/rust-quickstart
+        run: cargo fmt --check
+
+      - name: Run Rust quickstart unit tests
+        working-directory: snippets/rust-quickstart
+        run: cargo test --features testnet 2>&1
+
   stellar-testnet-snippets:
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest
@@ -361,3 +377,4 @@ jobs:
           pnpm exec tsx scripts/generate-stellar-reference.ts
           --check
           --require-contracts=stealth-announcer,wraith-names
+

@@ -17,6 +17,17 @@
  *   ```python no-check
  *   ```bash no-check
  *
+ * Fence attribute: add `crate` to a rust fence whose first line is a
+ * `// src/<file>` marker, e.g.
+ *   ```rust crate
+ *   // src/stealth.rs
+ *   ...
+ * ```
+ * Those fences belong to a compiling crate (`snippets/rust-quickstart`) and
+ * are NOT compiled standalone here — they reference crate-internal modules.
+ * Their extraction and drift check lives in check-rust-quickstart.ts, which
+ * fails if a `crate` fence is not extracted into a compiled crate file.
+ *
  * Every failure is reported as:
  *   [rust] guides/quickstarts/rust.mdx:67
  *   ----------------------------------------
@@ -83,7 +94,12 @@ async function main() {
   const allSnippets = await collectSnippets(files);
 
   const skipped   = allSnippets.filter((s) =>  /\bno-check\b/.test(s.attrs));
-  const checkable = allSnippets.filter((s) => !/\bno-check\b/.test(s.attrs));
+  const crateSet  = allSnippets.filter((s) => s.lang === "rust" && /\bcrate\b/.test(s.attrs));
+  const crateFenced = crateSet.filter((s) => !/\bno-check\b/.test(s.attrs));
+  const crateFencedKeys = new Set(crateFenced.map((s) => `${s.file}:${s.index}`));
+  const checkable = allSnippets.filter(
+    (s) => !/\bno-check\b/.test(s.attrs) && !crateFencedKeys.has(`${s.file}:${s.index}`),
+  );
 
   const byLang = groupBy(checkable, (s) => s.lang);
 
@@ -108,6 +124,7 @@ async function main() {
     `MDX files scanned  : ${files.length}`,
     `Snippets found     : ${allSnippets.length}`,
     `  rust             : ${counts["rust"]   ?? 0}`,
+    `  rust (crate)     : ${crateFenced.length}`,
     `  python           : ${counts["python"] ?? 0}`,
     `  shell            : ${counts["shell"]  ?? 0}`,
     `  json             : ${counts["json"]   ?? 0}`,
@@ -337,7 +354,7 @@ function checkToml(snippets: Snippet[]): Promise<CheckResult[]> {
  * header, not a key-value pair, not a value continuation).
  */
 function lintToml(src: string): string | null {
-  const lines = src.split("\n");
+  const lines = src.replace(/\r\n/g, "\n").split("\n");
   for (let i = 0; i < lines.length; i++) {
     const raw  = lines[i];
     const line = raw.replace(/#.*$/, "").trim(); // strip inline comments
