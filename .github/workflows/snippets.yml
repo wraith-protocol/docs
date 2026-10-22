@@ -98,12 +98,15 @@ jobs:
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------------
-      # Rust — pinned stable toolchain for reproducibility.
+      # Rust — pinned toolchain for reproducibility. 1.89 is the floor for the
+      # Solana workspace's dependency tree (anchor-lang 0.32 pulls crates that
+      # require edition 2024 and rustc 1.87+); rustfmt gates formatting.
       # -----------------------------------------------------------------------
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.78.0"
+          toolchain: "1.89.0"
+          components: rustfmt
 
       # -----------------------------------------------------------------------
       # Python — pinned minor version; patch resolved by setup-python.
@@ -147,6 +150,27 @@ jobs:
   #   1  – content regression   → always a hard failure
   #   2  – provider outage      → warning annotation, does NOT block merge
   # ---------------------------------------------------------------------------
+      # -----------------------------------------------------------------------
+      # Solana Anchor workspace — the structural reference behind
+      # contracts/solana.mdx. `cargo check` type-checks every documented
+      # instruction, account context, event, account layout, and error against
+      # the pinned anchor-lang; the TS check compares each fence against the
+      # workspace and compares program IDs, layouts, and discriminators with
+      # the canonical program sources and the chain-generated deployment
+      # record in wraith-protocol/contracts. These are structural checks —
+      # they do not execute or deploy the programs.
+      # -----------------------------------------------------------------------
+      - name: Check Solana program workspace
+        working-directory: snippets/solana-contracts
+        run: cargo check --workspace --locked
+
+      - name: Check Solana workspace formatting
+        working-directory: snippets/solana-contracts
+        run: cargo fmt --check --all
+
+      - name: Compare Solana program IDs and account layouts
+        run: pnpm run check:solana-contracts
+
   stellar-testnet-snippets:
     name: Stellar snippet testnet validation
     runs-on: ubuntu-latest

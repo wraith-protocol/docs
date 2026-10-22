@@ -27,7 +27,22 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import process from "node:process";
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+const repoRoot = process.cwd();
+
+// Resolve a YAML parser from the project's node_modules. `require` is used
+// instead of `import()` because absolute paths break ESM on Windows.
+const require = createRequire(path.join(repoRoot, "package.json"));
+
+const ignoredDirs = new Set([
+  ".git", ".github", "node_modules", ".next", "dist", "build",
+]);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,14 +66,8 @@ type CheckResult = {
 };
 
 // ---------------------------------------------------------------------------
-// Configuration
+// Language dispatch
 // ---------------------------------------------------------------------------
-
-const repoRoot = process.cwd();
-
-const ignoredDirs = new Set([
-  ".git", ".github", "node_modules", ".next", "dist", "build",
-]);
 
 /** Map from raw fence language tag (lower-case) to canonical Lang value. */
 const langMap: Record<string, Lang> = {
@@ -74,6 +83,19 @@ const langMap: Record<string, Lang> = {
   yml:    "yaml",
 };
 
+/**
+ * MDX pages whose Rust fences cannot be compiled by bare `rustc` (they are
+ * Anchor program snippets that need `anchor-lang`). Each fence is instead
+ * compared verbatim against a reference workspace by the named script, and
+ * that workspace is type-checked with cargo in CI.
+ */
+const crateChecked: Record<string, string> = {
+  "contracts/solana.mdx": "check:solana-contracts (snippets/solana-contracts workspace)",
+};
+
+/** Normalise a repo-relative path to forward slashes for map lookups. */
+const relPath = (p: string): string => p.replace(/\\/g, "/");
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -83,7 +105,17 @@ async function main() {
   const allSnippets = await collectSnippets(files);
 
   const skipped   = allSnippets.filter((s) =>  /\bno-check\b/.test(s.attrs));
-  const checkable = allSnippets.filter((s) => !/\bno-check\b/.test(s.attrs));
+  // Rust fences in crate-checked pages are verified by their workspace script
+  // (see `crateChecked`), never by bare rustc — they need anchor-lang etc.
+  // Other languages in the same page (bash, JSON, …) are still checked here.
+  const crateCheckedSnippets = allSnippets.filter(
+    (s) => s.lang === "rust" && !/\bno-check\b/.test(s.attrs) && crateChecked[relPath(s.file)] !== undefined,
+  );
+  const checkable = allSnippets.filter(
+    (s) =>
+      !/\bno-check\b/.test(s.attrs) &&
+      !(s.lang === "rust" && crateChecked[relPath(s.file)] !== undefined),
+  );
 
   const byLang = groupBy(checkable, (s) => s.lang);
 
@@ -114,6 +146,7 @@ async function main() {
     `  toml             : ${counts["toml"]   ?? 0}`,
     `  yaml             : ${counts["yaml"]   ?? 0}`,
     `Skipped (no-check) : ${skipped.length}`,
+    `Crate-checked      : ${crateCheckedSnippets.length}`,
     `Checked            : ${checkable.length}`,
     `Failures           : ${failures.length}`,
   ].join("\n");
@@ -337,7 +370,7 @@ function checkToml(snippets: Snippet[]): Promise<CheckResult[]> {
  * header, not a key-value pair, not a value continuation).
  */
 function lintToml(src: string): string | null {
-  const lines = src.split("\n");
+  const lines = src.replace(/\r\n/g, "\n").split("\n");
   for (let i = 0; i < lines.length; i++) {
     const raw  = lines[i];
     const line = raw.replace(/#.*$/, "").trim(); // strip inline comments
@@ -363,7 +396,8 @@ function lintToml(src: string): string | null {
 // ---------------------------------------------------------------------------
 
 async function checkYaml(snippets: Snippet[]): Promise<CheckResult[]> {
-  // Try to resolve a YAML parser from the project's node_modules.
+  // Resolve a YAML parser from the project's node_modules. `require` is used
+  // instead of `import()` because absolute paths break ESM on Windows.
   let parse: ((src: string) => unknown) | null = null;
 
   for (const [pkg, exported] of [
@@ -371,8 +405,7 @@ async function checkYaml(snippets: Snippet[]): Promise<CheckResult[]> {
     ["yaml",                       "parse"],
   ] as const) {
     try {
-      const modPath = path.join(repoRoot, "node_modules", pkg);
-      const mod = await import(modPath) as Record<string, unknown>;
+      const mod = require(`${pkg}`) as Record<string, unknown>;
       const fn  = mod[exported] ?? mod["default"];
       if (typeof fn === "function") {
         parse = fn as (src: string) => unknown;
@@ -502,7 +535,9 @@ function countBy<T>(arr: T[], key: (item: T) => string): Record<string, number> 
 }
 
 async function commandExists(cmd: string): Promise<boolean> {
-  const r = await run("which", [cmd]);
+  // `which` is POSIX; Windows ships `where`.
+  const locator = process.platform === "win32" ? "where" : "which";
+  const r = await run(locator, [cmd]);
   return r.exitCode === 0;
 }
 
@@ -516,6 +551,9 @@ function run(command: string, args: string[]): Promise<{ exitCode: number; outpu
     let output = "";
     child.stdout.on("data", (c: Buffer) => { output += c.toString(); });
     child.stderr.on("data", (c: Buffer) => { output += c.toString(); });
+    // Without this listener a failed spawn (e.g. a missing command on Windows)
+    // emits an unhandled 'error' event and kills the process mid-run.
+    child.on("error", () => resolve({ exitCode: 1, output }));
     child.on("close", (code) => { resolve({ exitCode: code ?? 1, output }); });
   });
 }

@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "programs/wraith-announcer",
+    "programs/wraith-sender",
+    "programs/wraith-names",
+]
+resolver = "2"

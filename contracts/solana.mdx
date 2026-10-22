@@ -5,6 +5,29 @@ description: "Anchor program specs and deployment"
 
 Solana programs (smart contracts) for stealth address operations, written in Rust with the Anchor framework.
 
+Every Rust block on this page is a verbatim excerpt from the reference
+workspace in [`snippets/solana-contracts`](https://github.com/wraith-protocol/docs/tree/develop/snippets/solana-contracts),
+which CI type-checks with `cargo check --workspace` against the pinned
+`anchor-lang` release and gates with `cargo fmt --check`. A second CI step
+compares the workspace's program IDs, instruction signatures, account
+layouts, events, and error codes against the canonical program sources and
+the chain-generated deployment record in the `wraith-protocol/contracts`
+repository.
+
+Those checks are **structural**. They confirm that the documented API shape
+matches the canonical program and that the program IDs match the deployment
+record. They do not execute the program, deploy it, or verify runtime
+on-chain behaviour; the workspace is a documentation fixture, not a deployment
+artifact.
+
+Two things are intentionally abbreviated here:
+
+- Instruction fences show the public signature only; the transfer, CPI, and
+  event-emission bodies live in the workspace crates.
+- The bare PDA `seeds = ...` fragment under [wraith-names](#pda-derivation) is
+  an Anchor account-attribute fragment, not a standalone Rust item, so it is
+  marked `no-check`.
+
 ## Program Set
 
 | Program | Purpose |
@@ -21,7 +44,7 @@ Emits announcement events via Anchor's `emit!()` macro. Stateless — no on-chai
 
 ### Instruction
 
-```rust no-check
+```rust
 pub fn announce(
     ctx: Context<Announce>,
     scheme_id: u32,
@@ -33,7 +56,7 @@ pub fn announce(
 
 ### Accounts
 
-```rust no-check
+```rust
 #[derive(Accounts)]
 pub struct Announce<'info> {
     #[account(mut)]
@@ -43,7 +66,7 @@ pub struct Announce<'info> {
 
 ### Event
 
-```rust no-check
+```rust
 #[event]
 pub struct AnnouncementEvent {
     pub scheme_id: u32,
@@ -85,7 +108,7 @@ Atomic SOL or SPL token transfer + announcement in one instruction. Sends funds 
 
 Transfer SOL to a stealth address and emit an announcement.
 
-```rust no-check
+```rust
 pub fn send_sol(
     ctx: Context<SendSol>,
     amount: u64,
@@ -98,7 +121,7 @@ pub fn send_sol(
 
 **Accounts:**
 
-```rust no-check
+```rust
 #[derive(Accounts)]
 pub struct SendSol<'info> {
     #[account(mut)]
@@ -114,7 +137,7 @@ pub struct SendSol<'info> {
 
 Transfer SPL tokens to a stealth address's associated token account and emit an announcement.
 
-```rust no-check
+```rust
 pub fn send_spl(
     ctx: Context<SendSpl>,
     amount: u64,
@@ -127,7 +150,7 @@ pub fn send_spl(
 
 **Accounts:**
 
-```rust no-check
+```rust
 #[derive(Accounts)]
 pub struct SendSpl<'info> {
     #[account(mut)]
@@ -137,6 +160,23 @@ pub struct SendSpl<'info> {
     #[account(mut)]
     pub stealth_token_account: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
+}
+```
+
+### Event
+
+Both instructions emit the same `AnnouncementEvent` that the announcer
+program emits, so indexers can subscribe to either program. The reference
+crate re-declares it rather than importing across programs:
+
+```rust
+#[event]
+pub struct AnnouncementEvent {
+    pub scheme_id: u32,
+    pub stealth_address: Pubkey,
+    pub caller: Pubkey,
+    pub ephemeral_pub_key: [u8; 32],
+    pub metadata: Vec<u8>,
 }
 ```
 
@@ -178,7 +218,7 @@ PDA-based name to meta-address mapping. Names are stored in Program Derived Addr
 
 Register a new `.wraith` name.
 
-```rust no-check
+```rust
 pub fn register(
     ctx: Context<Register>,
     name: String,
@@ -190,18 +230,15 @@ pub fn register(
 
 Update the meta-address for a name you own.
 
-```rust no-check
-pub fn update(
-    ctx: Context<Update>,
-    new_meta_address: [u8; 64],
-) -> Result<()>
+```rust
+pub fn update(ctx: Context<Update>, new_meta_address: [u8; 64]) -> Result<()>
 ```
 
 #### `release`
 
 Release a name. Closes the PDA account and returns rent to the owner.
 
-```rust no-check
+```rust
 pub fn release(ctx: Context<Release>) -> Result<()>
 ```
 
@@ -209,13 +246,62 @@ pub fn release(ctx: Context<Release>) -> Result<()>
 
 Look up a name's meta-address. Read-only.
 
-```rust no-check
+```rust
 pub fn resolve(ctx: Context<Resolve>) -> Result<[u8; 64]>
+```
+
+### Account Contexts
+
+The account layouts each instruction validates against. Only `Register`
+creates the PDA; the other three reference it through the same seeds:
+
+```rust
+#[derive(Accounts)]
+#[instruction(name: String)]
+pub struct Register<'info> {
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + 4 + MAX_NAME_LEN + 64 + 32 + 8,
+        seeds = [b"name", name.as_bytes()],
+        bump,
+    )]
+    pub name_record: Account<'info, NameRecord>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+```
+
+```rust
+#[derive(Accounts)]
+pub struct Update<'info> {
+    #[account(mut)]
+    pub name_record: Account<'info, NameRecord>,
+    pub owner: Signer<'info>,
+}
+```
+
+```rust
+#[derive(Accounts)]
+pub struct Release<'info> {
+    #[account(mut, close = owner)]
+    pub name_record: Account<'info, NameRecord>,
+    #[account(mut)]
+    pub owner: Signer<'info>,
+}
+```
+
+```rust
+#[derive(Accounts)]
+pub struct Resolve<'info> {
+    pub name_record: Account<'info, NameRecord>,
+}
 ```
 
 ### Account Structure
 
-```rust no-check
+```rust
 #[account]
 pub struct NameRecord {
     pub name: String,               // max 32 bytes
@@ -230,6 +316,9 @@ pub struct NameRecord {
 Name records are stored at PDAs derived from the name:
 
 ```rust no-check
+// Anchor account-attribute fragment, not a standalone Rust item, so it is
+// not compiled on its own. The full `Register` account context above shows
+// this seed in place.
 seeds = [b"name", name.as_bytes()]
 ```
 
@@ -241,9 +330,14 @@ This means names are globally unique and can be resolved without knowing the own
 - Meta-address: must be exactly 64 bytes (two 32-byte ed25519 public keys)
 - Only the owner can update or release a name
 
+The meta-address is stored exactly as supplied. The program does not verify a
+spending-key signature over it: registration binds the record to the
+registrant's Solana wallet, and later updates are gated on that wallet being
+the record owner.
+
 ### Error Codes
 
-```rust no-check
+```rust
 #[error_code]
 pub enum WraithError {
     #[msg("Name must be 3-32 characters")]
@@ -329,7 +423,7 @@ anchor deploy --provider.cluster devnet
 anchor test
 ```
 
-Tests cover:
+The canonical program's `anchor test` suite covers:
 - **wraith-announcer** — event emission, multiple callers, metadata preservation
 - **wraith-sender** — `send_sol` transfers + emits, `send_spl` token transfer + emits, insufficient funds rejection
 - **wraith-names** — register/resolve, name validation (too short, invalid chars), update by owner, update by non-owner (rejected), release and re-register
@@ -343,7 +437,7 @@ Tests cover:
 | Language | Solidity | Rust | Rust (Anchor) |
 | Contract model | Bytecode deployment | WASM deployment | BPF program deployment |
 | Name storage | Contract storage | Contract storage | PDAs (Program Derived Addresses) |
-| Name sig verification | On-chain ECDSA recovery | Caller auth | Signer constraint |
+| Name sig verification | On-chain ECDSA recovery | Caller auth | Wallet signer constraint (no meta-address signature check) |
 | Event indexing | Subgraph / The Graph | Soroban RPC `getEvents` | Program transaction logs |
 | Account model | Address always exists | Must `createAccount` first | Address always valid, no deployment |
 | Token transfers | `msg.value` / `safeTransferFrom` | Soroban token contract | SystemProgram / SPL Token |

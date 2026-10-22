@@ -1,0 +1,15 @@
+[package]
+name = "wraith-sender"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+anchor-lang = { version = "0.32.2" }
+anchor-spl  = { version = "0.32.2", features = ["token"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = [] }
