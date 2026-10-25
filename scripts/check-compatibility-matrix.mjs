@@ -13,6 +13,19 @@
  *   - Solana -> contracts/solana.mdx   (no program IDs are published yet)
  *   - CKB    -> contracts/ckb.mdx      (each script's "Deployed Code Hash" / "Cell Dep")
  *
+ * Additionally, the "SDK core" table at the top of the matrix is validated
+ * against the version of the package that is actually installed:
+ *
+ *   - @wraith-protocol/sdk version must match the installed SDK version
+ *   - Peer dep versions for @stellar/stellar-sdk and @solana/web3.js must
+ *     match the same fields in package.json.
+ *
+ * The installed version is read from `node_modules/<pkg>/package.json` when the
+ * dependency is installed from a local path — CI installs the packed SDK
+ * tarball, which leaves a `file:/tmp/…tgz` specifier in package.json that
+ * carries no version. The matrix is therefore compared against the version
+ * of the artifact under test, not against that path.
+ *
  * Every row is resolved to its contract's entry in its owner, and the check
  * fails when:
  *   - the row's contract has no entry in the owner,
@@ -26,29 +39,69 @@
  *
  *   node scripts/check-compatibility-matrix.mjs
  *
- * Wired into `npm test`, so a matrix row that no longer matches its owning
- * entry fails the docs build.
+ * Wired into `npm test` and the check-snippets CI job, so a matrix row that
+ * no longer matches its owning entry fails the docs build.
+ *
+ * Internal helpers are exported so check-compatibility-matrix.test.mjs can
+ * import them for unit-level regression fixtures without spawning a subprocess.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
-const repoRoot = process.cwd();
+// Allow callers (tests) to override the repo root so fixtures can be used
+// without touching the live docs tree.
+export const repoRoot = process.env.MATRIX_CHECK_ROOT ?? process.cwd();
 const matrixRel = "reference/compatibility-matrix.mdx";
 
-const EVM_ADDRESS = /\b0x[0-9a-fA-F]{40}\b/g;
-const CKB_HASH = /\b0x[0-9a-fA-F]{64}\b/g;
-const STELLAR_STRKEY = /\bC[A-Z2-7]{55}\b/g;
+export const EVM_ADDRESS = /\b0x[0-9a-fA-F]{40}\b/g;
+export const CKB_HASH = /\b0x[0-9a-fA-F]{64}\b/g;
+export const STELLAR_STRKEY = /\bC[A-Z2-7]{55}\b/g;
 
 /** Cells that stand in for "no value published yet". */
-const PENDING = /^(pending( deployment)?|not deployed|not published( in these docs)?|tbd|—+|-+)$/i;
+export const PENDING = /^(pending( deployment)?|not deployed|not published( in these docs)?|tbd|—+|-+)$/i;
 
 /** Chain sections of the matrix, in the order they appear under "## Deployment IDs". */
-const CHAINS = [
+export const CHAINS = [
   { key: "evm", heading: /^###\s+EVM\b/, label: "EVM" },
   { key: "stellar", heading: /^###\s+Stellar\b/, label: "Stellar" },
   { key: "solana", heading: /^###\s+Solana\b/, label: "Solana" },
   { key: "ckb", heading: /^###\s+CKB\b/, label: "CKB" },
+];
+
+/**
+ * Packages validated in the "SDK core" table against package.json.
+ *
+ * `matrixLabel`   — the value that appears in the Package column of the matrix
+ *                   (used to locate the row; matched case-insensitively after
+ *                   stripping backticks).
+ * `pkgJsonKey`    — key in package.json `dependencies` or `devDependencies`.
+ * `source`        — human-readable description for error messages.
+ * `matchMode`     — "exact" requires the version strings to be equal after
+ *                   normalisation (removing leading ^/~); "range-prefix" only
+ *                   requires the matrix version to start with the pkg.json
+ *                   version prefix, to allow `^1.4.5` in the matrix when
+ *                   pkg.json records `1.4.5`.
+ */
+export const SDK_CORE_PACKAGES = [
+  {
+    matrixLabel: "@wraith-protocol/sdk",
+    pkgJsonKey: "@wraith-protocol/sdk",
+    source: "dependencies",
+    matchMode: "range-prefix",
+  },
+  {
+    matrixLabel: "@stellar/stellar-sdk",
+    pkgJsonKey: "@stellar/stellar-sdk",
+    source: "dependencies",
+    matchMode: "range-prefix",
+  },
+  {
+    matrixLabel: "@solana/web3.js",
+    pkgJsonKey: "@solana/web3.js",
+    source: "dependencies",
+    matchMode: "range-prefix",
+  },
 ];
 
 async function main() {
@@ -68,7 +121,11 @@ async function main() {
     for (const entry of owner.entries.values()) {
       for (const id of entry.addresses) {
         const previous = globalIndex.get(id);
-        if (previous && (previous.chain !== owner.chain || normalizeContract(previous.contract) !== normalizeContract(entry.contract))) {
+        if (
+          previous &&
+          (previous.chain !== owner.chain ||
+            normalizeContract(previous.contract) !== normalizeContract(entry.contract))
+        ) {
           failures.push(
             `Identifier ${id} is owned by both ${previous.chain}/${previous.contract} and ` +
               `${owner.chain}/${entry.contract}; owners must be unambiguous.`,
@@ -85,6 +142,22 @@ async function main() {
   let checkedRows = 0;
   let checkedIdentifiers = 0;
 
+  // ------------------------------------------------------------------
+  // Validate the "SDK core" table against package.json
+  // ------------------------------------------------------------------
+  const pkgJson = JSON.parse(
+    await readFile(path.join(repoRoot, "package.json"), "utf8"),
+  );
+  const sdkCoreFailures = validateSdkCoreTable(
+    matrixLines,
+    pkgJson,
+    await resolveInstalledVersions(pkgJson),
+  );
+  failures.push(...sdkCoreFailures);
+
+  // ------------------------------------------------------------------
+  // Validate the per-chain deployment ID sections
+  // ------------------------------------------------------------------
   for (const chain of CHAINS) {
     const start = headingIndex(matrixLines, chain.heading);
     if (start < 0) {
@@ -154,7 +227,10 @@ async function main() {
               `${matrixRel}: "${stripCode(contractCell)}" lists ${id}, which belongs to the ` +
                 `${ownerOfId.chain} chain (${ownerOfId.contract}), not ${chain.label}.`,
             );
-          } else if (ownerOfId && normalizeContract(ownerOfId.contract) !== contractKey) {
+          } else if (
+            ownerOfId &&
+            normalizeContract(ownerOfId.contract) !== contractKey
+          ) {
             failures.push(
               `${matrixRel}: "${stripCode(contractCell)}" lists ${id}, which ${owner.rel} owns ` +
                 `under "${ownerOfId.contract}", not "${contractKey}".`,
@@ -195,21 +271,195 @@ async function main() {
     `Compatibility matrix passed: ${checkedRows} rows / ${checkedIdentifiers} deployment ` +
       `identifiers validated against their owning entries (${Object.values(owners)
         .map((owner) => owner.rel)
-        .join(", ")}).`,
+        .join(", ")}). SDK core package versions validated against the installed packages.`,
   );
+}
+
+// ----------------------------------------------------------------------
+// SDK core table validation
+// ----------------------------------------------------------------------
+
+/**
+ * Locate the "## SDK core" table in the matrix and verify each tracked
+ * package's version cell against the version of the package that is
+ * installed.
+ *
+ * Exported so tests can call it directly with synthetic inputs.
+ *
+ * @param {string[]} matrixLines  Lines of the matrix MDX file.
+ * @param {object}   pkgJson      Parsed package.json object.
+ * @param {object}   installedVersions
+ *        Optional map of package name to the canonical version of the
+ *        installed artifact. Used for dependencies installed from a local
+ *        path, where package.json holds no version.
+ * @returns {string[]}            Array of failure messages (empty = pass).
+ */
+export function validateSdkCoreTable(matrixLines, pkgJson, installedVersions = {}) {
+  const failures = [];
+
+  const sectionStart = headingIndex(matrixLines, /^##\s+SDK core\b/);
+  if (sectionStart < 0) {
+    failures.push(`${matrixRel}: missing "## SDK core" section.`);
+    return failures;
+  }
+
+  const table = tableAfter(matrixLines, sectionStart);
+  if (!table || table.rows.length === 0) {
+    failures.push(`${matrixRel}: "## SDK core" section has no table.`);
+    return failures;
+  }
+
+  const allDeps = {
+    ...(pkgJson.dependencies ?? {}),
+    ...(pkgJson.devDependencies ?? {}),
+  };
+
+  for (const pkg of SDK_CORE_PACKAGES) {
+    // Find the matrix row whose Package cell matches this package label.
+    const row = table.rows.find((r) =>
+      stripCode(r[0] ?? "").toLowerCase() === pkg.matrixLabel.toLowerCase(),
+    );
+    if (!row) {
+      // Package not in the matrix — not an error; only tracked packages are checked.
+      continue;
+    }
+
+    const matrixVersion = stripCode(row[1] ?? "");
+    const declaredVersion = allDeps[pkg.pkgJsonKey];
+    // `installedVersions` carries the canonical version of the artifact that is
+    // actually installed. It differs from the declared spec only when the
+    // dependency is installed from a local path (CI installs the packed SDK
+    // tarball, which leaves a `file:…` specifier in package.json).
+    const installedVersion = installedVersions?.[pkg.pkgJsonKey] ?? declaredVersion;
+
+    if (!installedVersion) {
+      failures.push(
+        `${matrixRel}: SDK core row "${pkg.matrixLabel}" is documented but ` +
+          `"${pkg.pkgJsonKey}" is not in package.json ${pkg.source}.`,
+      );
+      continue;
+    }
+
+    if (!versionsMatch(matrixVersion, installedVersion, pkg.matchMode)) {
+      failures.push(
+        `${matrixRel}: SDK core row "${pkg.matrixLabel}" documents version ` +
+          `"${matrixVersion}", but the installed version is "${installedVersion}". ` +
+          `Update the matrix or package.json so they agree.`,
+      );
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * Resolve the canonical version of each tracked package that is installed.
+ *
+ * A dependency declared as a local path (for example the packed SDK tarball
+ * that CI installs: `file:/tmp/wraith-protocol-sdk-1.4.5.tgz`) carries no
+ * version in package.json. The version of the artifact that is actually
+ * installed is read from `node_modules/<pkg>/package.json`, so the matrix is
+ * compared against the version under test rather than against a path.
+ *
+ * Packages declared with a semver range keep that range: it is what the
+ * matrix documents and what the lockfile resolves.
+ *
+ * @param {object} pkgJson Parsed package.json object.
+ * @returns {Promise<Record<string, string>>} Map of package name to version.
+ */
+export async function resolveInstalledVersions(pkgJson) {
+  const allDeps = {
+    ...(pkgJson.dependencies ?? {}),
+    ...(pkgJson.devDependencies ?? {}),
+  };
+
+  const resolved = {};
+  for (const pkg of SDK_CORE_PACKAGES) {
+    const declared = allDeps[pkg.pkgJsonKey];
+    if (!declared || !isLocalSpecifier(declared)) continue;
+
+    const installed = await readInstalledVersion(pkg.pkgJsonKey);
+    if (installed) {
+      resolved[pkg.pkgJsonKey] = installed;
+      continue;
+    }
+
+    // node_modules is not available — fall back to the version encoded in the
+    // artifact's file name (e.g. `wraith-protocol-sdk-1.4.5.tgz`).
+    const fromName = versionFromArtifactName(declared);
+    if (fromName) resolved[pkg.pkgJsonKey] = fromName;
+  }
+  return resolved;
+}
+
+/** True when a dependency specifier points at a local path rather than a range. */
+export function isLocalSpecifier(spec) {
+  const value = String(spec ?? "").trim();
+  if (!value) return false;
+  if (/^(file|link|portal|workspace):/i.test(value)) return true;
+  return /[\\/]/.test(value) && !/^[~^><=\d]/.test(value);
+}
+
+/** Read the `version` field of an installed package, or null when absent. */
+async function readInstalledVersion(pkgJsonKey) {
+  try {
+    const manifest = JSON.parse(
+      await readFile(
+        path.join(repoRoot, "node_modules", pkgJsonKey, "package.json"),
+        "utf8",
+      ),
+    );
+    return typeof manifest.version === "string" ? manifest.version : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Extract `1.4.5` from `wraith-protocol-sdk-1.4.5.tgz`. */
+export function versionFromArtifactName(spec) {
+  const match = String(spec ?? "").match(/(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Return true when `matrixVersion` is consistent with `installedVersion`
+ * under the given match mode.
+ *
+ * "range-prefix": strips ^ and ~ from both sides, then checks that the
+ * bare version numbers are equal.  This accepts matrix `^1.4.5` vs
+ * package.json `1.4.5`, and matrix `1.4.5` vs package.json `^1.4.5`.
+ *
+ * Exported for tests.
+ */
+export function versionsMatch(matrixVersion, installedVersion, mode) {
+  if (mode === "range-prefix") {
+    return bare(matrixVersion) === bare(installedVersion);
+  }
+  // "exact" — after stripping range operators the versions must be identical.
+  return bare(matrixVersion) === bare(installedVersion);
+}
+
+/** Strip leading range operators (^, ~, >=, <=, >, <) and whitespace. */
+function bare(v) {
+  return String(v ?? "").replace(/^[~^><=\s]+/, "").trim();
 }
 
 // ----------------------------------------------------------------------
 // Owners — one per chain, keyed by contract name
 // ----------------------------------------------------------------------
 
-async function buildEvmOwner() {
+export async function buildEvmOwner() {
   const rel = "contracts/evm.mdx";
   const text = await readFile(path.join(repoRoot, rel), "utf8");
   const ls = splitLines(text);
-  const start = headingIndex(ls, /^###\s+Deployed Addresses \(Horizen Testnet\)/);
+  const start = headingIndex(
+    ls,
+    /^###\s+Deployed Addresses \(Horizen Testnet\)/,
+  );
   if (start < 0) {
-    throw new Error(`${rel}: could not find "### Deployed Addresses (Horizen Testnet)".`);
+    throw new Error(
+      `${rel}: could not find "### Deployed Addresses (Horizen Testnet)".`,
+    );
   }
   const table = tableAfter(ls, start);
   const entries = new Map();
@@ -225,9 +475,11 @@ async function buildEvmOwner() {
   return { chain: "evm", rel, entries };
 }
 
-async function buildStellarOwner() {
+export async function buildStellarOwner() {
   const rel = "scripts/contract-registry.json";
-  const registry = JSON.parse(await readFile(path.join(repoRoot, rel), "utf8"));
+  const registry = JSON.parse(
+    await readFile(path.join(repoRoot, rel), "utf8"),
+  );
   const network = registry.networks?.["stellar-testnet"];
   if (!network) {
     throw new Error(`${rel}: networks["stellar-testnet"] is missing.`);
@@ -243,7 +495,7 @@ async function buildStellarOwner() {
   return { chain: "stellar", rel, entries };
 }
 
-async function buildCkbOwner() {
+export async function buildCkbOwner() {
   const rel = "contracts/ckb.mdx";
   const text = await readFile(path.join(repoRoot, rel), "utf8");
   const ls = splitLines(text);
@@ -276,7 +528,7 @@ async function buildCkbOwner() {
   return { chain: "ckb", rel, entries };
 }
 
-async function buildSolanaOwner() {
+export async function buildSolanaOwner() {
   const rel = "contracts/solana.mdx";
   let text = "";
   try {
@@ -298,11 +550,11 @@ async function buildSolanaOwner() {
 // Markdown helpers
 // ----------------------------------------------------------------------
 
-function splitLines(text) {
+export function splitLines(text) {
   return text.split("\n");
 }
 
-function headingIndex(lines, pattern) {
+export function headingIndex(lines, pattern) {
   for (let i = 0; i < lines.length; i++) {
     if (pattern.test(lines[i])) return i;
   }
@@ -310,7 +562,7 @@ function headingIndex(lines, pattern) {
 }
 
 /** Parse the first GitHub-flavoured table at or after `fromIndex`. */
-function tableAfter(lines, fromIndex) {
+export function tableAfter(lines, fromIndex) {
   let i = fromIndex;
   while (i < lines.length && !lines[i].trim().startsWith("|")) i++;
   if (i >= lines.length) return null;
@@ -332,7 +584,7 @@ function tableAfter(lines, fromIndex) {
 }
 
 /** Value inside the first fenced block that follows `heading` within `lines`. */
-function fencedAfter(lines, heading) {
+export function fencedAfter(lines, heading) {
   for (let i = 0; i < lines.length; i++) {
     if (lines[i].trim() !== heading) continue;
     let j = i + 1;
@@ -353,12 +605,12 @@ function fencedAfter(lines, heading) {
 // Value helpers
 // ----------------------------------------------------------------------
 
-function stripCode(value) {
+export function stripCode(value) {
   return String(value ?? "").replace(/`/g, "").trim();
 }
 
 /** Collapse a row label to a contract key ("`WraithNames`" -> "wraithnames"). */
-function normalizeContract(value) {
+export function normalizeContract(value) {
   return stripCode(value)
     .toLowerCase()
     .replace(/\s*\((cell[- ]?dep|deployment cell dep)\)\s*$/, "")
@@ -368,7 +620,7 @@ function normalizeContract(value) {
 }
 
 /** Every deployment identifier present in a cell, lower-cased. */
-function identifiersIn(value) {
+export function identifiersIn(value) {
   const found = new Set();
   const text = String(value ?? "");
   for (const pattern of [CKB_HASH, EVM_ADDRESS, STELLAR_STRKEY]) {
@@ -377,7 +629,7 @@ function identifiersIn(value) {
   return [...found];
 }
 
-function fail(lines) {
+export function fail(lines) {
   console.error(["Compatibility matrix check failed.", "", ...lines].join("\n"));
   process.exit(1);
 }

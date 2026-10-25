@@ -81,6 +81,9 @@ jobs:
       - name: Check contract registry
         run: pnpm run check:contract-registry
 
+      - name: Check compatibility matrix
+        run: pnpm run check:compatibility-matrix
+
       - name: Check redirects and anchors
         env:
           DOCS_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -89,6 +92,9 @@ jobs:
 
       - name: Test redirects and anchors check
         run: pnpm run test:redirects-and-anchors
+
+      - name: Test compatibility matrix (regression fixtures)
+        run: pnpm run test:compatibility-matrix
 
   check-snippets-extended:
     name: Compile Rust / Python / shell / config snippets
@@ -285,6 +291,14 @@ jobs:
 
       - name: Run preview redirect unit tests
         run: pnpm run test:preview-redirect
+
+      # The live preview check needs a deployed Mintlify preview. It is only
+      # required when that URL is actually supplied — without one there is
+      # nothing to verify, and the unit tests above already cover the
+      # redirect logic.
+      - name: Verify live preview redirect
+        if: ${{ env.MINTLIFY_PREVIEW_URL != '' }}
+        run: node scripts/check-preview-redirect.mjs
 
 
   playground-smoke:

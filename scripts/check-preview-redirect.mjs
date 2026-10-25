@@ -64,10 +64,13 @@ if (isMain) {
   const previewUrl = process.env.MINTLIFY_PREVIEW_URL;
 
   if (!previewUrl) {
-    console.error(
-      "Set MINTLIFY_PREVIEW_URL to the base URL of the Mintlify PR preview.",
+    // No preview URL supplied: there is nothing to verify, so this is a skip
+    // rather than a failure. CI only requires the live check when a preview
+    // URL is actually provided (see .github/workflows/snippets.yml).
+    console.log(
+      "MINTLIFY_PREVIEW_URL is not set — skipping the live preview redirect check.",
     );
-    process.exit(1);
+    process.exit(0);
   }
 
   let baseUrl;
