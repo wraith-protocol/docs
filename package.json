@@ -32,7 +32,8 @@
   "dependencies": {
     "@solana/web3.js": "^1.99.0",
     "@stellar/stellar-sdk": "^13.3.0",
-    "@wraith-protocol/sdk": "1.4.5"
+    "@wraith-protocol/sdk": "1.4.5",
+    "follow-redirects": "^1.16.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.1",
@@ -45,8 +46,9 @@
   "pnpm": {
     "overrides": {
       "axios@<1.20.0": ">=1.20.0",
-      "follow-redirects@<1.16.1": ">=1.16.1",
+      "follow-redirects@<1.16.2": ">=1.16.2",
       "toml@<4.2.0": "^4.2.0",
+      "toml@<5.0.0": ">=5.0.1",
       "uuid@<11.1.1": "^11.1.1"
     },
     "auditConfig": {
