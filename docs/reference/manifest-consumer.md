@@ -9,7 +9,7 @@ This guide explains how **SDK**, **application**, **indexer**, and **operator** 
 ## Table of Contents
 1. [Choosing a Network](#choosing-a-network)
 2. [Handling Undeployed Contracts](#handling-undeployed-contracts)
-3. [Pinning Provenance (source & hash)](#pinning-provenance-source--hash)
+3. [Pinning Provenance (source & hash)](#pinning-provenance)
 4. [Reacting to Manifest Upgrades](#reacting-to-manifest-upgrades)
 5. [Compatibility Matrix](#compatibility-matrix)
 6. [Example Fixtures](#example-fixtures)
@@ -71,7 +71,7 @@ if (remoteManifest.version > localManifest.version) {
 | Indexer | All | ✅ | ✅ | ✅ |
 | Operator | All | ✅ | ✅ | ✅ |
 
-See the full matrix in [reference/compatibility-matrix.mdx](./compatibility-matrix.mdx).
+See the full matrix in [reference/compatibility-matrix.mdx](../reference/compatibility-matrix.mdx).
 
 ---
 
