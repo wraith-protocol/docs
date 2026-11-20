@@ -329,6 +329,56 @@ jobs:
       - name: Run playground smoke tests
         run: pnpm run test:playground
 
+  # ---------------------------------------------------------------------------
+  # Docs preview render and navigation smoke tests.
+  #
+  # The preview is built from docs.json and the shipped .mdx pages and served
+  # from 127.0.0.1, so this job exercises real rendering, client navigation,
+  # anchors and generated reference sections without a live deployment.
+  # ---------------------------------------------------------------------------
+  preview-render-smoke:
+    name: Docs preview render and navigation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs preview
+        run: pnpm run build:preview
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run docs preview smoke tests
+        run: pnpm run test:preview
+
+      # Failure artifacts name the route and navigation group for every failed
+      # check (test-results/preview-failures.json and .md).
+      - name: Upload preview failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-failures
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
+
   check-stellar-reference:
     name: Stellar contract reference check
     runs-on: ubuntu-latest
