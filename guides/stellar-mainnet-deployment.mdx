@@ -126,7 +126,7 @@ contract addresses. Nothing is deployed on mainnet yet, so every mainnet row rea
 Set contract IDs from the registry. Until mainnet goes live, point the server at the
 live testnet values to stage the deployment:
 
-```bash no-check
+```bash
 # .env or environment config
 # Mainnet contract IDs are not published yet — see /reference/contract-registry.
 STELLAR_NETWORK=testnet
@@ -155,7 +155,7 @@ Wraith uses Soroban RPC for event fetching (`getEvents`) and transaction submiss
 
 ### Configuring the RPC URL
 
-```bash no-check
+```bash
 STELLAR_RPC_URL=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
 STELLAR_HORIZON_URL=https://horizon.stellar.org
 STELLAR_NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"
@@ -224,7 +224,7 @@ const events = await sorobanServer.getEvents({
 
 Configure multiple RPC endpoints in priority order:
 
-```bash no-check
+```bash
 STELLAR_RPC_URL_PRIMARY=https://mainnet.stellar.validationcloud.io/v1/<API_KEY>
 STELLAR_RPC_URL_FALLBACK=https://<slug>.stellar-mainnet.quiknode.pro/<API_KEY>
 ```
@@ -475,7 +475,7 @@ sha256sum target/wasm32-unknown-unknown/release/stealth_announcer.wasm
 
 Once review and sign-off are complete, the admin key executes the upgrade via Soroban's `update_current_contract_wasm`:
 
-```bash no-check
+```bash
 soroban contract invoke \
   --id <CONTRACT_ID> \
   --network mainnet \
