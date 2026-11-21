@@ -130,6 +130,26 @@ When a deployment lands, update `scripts/contract-registry.json` first, then upd
 the pages that quote it. Never ship a placeholder contract id such as
 `CPLACEHOLDER_*` or `C[TBD]` — CI fails on those patterns.
 
+## Preview navigation and render smoke tests
+
+`npm run test:preview` builds a deterministic offline preview from `docs.json`
+and every shipped `.mdx` page, then runs Playwright against it at desktop and
+mobile widths. The preview mirrors the production tab/group navigation and
+supports direct loads, client-side navigation, anchor links, tab switching, the
+not-found page, and embedded playground iframes.
+
+```bash
+npm run build:preview   # build node_modules/.cache/docs-preview
+npm run serve:preview   # serve it at http://127.0.0.1:4174
+npm run test:preview    # build + serve + run the smoke tests
+```
+
+The tests fail on blank pages, console errors, hydration failures, missing
+local assets, failed same-origin requests, unresolved internal navigation, and
+broken tab state. Each failure records the route, tab, and navigation group in
+`test-results/preview`. CI runs the same suite in the `preview-smoke` job and
+uploads the report when it fails.
+
 ## CI
 
 Every pull request runs the snippet checker, the nav coverage check, and the

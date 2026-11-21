@@ -329,6 +329,43 @@ jobs:
       - name: Run playground smoke tests
         run: pnpm run test:playground
 
+  preview-smoke:
+    name: Docs preview navigation smoke tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build preview and run navigation/render smoke tests
+        run: pnpm run test:preview
+
+      - name: Upload preview failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-smoke-failure
+          path: |
+            test-results/preview
+            playwright-report/preview
+          retention-days: 7
+
   check-stellar-reference:
     name: Stellar contract reference check
     runs-on: ubuntu-latest
