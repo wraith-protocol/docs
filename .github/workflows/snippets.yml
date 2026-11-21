@@ -66,6 +66,12 @@ jobs:
         run: |
           echo "Testing against SDK version: ${{ needs.extract-sdk-version.outputs.sdk-version }}"
 
+      - name: Check snippet bypass allowlist
+        run: pnpm run check:snippet-allowlist
+
+      - name: Test snippet bypass allowlist
+        run: pnpm run test:snippet-allowlist
+
       - name: Check snippets
         run: pnpm run check:snippets
 

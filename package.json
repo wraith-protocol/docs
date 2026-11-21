@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "check:placeholders": "tsx scripts/check-placeholders.ts",
+    "check:snippet-allowlist": "tsx scripts/check-snippet-allowlist.ts",
+    "test:snippet-allowlist": "tsx --test scripts/snippet-allowlist.test.mjs",
     "check:snippets": "tsx scripts/check-snippets.ts && tsx scripts/check-api-examples.ts",
     "check:api-examples": "tsx scripts/check-api-examples.ts",
     "check:integration-guides": "tsx scripts/check-integration-guides.ts",
@@ -27,7 +29,7 @@
     "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
-    "test": "npm run check:snippets && npm run check:integration-guides && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run test:redirects-and-anchors && npm run test:compatibility-matrix"
+    "test": "npm run check:snippet-allowlist && npm run test:snippet-allowlist && npm run check:snippets && npm run check:integration-guides && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run test:redirects-and-anchors && npm run test:compatibility-matrix"
   },
   "dependencies": {
     "@solana/web3.js": "^1.99.0",

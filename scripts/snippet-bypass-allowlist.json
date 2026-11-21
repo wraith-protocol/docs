@@ -1,0 +1,402 @@
+[
+  {
+    "file": "architecture/announcement-format.mdx",
+    "line": 17,
+    "category": "output",
+    "reason": "Schema illustration with type placeholders and comments",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "architecture/chain-connectors.mdx",
+    "line": 350,
+    "category": "pseudocode",
+    "reason": "Illustrative connector method body demonstrating agent state lookup",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "architecture/overview.mdx",
+    "line": 75,
+    "category": "pseudocode",
+    "reason": "Illustrative agent tool execution dispatch snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "architecture/tee.mdx",
+    "line": 61,
+    "category": "pseudocode",
+    "reason": "Illustrative TEE chat key re-derivation method snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/ckb.mdx",
+    "line": 78,
+    "category": "pseudocode",
+    "reason": "CKB RISC-V contract entrypoint verification flow logic",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/ckb.mdx",
+    "line": 111,
+    "category": "pseudocode",
+    "reason": "CKB Blake2b hash helper function snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/ckb.mdx",
+    "line": 212,
+    "category": "pseudocode",
+    "reason": "CKB name resolution script entrypoint verification logic",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 24,
+    "category": "pseudocode",
+    "reason": "Solana Anchor instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 36,
+    "category": "pseudocode",
+    "reason": "Solana Anchor accounts struct definition stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 46,
+    "category": "pseudocode",
+    "reason": "Solana Anchor event struct definition stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 88,
+    "category": "pseudocode",
+    "reason": "Solana Anchor send_sol instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 101,
+    "category": "pseudocode",
+    "reason": "Solana Anchor SendSol accounts struct definition stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 117,
+    "category": "pseudocode",
+    "reason": "Solana Anchor send_spl instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 130,
+    "category": "pseudocode",
+    "reason": "Solana Anchor SendSpl accounts struct definition stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 181,
+    "category": "pseudocode",
+    "reason": "Solana Anchor register instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 193,
+    "category": "pseudocode",
+    "reason": "Solana Anchor update instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 204,
+    "category": "pseudocode",
+    "reason": "Solana Anchor release instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 212,
+    "category": "pseudocode",
+    "reason": "Solana Anchor resolve instruction signature stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 218,
+    "category": "pseudocode",
+    "reason": "Solana Anchor NameRecord account struct definition stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 232,
+    "category": "pseudocode",
+    "reason": "Solana Anchor PDA seeds derivation expression fragment",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/solana.mdx",
+    "line": 246,
+    "category": "pseudocode",
+    "reason": "Solana Anchor WraithError enum definition stub",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/stellar.mdx",
+    "line": 26,
+    "category": "pseudocode",
+    "reason": "Soroban contract announce function interface signature",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/stellar.mdx",
+    "line": 71,
+    "category": "pseudocode",
+    "reason": "Soroban contract register_keys function interface signature",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/stellar.mdx",
+    "line": 108,
+    "category": "pseudocode",
+    "reason": "Soroban contract trait signatures for stealth sender interface",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/stellar.mdx",
+    "line": 172,
+    "category": "pseudocode",
+    "reason": "Soroban contract trait signatures for wraith-names interface",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "contracts/stellar.mdx",
+    "line": 282,
+    "category": "pseudocode",
+    "reason": "Local build artifact deployment command referencing non-shipped target/ wasm file",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/integrations/nuxt.mdx",
+    "line": 130,
+    "category": "framework-example",
+    "reason": "Nuxt composable example importing uninstalled Vue/Nuxt reactivity hooks",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/integrations/solid.mdx",
+    "line": 90,
+    "category": "framework-example",
+    "reason": "Solid.js receiver signal hook importing uninstalled solid-js library",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/integrations/solid.mdx",
+    "line": 143,
+    "category": "framework-example",
+    "reason": "Solid.js JSX payment component importing uninstalled solid-js primitives",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/integrations/solid.mdx",
+    "line": 182,
+    "category": "framework-example",
+    "reason": "Solid.js client wrapper importing uninstalled solid-js environment helpers",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/integrations/vue.mdx",
+    "line": 90,
+    "category": "framework-example",
+    "reason": "Vue 3 composable example importing uninstalled vue reactivity APIs",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/integrations/vue.mdx",
+    "line": 178,
+    "category": "framework-example",
+    "reason": "Vue 3 client initialization snippet importing uninstalled Nuxt runtime config",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/ops/monitoring-and-on-call.mdx",
+    "line": 73,
+    "category": "snippet-stub",
+    "reason": "Rust Prometheus exporter snippet importing external prometheus and lazy_static crates",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/ops/self-hosted-deployment.mdx",
+    "line": 120,
+    "category": "output",
+    "reason": "Example deployment summary JSON output containing placeholder contract IDs",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 35,
+    "category": "snippet-stub",
+    "reason": "Example Cargo.toml manifest for independent quickstart crate",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 67,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart network module containing cfg flags and external constants",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 108,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart keypair module importing external ed25519-dalek and stellar-strkey",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 153,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart stealth module imports curve25519-dalek and sha2 crates",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 186,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart domain derivation helper function snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 229,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart Edwards to Montgomery conversion function snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 261,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart stealth address generation function snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 300,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart stealth announcement scanner function snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 362,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart scan entrypoint snippet importing serde_json and local modules",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/quickstarts/rust.mdx",
+    "line": 430,
+    "category": "snippet-stub",
+    "reason": "Rust quickstart send entrypoint snippet importing rand and local modules",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/stellar-federation.mdx",
+    "line": 415,
+    "category": "pseudocode",
+    "reason": "Illustrative catch block fragment for NO_FEDERATION_SERVER error",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/stellar-federation.mdx",
+    "line": 427,
+    "category": "pseudocode",
+    "reason": "Illustrative catch block fragment for NOT_FOUND error",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/stellar-federation.mdx",
+    "line": 441,
+    "category": "pseudocode",
+    "reason": "Illustrative catch block fragment for MALFORMED_RESPONSE error",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/stellar-federation.mdx",
+    "line": 455,
+    "category": "pseudocode",
+    "reason": "Illustrative catch block fragment for TIMEOUT error",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/stellar-federation.mdx",
+    "line": 510,
+    "category": "pseudocode",
+    "reason": "Illustrative JSX form input element snippet for federation address UI",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  },
+  {
+    "file": "guides/stellar-troubleshooting.mdx",
+    "line": 260,
+    "category": "pseudocode",
+    "reason": "Soroban contracterror enum definition illustrative snippet",
+    "owner": "@truthixify",
+    "expires": "2027-11-20"
+  }
+]

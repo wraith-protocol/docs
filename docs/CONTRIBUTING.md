@@ -27,6 +27,36 @@ Use `no-check` only for intentionally illustrative pseudocode:
 
 Prefer making snippets compile over opting them out.
 
+### Non-executable snippets and bypass allowlist
+
+Free-form inline bypass markers (`no-check`) are not permitted on their own. Every non-executable code block that bypasses snippet validation must be cataloged in `scripts/snippet-bypass-allowlist.json`.
+
+CI inventories every bypass in the documentation and enforces that:
+1. **Registered & Owned**: Every block marked with `no-check` must have an entry in `scripts/snippet-bypass-allowlist.json` with a specific file, line number, owner, and human-readable reason.
+2. **Category**: Every entry must declare a valid category:
+   - `output`: Pure command-line or API output (e.g., example JSON responses or CLI stdout).
+   - `pseudocode`: Intentional pseudocode, partial syntax fragments, or algorithmic logic not meant to be executed directly.
+   - `framework-example`: Framework integration glue (e.g., Vue, Nuxt, Solid) importing libraries outside the docs repository's dependencies.
+   - `snippet-stub`: Language stub requiring external crates or modules not bundled in CI.
+3. **Expiring**: Entries must define an expiration/review date (`YYYY-MM-DD`). CI fails if any entry is expired, prompting maintainers to review whether the snippet can now be made runnable.
+4. **No Stale or Duplicate Entries**: CI fails if an allowlist entry refers to a fence that no longer carries a bypass marker, or if entries are duplicated.
+
+When an exemption is acceptable:
+- The snippet is deliberately partial pseudocode illustrating a theoretical protocol step rather than a runnable program.
+- The block illustrates terminal/API output rather than executable code.
+- The snippet depends on an external framework or crate that the docs workspace intentionally does not install.
+
+When an exemption is NOT acceptable:
+- Runnable shell commands that can be checked by `check:shell-commands`.
+- Code that can be made runnable or syntax-clean with standard preludes.
+- Unreviewed or permanent bypasses without an owner or expiration date.
+
+Run the allowlist check locally:
+
+```bash
+npm run check:snippet-allowlist
+```
+
 ### API endpoint examples
 
 `api-reference/endpoints.mdx` has a stricter gate, which `check:snippets` also runs:
