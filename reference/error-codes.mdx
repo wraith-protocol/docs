@@ -34,7 +34,7 @@ See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshoot
 | `#3` | `ArityMismatch` | `batch_send` vectors have different lengths | Passing `stealth_addresses`, `amounts`, `ephemeral_pub_keys`, or `metadatas` arrays of unequal length | Ensure all four arrays are the same length before building the invocation |
 | `#4` | `ZeroAmount` | `amount == 0` | Passing `0` as the SAC token amount (e.g. wrong decimal scaling for USDC) | USDC uses 7 decimals: 1 USDC = `10_000_000` in the `i128`; verify your scaling |
 
-See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hosterror-errorcontract-n-contract-trapped) and [`op_no_trust`](/guides/stellar-troubleshooting#18-op_no_trust--missing-trustline).
+See also: [Soroban Contract Errors → `HostError`](/guides/stellar-troubleshooting#17-hosterror-errorcontract-n-contract-trapped) and [`op_no_trust`](/guides/stellar-troubleshooting#18-op_no_trust-/-missing-trustline).
 
 ---
 
@@ -122,7 +122,7 @@ The table below maps each numbered entry in [stellar-troubleshooting.mdx](/guide
 | 4 | `op_no_destination` | Stellar protocol error — see Horizon docs |
 | 5 | `429 Too Many Requests` | Network / rate limiting |
 | 6 | `502 / 504 Gateway` | Network / node availability |
-| 7 | `retention window exceeded` | [`retention_window_exceeded`](#soroban-rpc--indexer-errors) |
+| 7 | `retention window exceeded` | [`retention_window_exceeded`](#soroban-rpc-/-indexer-errors) |
 | 8 | `tx_too_late` | Stellar protocol error — see Horizon docs |
 | 9 | `Freighter not installed` | Browser / wallet environment |
 | 10 | `Network mismatch` | Browser / wallet environment |

@@ -11,7 +11,7 @@ bar as shipped code.
 ## Requirements
 
 - **No high or critical advisories** on any production dependency path. This is
-  enforced by the [`Dependency audit`](.github/workflows/dependency-audit.yml)
+  enforced by the [`Dependency audit`](https://github.com/wraith-protocol/docs/blob/develop/.github/workflows/dependency-audit.yml)
   workflow, which runs `pnpm audit --prod --audit-level high` on every pull
   request, on every push to `develop` and `main`, and weekly against the live
   advisory database. A high or critical finding blocks merge until the

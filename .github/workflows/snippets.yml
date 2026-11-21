@@ -90,6 +90,15 @@ jobs:
           DOCS_DIFF_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: pnpm run check:redirects-and-anchors
 
+      # Deterministic link check: routes, anchors, redirects, and shipped assets.
+      # Uses this repository's own checker so failures name the source page and
+      # the target; no network access is involved.
+      - name: Check internal links
+        run: pnpm run check:broken-links:internal
+
+      - name: Test broken link checker
+        run: pnpm run test:broken-links
+
       - name: Test redirects and anchors check
         run: pnpm run test:redirects-and-anchors
 
@@ -272,6 +281,11 @@ jobs:
 
       - name: Validate Mint navigation and configuration
         run: npx --yes mintlify@4.2.1082 validate
+
+      # Mintlify's own resolver catches links we might model incorrectly.
+      # Anchors and redirects are deterministic and need no network access.
+      - name: Check broken links with the Mintlify CLI
+        run: npx --yes mintlify@4.2.1082 broken-links --check-anchors --check-redirects
 
       - name: Run preview redirect unit tests
         run: pnpm run test:preview-redirect
