@@ -276,6 +276,18 @@ jobs:
       - name: Run preview redirect unit tests
         run: pnpm run test:preview-redirect
 
+      - name: Install promtool (operator runbook)
+        run: |
+          curl -sSfL https://github.com/prometheus/prometheus/releases/download/v2.53.0/prometheus-2.53.0.linux-amd64.tar.gz | tar -xz -C /tmp
+          sudo cp /tmp/prometheus-2.53.0.linux-amd64/promtool /usr/local/bin/promtool
+          promtool --version
+
+      - name: Check operator runbook
+        run: pnpm run check:operator-runbook
+
+      - name: Check nav smoke coverage
+        run: pnpm run check:nav-smoke
+
       # The live preview check needs a deployed Mintlify preview. It is only
       # required when that URL is actually supplied — without one there is
       # nothing to verify, and the unit tests above already cover the

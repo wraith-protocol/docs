@@ -1,0 +1,9 @@
+{
+  "network": "futurenet",
+  "contracts": {
+    "stealthAnnouncer": "CAAA...PLACEHOLDER",
+    "stealthRegistry": "CBBB...PLACEHOLDER",
+    "stealthSender": "CCCC...PLACEHOLDER",
+    "wraithNames": "CDDD...PLACEHOLDER"
+  }
+}
