@@ -96,6 +96,21 @@ jobs:
       - name: Test compatibility matrix (regression fixtures)
         run: pnpm run test:compatibility-matrix
 
+  rust-quickstart:
+    name: Test the Stellar Rust quickstart
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: scripts/rust-quickstart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.97.1"
+          components: rustfmt
+      - run: cargo fmt --check
+      - run: cargo test --locked
+
   check-snippets-extended:
     name: Compile Rust / Python / shell / config snippets
     runs-on: ubuntu-latest
