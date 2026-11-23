@@ -35,6 +35,7 @@
     "@wraith-protocol/sdk": "1.4.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "^1.49.1",
     "@types/js-yaml": "4.0.9",
     "@types/node": "^22.10.2",
