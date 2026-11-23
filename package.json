@@ -25,6 +25,8 @@
     "generate:playground-fixtures": "node scripts/playground/generate-fixtures.mjs",
     "check:playground-fixtures": "node scripts/playground/generate-fixtures.mjs --check",
     "test:playground": "playwright test --config scripts/playground/tests/playwright.config.ts",
+    "build:preview": "node scripts/preview/build.mjs",
+    "test:preview": "playwright test --config scripts/preview/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "mint broken-links",
     "test": "npm run check:snippets && npm run check:integration-guides && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run test:redirects-and-anchors && npm run test:compatibility-matrix"
