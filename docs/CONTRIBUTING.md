@@ -163,3 +163,21 @@ GitHub also requires a `workflow_dispatch` workflow to exist on the default
 branch before it can be manually dispatched, so this PR uses the documented
 command against the preview URL instead of adding a workflow that cannot yet
 be run for this PR.
+
+### Managed agent examples
+
+The managed-agent workflow builds core 1.4.5 and sdk-agent 0.1.0 from a pinned
+SDK commit. To reproduce it with Node 22 and pnpm 10.34.4, run these commands
+from the docs root with a fresh SDK checkout:
+
+```sh
+git clone https://github.com/wraith-protocol/sdk.git /tmp/wraith-guide-sdk
+git -C /tmp/wraith-guide-sdk checkout af34393a7676a11876703a9e5e4ce5381bd08700
+pnpm --dir /tmp/wraith-guide-sdk install --frozen-lockfile
+pnpm --dir /tmp/wraith-guide-sdk run build
+bash scripts/managed-agent/check.sh /tmp/wraith-guide-sdk
+```
+
+The check installs both tarballs in a temporary consumer, compiles the
+TypeScript fences in the client, single-chain and Stellar cookbook pages,
+and runs their request/response fixtures. It needs no platform credentials.
