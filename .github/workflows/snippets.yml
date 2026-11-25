@@ -388,7 +388,8 @@ jobs:
         run: pnpm run test:nav-smoke
 
       # Failure artifacts name the route and navigation group for every failed
-      # check (test-results/preview-failures.json and .md).
+      # check (test-results/preview-failures.* and
+      # test-results/nav-smoke/nav-smoke-failures.*).
       - name: Upload preview failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4

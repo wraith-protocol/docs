@@ -18,7 +18,17 @@ export default defineConfig({
   fullyParallel: true,
   workers: 2,
   retries: process.env.CI ? 1 : 0,
-  reporter: [["list"]],
+  reporter: [
+    ["list"],
+    [
+      path.resolve(__dirname, "..", "..", "preview", "tests", "reporter.ts"),
+      {
+        outputDir: path.join(repoRoot, "test-results", "nav-smoke"),
+        filePrefix: "nav-smoke",
+        title: "Docs navigation smoke failures",
+      },
+    ],
+  ],
   outputDir: path.join(repoRoot, "test-results", "nav-smoke"),
   projects: [
     { name: "desktop", use: { browserName: "chromium", viewport: { width: 1280, height: 800 } } },
