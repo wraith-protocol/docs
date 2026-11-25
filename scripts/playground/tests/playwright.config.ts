@@ -10,6 +10,9 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 export default defineConfig({
   testDir: ".",
+  // Only the playground spec. The nav smoke spec needs a deployed preview
+  // (MINTLIFY_PREVIEW_URL) and is run through nav-smoke.config.ts.
+  testMatch: "playground.spec.ts",
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,

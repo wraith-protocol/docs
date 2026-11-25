@@ -1,0 +1,3 @@
+2026-11-21T00:00:00Z wraith-app INFO RPC timeout: upstream horizon timed out
+2026-11-21T00:00:01Z wraith-app INFO transaction submitted ok
+2026-11-21T00:00:02Z wraith-app WARN 429 rate limit exceeded

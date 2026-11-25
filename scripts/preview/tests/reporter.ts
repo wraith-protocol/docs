@@ -24,9 +24,23 @@ type FailureEntry = {
   url: string | null;
 };
 
+type ReporterOptions = {
+  outputDir?: string;
+  filePrefix?: string;
+  title?: string;
+};
+
 export default class PreviewFailureReporter implements Reporter {
   private failures: FailureEntry[] = [];
-  private outputDir = path.resolve(process.cwd(), "test-results");
+  private outputDir: string;
+  private filePrefix: string;
+  private title: string;
+
+  constructor(options: ReporterOptions = {}) {
+    this.outputDir = options.outputDir ?? path.resolve(process.cwd(), "test-results");
+    this.filePrefix = options.filePrefix ?? "preview";
+    this.title = options.title ?? "Docs preview failures";
+  }
 
   onTestEnd(test: TestCase, result: TestResult) {
     if (result.status === "passed" || result.status === "skipped") return;
@@ -52,13 +66,13 @@ export default class PreviewFailureReporter implements Reporter {
     if (this.failures.length === 0) return;
 
     fs.mkdirSync(this.outputDir, { recursive: true });
-    const jsonPath = path.join(this.outputDir, "preview-failures.json");
-    const markdownPath = path.join(this.outputDir, "preview-failures.md");
+    const jsonPath = path.join(this.outputDir, `${this.filePrefix}-failures.json`);
+    const markdownPath = path.join(this.outputDir, `${this.filePrefix}-failures.md`);
 
     fs.writeFileSync(jsonPath, `${JSON.stringify({ status: result.status, failures: this.failures }, null, 2)}\n`);
 
     const lines = [
-      "# Docs preview failures",
+      `# ${this.title}`,
       "",
       `Status: ${result.status}`,
       "",
