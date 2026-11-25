@@ -177,12 +177,16 @@ Internal resolution follows Mintlify, not the file system:
 - A failing report names both the source page and the target.
 
 External checks are bounded: at most 300 URLs, six concurrent requests, three
-attempts with backoff, and a 120 second wall-clock budget. Private, loopback,
-link-local, and IPv4-mapped addresses are refused, DNS answers are pinned to the
-validated address, and every redirect hop is revalidated. Permanent failures are
-reported with their source page but do not fail the required job, because
-third-party sites go down without notice. Use `--strict-external` for an opt-in
-run that exits non-zero on permanent failures.
+attempts with backoff, and one 120 second wall-clock budget for the entire pass.
+That budget becomes an absolute deadline at the start of the pass. The deadline
+is shared by DNS lookups, redirects, retries, request timeouts, and backoff
+sleeps; each wait is capped to the time still left. A check that is already in
+flight when the deadline arrives is skipped instead of starting another request.
+Private, loopback, link-local, and IPv4-mapped addresses are refused, DNS answers
+are pinned to the validated address, and every redirect hop is revalidated.
+Permanent failures are reported with their source page but do not fail the
+required job, because third-party sites go down without notice. Use
+`--strict-external` for an opt-in run that exits non-zero on permanent failures.
 
 ## CI
 

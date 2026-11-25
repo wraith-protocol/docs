@@ -31,9 +31,11 @@
  *     fallback for servers that reject HEAD) and a per-request timeout.
  *   - Retries only happen for transient classifications (429, 408, 425, 5xx,
  *     timeouts, DNS hiccups) with a small fixed backoff.
- *   - The whole external pass shares one wall-clock budget and a maximum URL
- *     count. Work that does not fit is reported as skipped, never as a failure,
- *     so a slow upstream cannot grow the job without limit.
+ *   - The whole external pass shares one absolute deadline and a maximum URL
+ *     count. The deadline is passed to URL resolution, redirects, retries,
+ *     requests, and backoff sleeps; each wait is capped to the time left. Work
+ *     that does not fit is reported as skipped, never as a failure, so a slow
+ *     upstream cannot grow the job without limit.
  *   - Every host is resolved once per hop and pinned to the validated address.
  *     Private, loopback, link-local, multicast, reserved, and IPv4-mapped
  *     addresses are never contacted, and redirects are followed manually so
@@ -71,6 +73,33 @@ export const EXTERNAL_DEFAULTS = Object.freeze({
   maxUrls: 300,
   userAgent: "wraith-docs-link-check/1.0 (+https://github.com/wraith-protocol/docs)",
 });
+
+/** Shared result for every path that runs out of the external budget. */
+const BUDGET_EXHAUSTED = "external check budget exhausted";
+const BUDGET_ERROR_CODE = "EBUDGET";
+
+function budgetError() {
+  return Object.assign(new Error(BUDGET_EXHAUSTED), { code: BUDGET_ERROR_CODE });
+}
+
+/**
+ * The one absolute deadline for the whole external pass. `runExternalChecks`
+ * sets it from the pass start; direct callers fall back to their own clock.
+ */
+export function deadlineFor(deps, config) {
+  if (typeof config.deadlineAt === "number") return config.deadlineAt;
+  const startedAt = typeof config.startedAt === "number" ? config.startedAt : deps.now();
+  return startedAt + config.budgetMs;
+}
+
+/** Milliseconds left before the shared deadline, never negative. */
+export function remainingMs(deps, config) {
+  return Math.max(0, deadlineFor(deps, config) - deps.now());
+}
+
+function outOfBudget(response) {
+  return response?.error?.code === BUDGET_ERROR_CODE;
+}
 
 const USAGE = `Usage: node scripts/check-broken-links.mjs [options]
 
@@ -563,7 +592,8 @@ export function isPublicAddress(input) {
  * Resolve a URL and confirm every address it answers with is publicly
  * routable. The first validated address is returned for DNS pinning.
  */
-export async function resolveExternalTarget(rawUrl, { resolveHost }) {
+export async function resolveExternalTarget(rawUrl, deps, config = null) {
+  const { resolveHost } = deps;
   let url;
   try {
     url = new URL(rawUrl);
@@ -574,6 +604,9 @@ export async function resolveExternalTarget(rawUrl, { resolveHost }) {
     return { ok: false, kind: "skipped", reason: `unsupported scheme ${url.protocol}` };
   }
   if (!url.hostname) return { ok: false, kind: "permanent", reason: "missing hostname" };
+  if (config && remainingMs(deps, config) <= 0) {
+    return { ok: false, kind: "skipped", reason: BUDGET_EXHAUSTED };
+  }
 
   const hostname = url.hostname.replace(/^\[|\]$/g, "");
   let addresses;
@@ -581,10 +614,15 @@ export async function resolveExternalTarget(rawUrl, { resolveHost }) {
     addresses = [{ address: hostname, family: net.isIP(hostname) }];
   } else {
     try {
-      addresses = await resolveHost(hostname);
+      // The DNS wait is capped by the same deadline as every other hop.
+      addresses = await resolveHost(hostname, config ? { timeoutMs: remainingMs(deps, config) } : undefined);
     } catch (error) {
+      if (error?.code === BUDGET_ERROR_CODE) return { ok: false, kind: "skipped", reason: BUDGET_EXHAUSTED };
       return { ok: false, kind: "transient", reason: `DNS lookup failed (${error?.code ?? error?.message ?? "unknown error"})` };
     }
+  }
+  if (config && remainingMs(deps, config) <= 0) {
+    return { ok: false, kind: "skipped", reason: BUDGET_EXHAUSTED };
   }
 
   if (!Array.isArray(addresses) || addresses.length === 0) {
@@ -607,8 +645,37 @@ export async function resolveExternalTarget(rawUrl, { resolveHost }) {
   };
 }
 
+/** Real DNS lookup bounded by the remaining share of the external deadline. */
+export function resolveHostWithTimeout(hostname, options) {
+  const lookup = dns.lookup(hostname, { all: true, verbatim: true });
+  const timeoutMs = options?.timeoutMs;
+  if (!Number.isFinite(timeoutMs)) return lookup;
+
+  let timer;
+  return Promise.race([
+    lookup,
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(budgetError()), timeoutMs);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 /** A single HEAD request pinned to an already validated address. */
-export function requestOnce({ url, address, family, method, timeoutMs, userAgent = EXTERNAL_DEFAULTS.userAgent }) {
+export function requestOnce({
+  url,
+  address,
+  family,
+  method,
+  timeoutMs,
+  deadlineAt,
+  now = () => Date.now(),
+  userAgent = EXTERNAL_DEFAULTS.userAgent,
+}) {
+  // Never let one request outlive the shared pass deadline, even if the caller
+  // handed us a larger per-request timeout.
+  const cappedTimeoutMs = typeof deadlineAt === "number" ? Math.min(timeoutMs, Math.max(0, deadlineAt - now())) : timeoutMs;
+  if (cappedTimeoutMs <= 0) return Promise.resolve({ error: budgetError() });
+
   return new Promise((resolve) => {
     const isHttps = url.protocol === "https:";
     const hostname = url.hostname.replace(/^\[|\]$/g, "");
@@ -649,8 +716,8 @@ export function requestOnce({ url, address, family, method, timeoutMs, userAgent
       return;
     }
 
-    request.setTimeout(timeoutMs, () => {
-      const error = new Error(`request timed out after ${timeoutMs}ms`);
+    request.setTimeout(cappedTimeoutMs, () => {
+      const error = new Error(`request timed out after ${cappedTimeoutMs}ms`);
       error.code = "ETIMEDOUT";
       request.destroy(error);
     });
@@ -666,19 +733,25 @@ export function requestOnce({ url, address, family, method, timeoutMs, userAgent
 export async function requestWithRetries(resolved, deps, config) {
   let last = { error: Object.assign(new Error("request was never attempted"), { code: "EUNATTEMPTED" }) };
   let attempts = 0;
+  const deadlineAt = deadlineFor(deps, config);
 
   for (let attempt = 1; attempt <= config.maxAttempts; attempt += 1) {
     let method = "HEAD";
     for (let fallback = 0; fallback < 2; fallback += 1) {
+      const remaining = remainingMs(deps, config);
+      if (remaining <= 0) return { error: budgetError(), attempts };
       attempts += 1;
       last = await deps.request({
         url: resolved.url,
         address: resolved.address,
         family: resolved.family,
         method,
-        timeoutMs: config.timeoutMs,
+        timeoutMs: Math.min(config.timeoutMs, remaining),
+        deadlineAt,
+        now: deps.now,
         userAgent: config.userAgent,
       });
+      if (outOfBudget(last)) return { ...last, attempts };
       const rejectedHead = !last.error && method === "HEAD" && (last.status === 403 || last.status === 405 || last.status === 501);
       if (rejectedHead) {
         method = "GET";
@@ -687,11 +760,16 @@ export async function requestWithRetries(resolved, deps, config) {
       break;
     }
 
+    if (remainingMs(deps, config) <= 0) return { error: budgetError(), attempts };
     const retryable = last.error ? isRetryableError(last.error) : isRetryableStatus(last.status);
     if (!retryable || attempt === config.maxAttempts) break;
 
     const delay = config.backoffMs[Math.min(attempt - 1, config.backoffMs.length - 1)] ?? 0;
-    if (delay > 0) await deps.sleep(delay);
+    if (delay > 0) {
+      const remaining = remainingMs(deps, config);
+      if (remaining <= 0) return { error: budgetError(), attempts };
+      await deps.sleep(Math.min(delay, remaining), { deadlineAt });
+    }
   }
 
   return { ...last, attempts };
@@ -702,21 +780,23 @@ export async function requestWithRetries(resolved, deps, config) {
  * re-resolved and revalidated against the public-address policy.
  */
 export async function checkExternalUrl(target, deps, config) {
-  const startedAt = deps.now();
   let current = target.replace(/#.*$/, "");
   const redirects = [];
 
   for (let hop = 0; hop <= config.maxRedirects; hop += 1) {
-    if (deps.now() - startedAt > config.budgetMs) {
-      return { target, status: "skipped", detail: "external check budget exhausted", redirects };
+    if (remainingMs(deps, config) <= 0) {
+      return { target, status: "skipped", detail: BUDGET_EXHAUSTED, redirects };
     }
 
-    const resolved = await resolveExternalTarget(current, deps);
+    const resolved = await resolveExternalTarget(current, deps, config);
     if (!resolved.ok) {
       return { target, status: resolved.kind, detail: resolved.reason, redirects };
     }
 
     const response = await requestWithRetries(resolved, deps, config);
+    if (outOfBudget(response)) {
+      return { target, status: "skipped", detail: BUDGET_EXHAUSTED, redirects };
+    }
     if (response.error) {
       const status = classifyNetworkError(response.error);
       return {
@@ -752,17 +832,20 @@ export async function checkExternalUrl(target, deps, config) {
  */
 export async function runExternalChecks(urls, deps, config) {
   const results = new Array(urls.length);
+  // Compute the deadline once. Every URL, redirect, retry, request, and sleep
+  // below shares it instead of starting a fresh budget per URL.
+  const runConfig = { ...config, deadlineAt: deadlineFor(deps, config) };
   let cursor = 0;
 
   const worker = async () => {
     while (cursor < urls.length) {
       const index = cursor;
       cursor += 1;
-      if (deps.now() - config.startedAt > config.budgetMs) {
-        results[index] = { target: urls[index], status: "skipped", detail: "external check budget exhausted", redirects: [] };
+      if (remainingMs(deps, runConfig) <= 0) {
+        results[index] = { target: urls[index], status: "skipped", detail: BUDGET_EXHAUSTED, redirects: [] };
         continue;
       }
-      results[index] = await checkExternalUrl(urls[index], deps, config);
+      results[index] = await checkExternalUrl(urls[index], deps, runConfig);
     }
   };
 
@@ -1001,9 +1084,13 @@ async function main() {
     const dropped = selected.length - checked.length;
 
     const externalStartedAt = Date.now();
-    const config = { ...EXTERNAL_DEFAULTS, startedAt: externalStartedAt };
+    const config = {
+      ...EXTERNAL_DEFAULTS,
+      startedAt: externalStartedAt,
+      deadlineAt: externalStartedAt + EXTERNAL_DEFAULTS.budgetMs,
+    };
     const deps = {
-      resolveHost: (hostname) => dns.lookup(hostname, { all: true, verbatim: true }),
+      resolveHost: resolveHostWithTimeout,
       request: requestOnce,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       now: () => Date.now(),

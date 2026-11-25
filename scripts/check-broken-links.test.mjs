@@ -7,6 +7,7 @@ import {
   classifyNetworkError,
   classifyStatus,
   collectExternalSources,
+  deadlineFor,
   decideExitCode,
   docsJsonAssets,
   extractAnchors,
@@ -17,6 +18,8 @@ import {
   isPublicAddress,
   normalizeUrl,
   parseArgs,
+  remainingMs,
+  requestOnce,
   requestWithRetries,
   resolveExternalTarget,
   runExternalChecks,
@@ -30,10 +33,12 @@ function config(overrides = {}) {
   return { ...EXTERNAL_DEFAULTS, backoffMs: [1], budgetMs: 10_000, startedAt: 0, ...overrides };
 }
 
-function fakeDeps({ responses = [], resolver, now } = {}) {
+function fakeDeps({ responses = [], resolver, now, sleep } = {}) {
   const requests = [];
+  const sleeps = [];
   return {
     requests,
+    sleeps,
     deps: {
       resolveHost:
         resolver ??
@@ -45,7 +50,10 @@ function fakeDeps({ responses = [], resolver, now } = {}) {
         if (responses.length === 0) return { error: Object.assign(new Error("no fake response"), { code: "EFAKE" }) };
         return responses.shift();
       },
-      sleep: async () => {},
+      sleep: async (ms, options) => {
+        sleeps.push({ ms, options });
+        if (sleep) await sleep(ms, options);
+      },
       now: now ?? (() => 0),
     },
   };
@@ -403,6 +411,102 @@ test("stops issuing requests once the shared budget is exhausted", async () => {
   assert.equal(requests.length, 0);
 });
 
+test("derives one deadline and clamps remaining time", () => {
+  const cfg = config({ startedAt: 400, budgetMs: 100 });
+  assert.equal(deadlineFor({ now: () => 450 }, cfg), 500);
+  assert.equal(remainingMs({ now: () => 450 }, cfg), 50);
+  assert.equal(remainingMs({ now: () => 600 }, cfg), 0);
+  assert.equal(deadlineFor({ now: () => 700 }, { budgetMs: 50 }), 750);
+});
+
+test("a check already in flight stops at the shared deadline", async () => {
+  let clock = 90;
+  const { deps, requests } = fakeDeps({
+    now: () => clock,
+    responses: [{ status: 503 }, { status: 200 }],
+  });
+  const request = deps.request;
+  deps.request = async (options) => {
+    clock = 150; // the in-flight request carries the pass past its deadline
+    return request(options);
+  };
+
+  const result = await checkExternalUrl("https://example.com/slow", deps, config({ budgetMs: 100, startedAt: 0 }));
+  assert.equal(result.status, "skipped");
+  assert.match(result.detail, /budget exhausted/);
+  assert.equal(requests.length, 1, "no retry may start after the shared deadline");
+  assert.equal(requests[0].deadlineAt, 100);
+  assert.equal(requests[0].timeoutMs, 10, "the request timeout is capped to the time left");
+});
+
+test("a redirect crossing the shared deadline is skipped, not followed", async () => {
+  let clock = 80;
+  const { deps, requests } = fakeDeps({
+    now: () => clock,
+    responses: [{ status: 302, location: "/next" }, { status: 200 }],
+  });
+  const request = deps.request;
+  deps.request = async (options) => {
+    clock = 120;
+    return request(options);
+  };
+
+  const result = await checkExternalUrl("https://example.com/redirect", deps, config({ budgetMs: 100, startedAt: 0 }));
+  assert.equal(result.status, "skipped");
+  assert.match(result.detail, /budget exhausted/);
+  assert.equal(requests.length, 1, "the redirect hop must not be requested");
+  assert.deepEqual(result.redirects, [], "the redirect must not be queued after the deadline");
+});
+
+test("caps backoff sleeps and request timeouts to the time left", async () => {
+  let clock = 90;
+  const { deps, requests, sleeps } = fakeDeps({
+    now: () => clock,
+    sleep: async () => {
+      clock = 105;
+    },
+    responses: [{ status: 503 }, { status: 200 }],
+  });
+
+  const result = await checkExternalUrl(
+    "https://example.com/backoff",
+    deps,
+    config({ budgetMs: 100, startedAt: 0, backoffMs: [250], timeoutMs: 8_000 }),
+  );
+  assert.equal(result.status, "skipped");
+  assert.deepEqual(
+    sleeps.map(({ ms, options }) => [ms, options.deadlineAt]),
+    [[10, 100]],
+  );
+  assert.equal(requests.length, 1, "no retry may start after the sleep crosses the deadline");
+  assert.equal(requests[0].timeoutMs, 10);
+});
+
+test("passes the same deadline to every URL and DNS lookup in the pass", async () => {
+  let clock = 20;
+  const lookups = [];
+  const { deps, requests } = fakeDeps({
+    now: () => clock,
+    responses: [{ status: 200 }, { status: 200 }],
+    resolver: async (_hostname, options) => {
+      lookups.push(options);
+      return [{ address: "93.184.216.34", family: 4 }];
+    },
+  });
+
+  const results = await runExternalChecks(
+    ["https://example.com/a", "https://example.com/b"],
+    deps,
+    config({ budgetMs: 100, startedAt: 0, concurrency: 1 }),
+  );
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["ok", "ok"],
+  );
+  assert.deepEqual(requests.map((request) => request.deadlineAt), [100, 100]);
+  assert.deepEqual(lookups, [{ timeoutMs: 80 }, { timeoutMs: 80 }]);
+});
+
 test("keeps external results in input order and marks over-budget work as skipped", async () => {
   const { deps } = fakeDeps({
     responses: [{ status: 200 }, { status: 404 }],
@@ -453,6 +557,19 @@ test("groups external URLs by source page and reports both sides", () => {
   assert.match(report, /sdk\/overview\.mdx: "agent-client" -> no docs page at \/agent-client/);
   assert.match(report, /PERMANENT a\.mdx, b\.mdx: https:\/\/example\.com\/x -> HTTP 404/);
   assert.match(report, /advisory/);
+});
+
+test("requestOnce refuses to open a socket after the shared deadline", async () => {
+  const response = await requestOnce({
+    url: new URL("https://example.com/"),
+    address: "93.184.216.34",
+    family: 4,
+    method: "HEAD",
+    timeoutMs: 8_000,
+    deadlineAt: 100,
+    now: () => 150,
+  });
+  assert.equal(response.error.code, "EBUDGET");
 });
 
 test("request retries never exceed the configured attempt budget", async () => {
