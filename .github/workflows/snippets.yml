@@ -285,6 +285,9 @@ jobs:
       - name: Check operator runbook
         run: pnpm run check:operator-runbook
 
+      - name: Test operator runbook checker (missing tools, source locations)
+        run: pnpm run test:operator-runbook
+
       - name: Check nav smoke coverage
         run: pnpm run check:nav-smoke
 
@@ -377,6 +380,12 @@ jobs:
 
       - name: Run docs preview smoke tests
         run: pnpm run test:preview
+
+      # The nav smoke gate builds and serves its own disposable preview (see
+      # scripts/playground/tests/nav-smoke.config.ts) and has no skip path, so
+      # it always exercises real rendering at desktop and mobile widths.
+      - name: Run docs navigation smoke tests
+        run: pnpm run test:nav-smoke
 
       # Failure artifacts name the route and navigation group for every failed
       # check (test-results/preview-failures.json and .md).

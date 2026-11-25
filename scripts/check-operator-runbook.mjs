@@ -13,6 +13,9 @@
  *  - Missing tools/files/flags/stale endpoints fail with source page + line.
  *  - No live network secret or production mutation.
  *
+ * Required tools are hard requirements: a missing tool is a failure, never a
+ * skip, because the runbook tells readers to run that command.
+ *
  * Run: node scripts/check-operator-runbook.mjs
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -26,6 +29,9 @@ const PORT = Number(process.env.OPERATOR_RUNBOOK_PORT || 18765);
 const BASE = `http://127.0.0.1:${PORT}`;
 const FIXTURE_DIR = path.join(repoRoot, "scripts", "fixtures", "operator-runbook");
 
+const MONITORING_PAGE = "guides/ops/monitoring-and-on-call.mdx";
+const DEPLOYMENT_PAGE = "guides/ops/self-hosted-deployment.mdx";
+
 let failures = [];
 let skipped = [];
 const log = (msg) => console.log(msg);
@@ -33,6 +39,25 @@ const log = (msg) => console.log(msg);
 function fail(msg) { failures.push(msg); console.error("  FAIL: " + msg); }
 function ok(msg) { console.log("  ok: " + msg); }
 function skip(reason) { skipped.push(reason); console.log("  SKIP: " + reason); }
+
+/**
+ * Resolve the source page and 1-based line for a command or path so every
+ * failure points at what a reader would be following (issue #221).
+ */
+function locate(page, needle) {
+  try {
+    const lines = readFileSync(path.join(repoRoot, page), "utf8").split(/\r?\n/);
+    const index = lines.findIndex((line) => line.includes(needle));
+    if (index !== -1) return `${page}:${index + 1}`;
+  } catch {
+    // Fall back to the page name; the missing file is reported separately.
+  }
+  return page;
+}
+
+function failAt(page, needle, message) {
+  fail(`${locate(page, needle)}: ${message}`);
+}
 
 function run(cmd, args, opts = {}) {
   const r = spawnSync(cmd, args, { encoding: "utf8", cwd: repoRoot, ...opts });
@@ -48,19 +73,21 @@ async function main() {
   console.log("Operator runbook command check");
   console.log("Port:", PORT);
 
-  // ---- 1. Tool availability (missing tools must fail) ----
-  for (const tool of ["curl", "grep", "cat"]) {
-    if (!commandExists(tool)) {
-      fail(`missing required tool '${tool}' (used in guides/ops/monitoring-and-on-call.mdx)`);
-    } else {
+  // ---- 1. Tool availability (missing tools must fail, not skip) ----
+  const requiredTools = [
+    { tool: "curl", page: MONITORING_PAGE, needle: "curl https://horizon-futurenet.stellar.org/" },
+    { tool: "grep", page: MONITORING_PAGE, needle: 'grep "RPC timeout"' },
+    { tool: "cat", page: MONITORING_PAGE, needle: "cat stellar/deployments/futurenet.json" },
+    { tool: "jq", page: MONITORING_PAGE, needle: "jq '.contracts'" },
+    { tool: "promtool", page: MONITORING_PAGE, needle: "promtool check rules" },
+  ];
+  const availableTools = new Set();
+  for (const { tool, page, needle } of requiredTools) {
+    if (commandExists(tool)) {
+      availableTools.add(tool);
       ok(`tool present: ${tool}`);
-    }
-  }
-  for (const tool of ["jq", "promtool"]) {
-    if (!commandExists(tool)) {
-      skip(`${tool} not installed — related checks skipped (install to enable)`);
     } else {
-      ok(`tool present: ${tool}`);
+      failAt(page, needle, `missing required tool '${tool}' — the documented command cannot run`);
     }
   }
 
@@ -73,13 +100,21 @@ async function main() {
   ];
   for (const f of requiredFiles) {
     const full = path.join(repoRoot, f);
-    if (!existsSync(full)) fail(`referenced path '${f}' does not exist on disk`);
-    else ok(`path exists: ${f}`);
+    if (!existsSync(full)) {
+      const needle = path.basename(f);
+      const page = f.startsWith("guides/ops/self-hosted") ? MONITORING_PAGE : DEPLOYMENT_PAGE;
+      failAt(page, needle, `referenced path '${f}' does not exist on disk`);
+    } else {
+      ok(`path exists: ${f}`);
+    }
   }
   // fixture manifest path readers see (deployment manifest)
   const manifestPath = path.join(FIXTURE_DIR, "futurenet.json");
-  if (!existsSync(manifestPath)) fail(`fixture manifest missing: ${manifestPath}`);
-  else ok("fixture manifest present");
+  if (!existsSync(manifestPath)) {
+    failAt(DEPLOYMENT_PAGE, "stellar/deployments/futurenet.json", `fixture manifest missing: ${manifestPath}`);
+  } else {
+    ok("fixture manifest present");
+  }
 
   // ---- 3. Start disposable health endpoint ----
   const serverProc = spawn(process.execPath, [path.join(FIXTURE_DIR, "health-server.mjs")], {
@@ -94,7 +129,7 @@ async function main() {
     if (r.status === 0 && r.stdout.includes("ok")) { ready = true; break; }
     await sleep(200);
   }
-  if (!ready) fail(`disposable health endpoint not reachable at ${BASE}/health`);
+  if (!ready) failAt(MONITORING_PAGE, "curl https://horizon-futurenet.stellar.org/", `disposable health endpoint not reachable at ${BASE}/health`);
   else ok(`health endpoint ready at ${BASE}/health`);
 
   // ---- 4. Execute safe commands in documented order ----
@@ -102,68 +137,72 @@ async function main() {
   // Playbook 1: RPC Outage diagnosis — health check (safe)
   {
     const r = run("curl", ["-sS", `${BASE}/health`]);
-    if (r.status !== 0 || !r.stdout.includes("ok")) fail("Playbook 1 health check failed");
-    else ok("Playbook 1: curl health endpoint succeeded");
+    if (r.status !== 0 || !r.stdout.includes("ok")) {
+      failAt(MONITORING_PAGE, "curl https://horizon-futurenet.stellar.org/", "Playbook 1 health check failed");
+    } else ok("Playbook 1: curl health endpoint succeeded");
   }
 
   // Playbook 2: Horizon Backpressure — headers (safe, localhost)
   {
     const r = run("curl", ["-sSI", `${BASE}/health`]);
-    if (r.status !== 0) fail("Playbook 2 header check failed");
-    else ok("Playbook 2: curl -I health endpoint succeeded");
+    if (r.status !== 0) {
+      failAt(MONITORING_PAGE, "curl -I https://horizon-futurenet.stellar.org/", "Playbook 2 header check failed");
+    } else ok("Playbook 2: curl -I health endpoint succeeded");
   }
 
   // Metrics endpoint (dashboard import uses localhost:3000; we use disposable port)
   {
     const r = run("curl", ["-sS", `${BASE}/metrics`]);
-    if (r.status !== 0 || !r.stdout.includes("wraith_rpc_latency_seconds")) fail("metrics endpoint missing expected metric");
-    else ok("metrics endpoint exposes wraith_rpc_latency_seconds");
+    if (r.status !== 0 || !r.stdout.includes("wraith_rpc_latency_seconds")) {
+      failAt(MONITORING_PAGE, "wraith_rpc_latency_seconds", "metrics endpoint missing expected metric");
+    } else ok("metrics endpoint exposes wraith_rpc_latency_seconds");
   }
 
   // Prometheus rules validation (documented command)
-  if (commandExists("promtool")) {
+  if (availableTools.has("promtool")) {
     const r = run("promtool", ["check", "rules", "guides/ops/alerts/wraith-alerts.yml"]);
-    if (r.status !== 0) fail(`promtool check rules failed: ${String(r.stderr || r.stdout || r.error || "").slice(0, 200)}`);
-    else ok("promtool check rules guides/ops/alerts/wraith-alerts.yml -> SUCCESS");
-  } else {
-    skip("promtool not installed — rules validation skipped");
+    if (r.status !== 0) {
+      failAt(
+        MONITORING_PAGE,
+        "promtool check rules",
+        `promtool check rules failed: ${String(r.stderr || r.stdout || r.error || "").slice(0, 200)}`,
+      );
+    } else ok("promtool check rules guides/ops/alerts/wraith-alerts.yml -> SUCCESS");
   }
 
   // Dashboard import command uses guides/ops/dashboards/rpc-health.json (verify exists)
   {
     const r = run("cat", ["guides/ops/dashboards/rpc-health.json"]);
-    if (r.status !== 0) fail("dashboard file unreadable");
-    else ok("dashboard file readable: guides/ops/dashboards/rpc-health.json");
+    if (r.status !== 0) {
+      failAt(MONITORING_PAGE, "guides/ops/dashboards/rpc-health.json", "dashboard file unreadable");
+    } else ok("dashboard file readable: guides/ops/dashboards/rpc-health.json");
   }
 
   // Contract manifest verification (safe read)
   {
-    const r = run("cat", [path.relative(repoRoot, manifestPath)]);
-    // run from repo root; adjust path
-  }
-  {
     const rel = path.relative(repoRoot, manifestPath);
     const r = run("cat", [rel]);
-    if (r.status !== 0 || !r.stdout.includes("futurenet")) fail("deployment manifest read failed");
-    else ok("deployment manifest readable with network=futurenet");
+    if (r.status !== 0 || !r.stdout.includes("futurenet")) {
+      failAt(DEPLOYMENT_PAGE, "stellar/deployments/futurenet.json", "deployment manifest read failed");
+    } else ok("deployment manifest readable with network=futurenet");
   }
 
   // Log grep (safe)
   {
     const logRel = path.relative(repoRoot, path.join(FIXTURE_DIR, "wraith-app.log"));
     const r = run("grep", ["RPC timeout", logRel]);
-    if (r.status !== 0) fail("grep RPC timeout in log failed");
-    else ok("grep 'RPC timeout' in fixture log succeeded");
+    if (r.status !== 0) {
+      failAt(MONITORING_PAGE, 'grep "RPC timeout"', "grep RPC timeout in log failed");
+    } else ok("grep 'RPC timeout' in fixture log succeeded");
   }
 
-  // jq parse manifest (if jq available)
-  if (commandExists("jq")) {
+  // jq parse manifest (required tool; absence already failed above)
+  if (availableTools.has("jq")) {
     const rel = path.relative(repoRoot, manifestPath);
     const r = run("jq", [".contracts", rel]);
-    if (r.status !== 0) fail("jq parse of manifest failed");
-    else ok("jq parsed deployment manifest contracts");
-  } else {
-    skip("jq not installed — manifest JSON parse skipped (safety: tool absence)");
+    if (r.status !== 0) {
+      failAt(MONITORING_PAGE, "jq '.contracts'", "jq parse of manifest failed");
+    } else ok("jq parsed deployment manifest contracts");
   }
 
   // ---- 5. Skipped destructive/privileged steps with exact reasons ----
