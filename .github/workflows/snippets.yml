@@ -276,6 +276,21 @@ jobs:
       - name: Run preview redirect unit tests
         run: pnpm run test:preview-redirect
 
+      - name: Install promtool (operator runbook)
+        run: |
+          curl -sSfL https://github.com/prometheus/prometheus/releases/download/v2.53.0/prometheus-2.53.0.linux-amd64.tar.gz | tar -xz -C /tmp
+          sudo cp /tmp/prometheus-2.53.0.linux-amd64/promtool /usr/local/bin/promtool
+          promtool --version
+
+      - name: Check operator runbook
+        run: pnpm run check:operator-runbook
+
+      - name: Test operator runbook checker (missing tools, source locations)
+        run: pnpm run test:operator-runbook
+
+      - name: Check nav smoke coverage
+        run: pnpm run check:nav-smoke
+
       # The live preview check needs a deployed Mintlify preview. It is only
       # required when that URL is actually supplied — without one there is
       # nothing to verify, and the unit tests above already cover the
@@ -366,8 +381,15 @@ jobs:
       - name: Run docs preview smoke tests
         run: pnpm run test:preview
 
+      # The nav smoke gate builds and serves its own disposable preview (see
+      # scripts/playground/tests/nav-smoke.config.ts) and has no skip path, so
+      # it always exercises real rendering at desktop and mobile widths.
+      - name: Run docs navigation smoke tests
+        run: pnpm run test:nav-smoke
+
       # Failure artifacts name the route and navigation group for every failed
-      # check (test-results/preview-failures.json and .md).
+      # check (test-results/preview-failures.* and
+      # test-results/nav-smoke/nav-smoke-failures.*).
       - name: Upload preview failure artifacts
         if: failure()
         uses: actions/upload-artifact@v4

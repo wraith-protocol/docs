@@ -12,6 +12,10 @@
     "check:python-quickstart": "tsx scripts/python-quickstart/generate-vectors.ts --check && python3 scripts/python-quickstart/run_quickstart.py --bootstrap",
     "generate:python-quickstart-vectors": "tsx scripts/python-quickstart/generate-vectors.ts",
     "check:nav-coverage": "node scripts/check-nav-coverage.mjs",
+    "check:operator-runbook": "node scripts/check-operator-runbook.mjs",
+    "test:operator-runbook": "node --test scripts/check-operator-runbook.test.mjs",
+    "check:nav-smoke": "node scripts/check-nav-smoke.mjs",
+    "test:nav-smoke": "playwright test --config scripts/playground/tests/nav-smoke.config.ts",
     "check:contract-registry": "node --test scripts/check-contract-registry.test.mjs && node scripts/check-contract-registry.mjs",
     "check:compatibility-matrix": "node scripts/check-compatibility-matrix.mjs",
     "check:redirects-and-anchors": "node scripts/check-redirects-and-anchors.mjs",
@@ -49,8 +53,8 @@
   "pnpm": {
     "overrides": {
       "axios@<1.20.0": ">=1.20.0",
-      "follow-redirects@<1.16.1": ">=1.16.1",
-      "toml@<4.2.0": "^4.2.0",
+      "follow-redirects@<1.16.2": ">=1.16.2",
+      "toml@<5.0.1": "^5.0.1",
       "uuid@<11.1.1": "^11.1.1"
     },
     "auditConfig": {
