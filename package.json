@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "check:placeholders": "tsx scripts/check-placeholders.ts",
-    "check:snippets": "tsx scripts/check-snippets.ts && tsx scripts/check-api-examples.ts",
+    "check:snippets": "tsx scripts/check-snippets.ts && tsx scripts/check-api-examples.ts && npm run check:sponsored-batch",
+    "check:sponsored-batch": "node --import tsx --test scripts/check-sponsored-batch.test.mjs",
     "check:api-examples": "tsx scripts/check-api-examples.ts",
     "check:integration-guides": "tsx scripts/check-integration-guides.ts",
     "check:snippets-extended": "tsx scripts/check-snippets-extended.ts && npm run check:python-quickstart",
@@ -38,6 +39,7 @@
     "@wraith-protocol/sdk": "1.4.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@playwright/test": "^1.49.1",
     "@types/js-yaml": "4.0.9",
     "@types/node": "^22.10.2",

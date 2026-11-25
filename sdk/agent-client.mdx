@@ -5,15 +5,17 @@ description: "Wraith and WraithAgent classes for the managed platform"
 
 The `Wraith` and `WraithAgent` classes are the primary interface for building with Wraith. They handle all communication with the managed TEE infrastructure.
 
+Use `@wraith-protocol/sdk-agent@0.1.0` with core SDK `1.4.5`. The agent package is built from the [SDK repository](https://github.com/wraith-protocol/sdk/tree/af34393a7676a11876703a9e5e4ce5381bd08700/packages/sdk-agent). Install the core and agent tarballs from the same SDK build. Keep the platform API key on the server. Use a dedicated test agent and wallet when trying write operations. Leave AI provider credentials unset unless you bring your own model.
+
 ## `Wraith` Class
 
 ### Constructor
 
 ```typescript
-import { Wraith } from "@wraith-protocol/sdk";
+import { Wraith } from "@wraith-protocol/sdk-agent";
 
 const wraith = new Wraith({
-  apiKey: "wraith_live_abc123",
+  apiKey: process.env.WRAITH_API_KEY!,
 });
 ```
 
@@ -32,7 +34,7 @@ const wraith = new Wraith({
 Create a new agent with a `.wraith` name and stealth keys.
 
 ```typescript
-import { Chain } from "@wraith-protocol/sdk";
+import { Chain } from "@wraith-protocol/sdk-agent";
 
 const agent = await wraith.createAgent({
   name: "alice",
@@ -164,7 +166,7 @@ Export the agent's private key. Requires a fresh wallet signature for verificati
 ```typescript
 const sig = await wallet.signMessage("Export private key for agent " + agent.info.id);
 const { secret } = await agent.exportKey(sig, "Export private key for agent " + agent.info.id);
-console.log(secret); // "0x..."
+// Store the secret securely. Never log it.
 ```
 
 ### `agent.getConversations()`
@@ -276,12 +278,12 @@ Every request includes:
 
 ## Error Handling
 
-All methods throw on failure. The error message comes from the server:
+Request failures throw errors. Handle an unknown error before reading its message:
 
 ```typescript
 try {
   await agent.chat("send 100 ETH to bob.wraith");
 } catch (err) {
-  console.error(err.message); // "Insufficient balance"
+  if (err instanceof Error) console.error(err.message);
 }
 ```

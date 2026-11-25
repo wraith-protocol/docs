@@ -326,7 +326,7 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run playground smoke tests
+      - name: Run playground smoke and accessibility tests
         run: pnpm run test:playground
 
   preview-smoke:
