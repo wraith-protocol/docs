@@ -45,20 +45,5 @@
     "js-yaml": "4.3.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
-  },
-  "pnpm": {
-    "overrides": {
-      "axios@<1.20.0": ">=1.20.0",
-      "follow-redirects@<1.16.1": ">=1.16.1",
-      "toml@<4.2.0": "^4.2.0",
-      "uuid@<11.1.1": "^11.1.1"
-    },
-    "auditConfig": {
-      "ignoreGhsas": [
-        "GHSA-528h-pc64-c93x",
-        "GHSA-hqr4-qq8f-hg3x",
-        "GHSA-mjw6-4jj6-33hc"
-      ]
-    }
   }
 }
