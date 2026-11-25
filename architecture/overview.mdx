@@ -203,3 +203,27 @@ const wraith = new Wraith({
   ai: { provider: "openai", apiKey: "sk-..." },
 });
 ```
+
+## Public SDK fixture
+
+The agent-facing example below is extracted into a strict TypeScript fixture and compiled against the published SDK package in CI.
+
+<!-- architecture-fixture:overview -->
+```typescript
+import { Chain, type Payment, Wraith } from "@wraith-protocol/sdk";
+
+export async function createAgentAndScan(
+  wraith: Wraith,
+  wallet: string,
+  signature: string,
+): Promise<Payment[]> {
+  const agent = await wraith.createAgent({
+    name: "alice",
+    chain: Chain.Ethereum,
+    wallet,
+    signature,
+  });
+
+  return agent.scanPayments();
+}
+```
