@@ -5,12 +5,14 @@ description: "Create an agent on one blockchain"
 
 Create an agent on one chain and interact with it. This guide walks through the full lifecycle: creation, funding, payments, scanning, withdrawals, invoicing, and privacy.
 
+Use `@wraith-protocol/sdk-agent@0.1.0` with core SDK `1.4.5`. Run these examples on a server with a dedicated testnet wallet. Set `WRAITH_API_KEY` for this agent and obtain ownership signatures from the connected wallet. Balance and status checks do not need a private key export.
+
 ## Create the Agent
 
 ```typescript
-import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Wraith, Chain } from "@wraith-protocol/sdk-agent";
 
-const wraith = new Wraith({ apiKey: "wraith_live_abc123" });
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
 
 // Sign a message to prove wallet ownership
 const message = "Sign to create Wraith agent";
@@ -183,7 +185,7 @@ const { secret } = await agent.exportKey(
   exportSig,
   "Export private key for agent " + agent.info.id
 );
-console.log(secret); // "0x..." — the agent's private key
+// Store the secret securely. Never log it.
 ```
 
 Requires a fresh wallet signature from the owner.
@@ -192,11 +194,11 @@ Requires a fresh wallet signature from the owner.
 
 ```typescript
 // By agent ID
-const agent = wraith.agent("agent-uuid");
+const byId = wraith.agent("agent-uuid");
 
 // By owner wallet
-const agent = await wraith.getAgentByWallet("0xMyWallet");
+const byWallet = await wraith.getAgentByWallet("0xMyWallet");
 
 // By .wraith name
-const agent = await wraith.getAgentByName("alice");
+const byName = await wraith.getAgentByName("alice");
 ```

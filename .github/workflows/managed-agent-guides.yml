@@ -1,0 +1,34 @@
+name: Managed agent guides
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  packed-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: wraith-protocol/sdk
+          ref: af34393a7676a11876703a9e5e4ce5381bd08700
+          path: sdk-source
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build SDK packages
+        working-directory: sdk-source
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+      - name: Test the guides as an external package consumer
+        run: bash scripts/managed-agent/check.sh sdk-source

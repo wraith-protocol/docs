@@ -32,31 +32,84 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
+// ── Accessibility helpers ───────────────────────────────────
+// The live region carries short status messages that are not already
+// announced by a role="status"/"alert" result block — copy confirmations
+// and step changes, for example. Clearing first makes repeated identical
+// messages announce again.
+function announce(message) {
+  const region = $('liveRegion');
+  if (!region) return;
+  region.textContent = '';
+  requestAnimationFrame(() => { region.textContent = message; });
+}
+
+function setFieldError(input, errorEl, message) {
+  errorEl.textContent = message;
+  errorEl.hidden = false;
+  input.setAttribute('aria-invalid', 'true');
+}
+
+function clearFieldError(input, errorEl) {
+  errorEl.textContent = '';
+  errorEl.hidden = true;
+  input.removeAttribute('aria-invalid');
+}
+
+function clearAllFieldErrors() {
+  for (const [inputId, errorId] of [
+    ['sigInput', 'sigError'],
+    ['sendMeta', 'sendMetaError'],
+    ['sendAmount', 'sendAmountError'],
+    ['scanMeta', 'scanMetaError'],
+    ['scanVk', 'scanVkError'],
+    ['scanScalar', 'scanScalarError'],
+  ]) {
+    clearFieldError($(inputId), $(errorId));
+  }
+}
+
 // ── Stepper ─────────────────────────────────────────────────
 function activateStep(step) {
   if (!STEPS.includes(step)) step = 'derive';
   for (const s of STEPS) {
     $('panel-' + s).hidden = s !== step;
-    $('stepper-' + s).classList.toggle('active', s === step);
+    const tab = $('stepper-' + s);
+    const active = s === step;
+    tab.classList.toggle('active', active);
+    if (active) tab.setAttribute('aria-current', 'step');
+    else tab.removeAttribute('aria-current');
   }
   if (step === 'withdraw') renderWithdraw();
   if (step === 'scan') renderFixtureTable();
   syncPermalink();
 }
 
+// Move focus to the visible panel heading after a stepper change so keyboard
+// and screen-reader users land in the newly revealed step instead of at the
+// top of the document. The heading is tabindex="-1" for this reason only.
+function focusStepHeading(step) {
+  const heading = $('panel-' + step).querySelector('h2');
+  if (heading) heading.focus();
+}
+
 // ── Status / result helpers ─────────────────────────────────
 function statusBar(kind, html) {
-  return `<div class="status-bar"><span class="dot dot-${kind}"></span><span>${html}</span></div>`;
+  // Errors interrupt (role="alert"); progress and success announce politely.
+  const role = kind === 'err' ? 'alert' : 'status';
+  return `<div class="status-bar" role="${role}" aria-atomic="true">` +
+    `<span class="dot dot-${kind}" aria-hidden="true"></span><span>${html}</span></div>`;
 }
 
 function kvRow(k, v, mono = true) {
   return `<div class="kv-row"><span class="k">${k}</span><span class="v${mono ? '' : ' v-plain'}">${v}</span></div>`;
 }
 
-function copyText(text, btn) {
+function copyText(text, btn, message = 'Copied to clipboard.') {
   const done = () => {
     const old = btn.textContent;
     btn.textContent = 'Copied ✓';
+    announce(message);
     setTimeout(() => { btn.textContent = old; }, 1200);
   };
   if (navigator.clipboard && window.isSecureContext) {
@@ -103,10 +156,16 @@ async function loadFixtures() {
 
 // ── Derive step ─────────────────────────────────────────────
 async function runDerive() {
-  const sigRaw = $('sigInput').value.trim();
+  const sigInput = $('sigInput');
+  const sigError = $('sigError');
+  const sigRaw = sigInput.value.trim();
   const out = $('deriveResults');
+  clearFieldError(sigInput, sigError);
   if (!/^[0-9a-fA-F]{128}$/.test(sigRaw)) {
-    out.innerHTML = statusBar('err', 'Signature must be 128 hex chars (a 64-byte ed25519 signature).');
+    out.innerHTML = '';
+    setFieldError(sigInput, sigError,
+      'Signature must be 128 hex characters (a 64-byte ed25519 signature).');
+    sigInput.focus();
     return;
   }
   try {
@@ -133,30 +192,51 @@ async function runDerive() {
       <p class="hint">The seeds are <code>SHA-256("wraith:spending:" ‖ signature)</code> and
         <code>SHA-256("wraith:viewing:" ‖ signature)</code> — the same split the SDK performs.</p>`;
 
-    $('copyMetaBtn').addEventListener('click', () => copyText(metaAddress, $('copyMetaBtn')));
+    $('copyMetaBtn').addEventListener('click', () =>
+      copyText(metaAddress, $('copyMetaBtn'), 'Stealth meta-address copied to clipboard.'));
   } catch (err) {
     out.innerHTML = statusBar('err', `Derivation failed: ${esc(err.message)}`);
+    out.focus();
   }
 }
 
 // ── Send step ───────────────────────────────────────────────
 async function constructAnnouncement() {
-  const metaRaw = $('sendMeta').value.trim();
-  const amount = $('sendAmount').value.trim();
+  const metaInput = $('sendMeta');
+  const metaError = $('sendMetaError');
+  const amountInput = $('sendAmount');
+  const amountError = $('sendAmountError');
+  const metaRaw = metaInput.value.trim();
+  const amount = amountInput.value.trim();
   const asset = $('sendAsset').value;
   const out = $('sendResults');
+  clearFieldError(metaInput, metaError);
+  clearFieldError(amountInput, amountError);
 
   if (!metaRaw.startsWith('st:xlm:')) {
-    out.innerHTML = statusBar('err', 'Recipient meta-address must start with <code>st:xlm:</code>.');
+    out.innerHTML = '';
+    setFieldError(metaInput, metaError, 'Recipient meta-address must start with st:xlm:.');
+    metaInput.focus();
     return;
   }
-  if (!amount || Number.isNaN(Number(amount)) || Number(amount) <= 0) {
-    out.innerHTML = statusBar('err', 'Amount must be a positive number.');
+  if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+    out.innerHTML = '';
+    setFieldError(amountInput, amountError, 'Amount must be a positive number.');
+    amountInput.focus();
+    return;
+  }
+
+  let spendingPubKey, viewingPubKey;
+  try {
+    ({ spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaRaw));
+  } catch (err) {
+    out.innerHTML = '';
+    setFieldError(metaInput, metaError, `Recipient meta-address is invalid: ${err.message}`);
+    metaInput.focus();
     return;
   }
 
   try {
-    const { spendingPubKey, viewingPubKey } = decodeStealthMetaAddress(metaRaw);
 
     // Deterministic one-time ephemeral keypair per click, so the demo is
     // reproducible — the real protocol uses a random seed.
@@ -193,12 +273,13 @@ async function constructAnnouncement() {
       </div>
       <details class="fixture-section">
         <summary>Horizon event emitted by this payment</summary>
-        <pre class="code-block">${esc(JSON.stringify(event, null, 2))}</pre>
+        <pre class="code-block" tabindex="0" aria-label="Horizon event JSON">${esc(JSON.stringify(event, null, 2))}</pre>
       </details>
       <p class="hint">The <code>stealth-sender</code> contract transfers the asset and the
         <code>stealth-announcer</code> contract emits this event in the same transaction.</p>`;
   } catch (err) {
     out.innerHTML = statusBar('err', `Send failed: ${esc(err.message)}`);
+    out.focus();
   }
 }
 
@@ -209,38 +290,55 @@ function allAnnouncements() {
 }
 
 async function runScan() {
-  const metaRaw = $('scanMeta').value.trim();
-  const vkRaw = $('scanVk').value.trim();
-  const ssRaw = $('scanScalar').value.trim();
+  const metaInput = $('scanMeta');
+  const vkInput = $('scanVk');
+  const scalarInput = $('scanScalar');
+  const metaRaw = metaInput.value.trim();
+  const vkRaw = vkInput.value.trim();
+  const ssRaw = scalarInput.value.trim();
   const out = $('scanResults');
-  const errors = [];
+  const invalid = [];
+  clearFieldError(metaInput, $('scanMetaError'));
+  clearFieldError(vkInput, $('scanVkError'));
+  clearFieldError(scalarInput, $('scanScalarError'));
 
   let spendingPubKey = null;
   if (metaRaw.startsWith('st:xlm:')) {
     try { spendingPubKey = decodeStealthMetaAddress(metaRaw).spendingPubKey; }
-    catch (e) { errors.push(`meta-address: ${e.message}`); }
-  } else if (metaRaw) {
-    errors.push('meta-address must start with st:xlm:');
+    catch (e) {
+      setFieldError(metaInput, $('scanMetaError'), `Meta-address is invalid: ${e.message}`);
+      invalid.push(metaInput);
+    }
+  } else {
+    setFieldError(metaInput, $('scanMetaError'), 'Meta-address must start with st:xlm:.');
+    invalid.push(metaInput);
   }
 
   let viewingKey = null;
   if (/^[0-9a-fA-F]{64}$/.test(vkRaw)) {
     viewingKey = hexToBytes(vkRaw);
   } else {
-    errors.push('viewing key must be 64 hex chars');
+    setFieldError(vkInput, $('scanVkError'), 'Viewing key must be 64 hex characters.');
+    invalid.push(vkInput);
   }
 
   let spendingScalar = null;
-  try { spendingScalar = BigInt(ssRaw); } catch (_) { errors.push('spending scalar must be a decimal integer'); }
+  try { spendingScalar = BigInt(ssRaw); } catch (_) {
+    setFieldError(scalarInput, $('scanScalarError'), 'Spending scalar must be a decimal integer.');
+    invalid.push(scalarInput);
+  }
 
-  if (errors.length > 0) {
-    out.innerHTML = statusBar('err', `Fix: ${esc(errors.join('; '))}.`);
+  if (invalid.length > 0) {
+    out.innerHTML = '';
+    invalid[0].focus();
     return;
   }
 
   const announcements = allAnnouncements();
   const btn = $('scanBtn');
-  btn.disabled = true;
+  if (btn.getAttribute('aria-disabled') === 'true') return;
+  btn.setAttribute('aria-disabled', 'true');
+  out.setAttribute('aria-busy', 'true');
   out.innerHTML = statusBar('scanning', `Scanning ${announcements.length} announcements…`);
 
   const t0 = performance.now();
@@ -272,8 +370,10 @@ async function runScan() {
     renderFixtureTable();
   } catch (err) {
     out.innerHTML = statusBar('err', `Scan failed: ${esc(err.message)}`);
+    out.focus();
   } finally {
-    btn.disabled = false;
+    btn.removeAttribute('aria-disabled');
+    out.removeAttribute('aria-busy');
   }
 }
 
@@ -282,11 +382,17 @@ function renderFixtureTable() {
   const announcements = allAnnouncements();
   const yours = new Set(state.scanMatches.map((m) => m.ephemeralPubKey));
   table.innerHTML = '';
+
+  const caption = document.createElement('caption');
+  caption.className = 'sr-only';
+  caption.textContent = 'Announcement batch: fixture events plus anything constructed in the Send step.';
+  table.appendChild(caption);
   if (announcements.length === 0) return;
 
   const thead = document.createElement('thead');
   thead.innerHTML = `<tr>
-    <th>#</th><th>Stealth Address</th><th>Ephemeral Pub Key</th><th>View Tag</th><th>Owner</th>
+    <th scope="col">#</th><th scope="col">Stealth Address</th><th scope="col">Ephemeral Pub Key</th>
+    <th scope="col">View Tag</th><th scope="col">Owner</th>
   </tr>`;
   table.appendChild(thead);
 
@@ -335,7 +441,7 @@ async function renderWithdraw() {
         <div class="tag">Stealth balance</div>
         ${kvRow('Stealth address', `<code>${m.stealthAddress}</code>`)}
         ${kvRow('Private scalar (signs withdrawals)', `<code class="wrap">${m.stealthPrivateScalar.toString()}</code>`)}
-        <button class="ghost small withdraw-btn">Withdraw to ${esc(trunc(dest, 10))}</button>
+        <button type="button" class="ghost small withdraw-btn">Withdraw to ${esc(trunc(dest, 10))}</button>
         <div class="withdraw-out"></div>
       </div>`);
   }
@@ -369,7 +475,7 @@ function renderWithdrawal(btn, dest) {
   out.innerHTML = `
     <details class="fixture-section" open>
       <summary>Simulated withdrawal transaction</summary>
-      <pre class="code-block">${esc(JSON.stringify(tx, null, 2))}</pre>
+      <pre class="code-block" tabindex="0" aria-label="Simulated withdrawal transaction JSON">${esc(JSON.stringify(tx, null, 2))}</pre>
     </details>
     <p class="hint privacy-note">Privacy: space real withdrawals at least 1 hour apart and avoid uniform round amounts —
       see <a href="/guides/privacy-best-practices">Privacy Best Practices</a>.</p>`;
@@ -379,6 +485,7 @@ function renderWithdrawal(btn, dest) {
 function resetStep(step) {
   if (!state.fixtures) return;
   const r = state.fixtures.recipient;
+  clearAllFieldErrors();
   if (step === 'derive') {
     $('sigInput').value = r.signature;
     $('deriveResults').innerHTML = '';
@@ -441,11 +548,14 @@ async function boot() {
   try {
     await loadFixtures();
   } catch (err) {
-    $('bootError').hidden = false;
-    $('bootError').innerHTML = statusBar('err',
+    // #bootError already has role="alert"; fill it before revealing it so the
+    // message is announced once, without a nested live region.
+    $('bootError').innerHTML =
+      `<div class="status-bar"><span class="dot dot-err" aria-hidden="true"></span><span>` +
       `Could not load <code>fixtures.json</code> (${esc(err.message)}). ` +
       `Serve the playground over HTTP — opening it via <code>file://</code> or embedding without ` +
-      `<code>allow-same-origin</code> blocks the fixture request.`);
+      `<code>allow-same-origin</code> blocks the fixture request.</span></div>`;
+    $('bootError').hidden = false;
     return;
   }
 
@@ -454,18 +564,26 @@ async function boot() {
     $('stepper-' + s).addEventListener('click', () => {
       _currentStep = s;
       activateStep(s);
+      focusStepHeading(s);
     });
-    $('reset-' + s).addEventListener('click', () => resetStep(s));
-    $('permalink-' + s).addEventListener('click', (e) => {
-      e.preventDefault();
-      copyText(new URL($('permalink-' + s).dataset.url, location.href).href, $('permalink-' + s));
+    $('reset-' + s).addEventListener('click', () => {
+      resetStep(s);
+      announce(`${STEP_LABELS[s]} step reset.`);
+    });
+    $('permalink-' + s).addEventListener('click', () => {
+      copyText(new URL($('permalink-' + s).dataset.url, location.href).href,
+        $('permalink-' + s), 'Permalink copied to clipboard.');
     });
   }
 
   $('deriveBtn').addEventListener('click', runDerive);
   $('constructBtn').addEventListener('click', constructAnnouncement);
   $('scanBtn').addEventListener('click', runScan);
-  $('loadFixture').addEventListener('click', () => resetStep('scan'));
+  $('loadFixture').addEventListener('click', () => {
+    resetStep('scan');
+    announce('Demo keys and fixture data loaded.');
+    $('scanMeta').focus();
+  });
 
   // Read the step (and optional prefilled inputs) from the URL.
   const params = new URLSearchParams(location.search);

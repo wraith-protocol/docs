@@ -6,6 +6,8 @@ keywords: "Stellar, soroban, freighter, xlm, lumen, friendbot, stellar.expert, p
 
 Three complete recipes for building Stellar agents in production. Each is copy-pasteable and covers the full lifecycle: agent creation, funding, payments, webhooks, and privacy automation.
 
+The examples target core SDK 1.4.5 and managed-agent SDK 0.1.0. Run them on a server. Use a dedicated testnet agent and provide only its credentials to that job. Keep the owner signer in the provisioning step. Monitoring jobs should never hold it or call payment or key-export methods.
+
 > These recipes use `Chain.Stellar` throughout. For multichain variants, see the [Multichain Agent guide](/guides/multichain-agent).
 
 ---
@@ -24,7 +26,8 @@ A SaaS product that receives USDC payments on Stellar, webhooks on every incomin
 ### Step 1 — Create the agent
 
 ```typescript
-import { Wraith, Chain } from "@wraith-protocol/sdk";
+// create-payments.ts
+import { Wraith, Chain } from "@wraith-protocol/sdk-agent";
 import { Keypair } from "@stellar/stellar-sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -34,7 +37,7 @@ const ownerKeypair = Keypair.fromSecret(process.env.OWNER_SECRET!);
 const message = "Sign to create Wraith agent";
 const signature = ownerKeypair.sign(Buffer.from(message));
 
-const agent = await wraith.createAgent({
+export const agent = await wraith.createAgent({
   name: "payments",          // → payments.wraith
   chain: Chain.Stellar,
   wallet: ownerKeypair.publicKey(),
@@ -69,9 +72,9 @@ curl -X POST https://api.usewraith.xyz/agent/create \
 {
   "id": "a1b2c3d4-...",
   "name": "payments",
-  "chain": "stellar",
-  "address": "GABC...agent-address",
-  "metaAddress": "st:xlm:abc123...def456..."
+  "chains": ["stellar"],
+  "addresses": { "stellar": "GABC...agent-address" },
+  "metaAddresses": { "stellar": "st:xlm:abc123...def456..." }
 }
 ```
 
@@ -80,7 +83,8 @@ curl -X POST https://api.usewraith.xyz/agent/create \
 Stellar testnet funding uses Friendbot. The agent handles this automatically:
 
 ```typescript
-const res = await agent.chat("fund my wallet");
+// create-payments.ts (continued)
+export const funding = await agent.chat("fund my wallet");
 // "Wallet funded via Friendbot. Balance: 10,000 XLM"
 ```
 
@@ -127,27 +131,23 @@ curl https://api.usewraith.xyz/agent/info/payments \
 Poll notifications on a schedule, or wire up a background worker:
 
 ```typescript
-// poll-payments.ts — run every 60 seconds
-async function pollIncoming(agentId: string) {
-  const res = await fetch(
-    `https://api.usewraith.xyz/agent/${agentId}/notifications`,
-    { headers: { Authorization: `Bearer ${process.env.WRAITH_API_KEY}` } }
-  );
-  const { notifications, unreadCount } = await res.json();
+// poll-payments.ts (run every 60 seconds)
+import { Wraith, type Notification } from "@wraith-protocol/sdk-agent";
+
+export async function pollIncoming(agentId: string) {
+  const client = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+  const agent = client.agent(agentId);
+  const { notifications, unreadCount } = await agent.getNotifications();
 
   if (unreadCount === 0) return;
 
-  for (const n of notifications.filter((n: any) => !n.read)) {
+  for (const n of notifications.filter((n) => !n.read)) {
     if (n.type === "payment_received") {
       await handleIncomingPayment(n);
     }
   }
 
-  // Mark all read
-  await fetch(
-    `https://api.usewraith.xyz/agent/${agentId}/notifications/read`,
-    { method: "POST", headers: { Authorization: `Bearer ${process.env.WRAITH_API_KEY}` } }
-  );
+  await agent.markNotificationsRead();
 }
 ```
 
@@ -167,7 +167,8 @@ async function pollIncoming(agentId: string) {
 Your handler extracts amount, token, and stealth address from the `body` field:
 
 ```typescript
-async function handleIncomingPayment(notification: any) {
+// poll-payments.ts (continued)
+async function handleIncomingPayment(notification: Notification) {
   // Parse: "50 USDC received at stealth address GABC...xyz via payments.wraith"
   const match = notification.body.match(
     /^(\S+)\s+(\S+)\s+received at stealth address\s+(\S+)/
@@ -194,7 +195,7 @@ Schedule this with your platform's cron (AWS EventBridge, GitHub Actions, Vercel
 
 ```typescript
 // weekly-withdraw.ts
-import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { Wraith } from "@wraith-protocol/sdk-agent";
 
 export async function weeklyWithdraw() {
   const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -244,6 +245,8 @@ Enable privacy autopilot to get weekly analysis and preemptive warnings built in
 
 ```typescript
 // privacy-autopilot.ts — run weekly, or after large payment batches
+import { Wraith } from "@wraith-protocol/sdk-agent";
+
 export async function privacyAutopilot(agentId: string) {
   const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
   const agent = wraith.agent(agentId);
@@ -268,11 +271,10 @@ export async function privacyAutopilot(agentId: string) {
 
 ```typescript
 // agent-setup.ts
-import { Wraith, Chain } from "@wraith-protocol/sdk";
+import { pollIncoming } from "./poll-payments.js";
+import { weeklyWithdraw } from "./weekly-withdraw.js";
+import { privacyAutopilot } from "./privacy-autopilot.js";
 import cron from "node-cron";
-
-const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
-const agent = wraith.agent(process.env.AGENT_ID!);
 
 // Poll for payments every 60s
 setInterval(() => pollIncoming(process.env.AGENT_ID!), 60_000);
@@ -300,7 +302,8 @@ A DAO pays contributors weekly in USDC via `.wraith` stealth addresses on Stella
 ### Step 1 — Create the payroll agent
 
 ```typescript
-import { Wraith, Chain } from "@wraith-protocol/sdk";
+// create-payroll.ts
+import { Wraith, Chain } from "@wraith-protocol/sdk-agent";
 import { Keypair } from "@stellar/stellar-sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -362,10 +365,10 @@ export const contributors: Contributor[] = [
 
 ```typescript
 // payroll-run.ts
-import { Wraith } from "@wraith-protocol/sdk";
-import { contributors } from "./payroll-registry";
+import { Wraith } from "@wraith-protocol/sdk-agent";
+import { contributors } from "./payroll-registry.js";
 
-interface PayrollResult {
+export interface PayrollResult {
   contributorId: string;
   wraithName: string;
   amount: number;
@@ -447,6 +450,9 @@ curl -X POST https://api.usewraith.xyz/agent/$AGENT_ID/chat \
 
 ```typescript
 // payroll-monitor.ts
+import { Wraith } from "@wraith-protocol/sdk-agent";
+import type { PayrollResult } from "./payroll-run.js";
+
 export async function monitorAndRetry(
   results: PayrollResult[],
   agentId: string
@@ -485,7 +491,7 @@ export async function monitorAndRetry(
 }
 
 // Alert function — wire to Slack, PagerDuty, email, etc.
-async function alertOps(info: {
+export async function alertOps(info: {
   contributor: string;
   amount: number;
   error: string;
@@ -506,6 +512,8 @@ Contributors update their `.wraith` destination monthly to prevent pattern analy
 
 ```typescript
 // rotation.ts
+import { contributors } from "./payroll-registry.js";
+
 export async function rotateDestinations(
   updates: Array<{ contributorId: string; newWraithName: string }>
 ) {
@@ -533,6 +541,10 @@ To rotate, contributors call `wraith.getAgentByName("alice")` on a new agent and
 
 ```typescript
 // scheduler.ts
+import { Wraith } from "@wraith-protocol/sdk-agent";
+import { alertOps, monitorAndRetry } from "./payroll-monitor.js";
+import { runWeeklyPayroll } from "./payroll-run.js";
+import { contributors } from "./payroll-registry.js";
 import cron from "node-cron";
 
 // Every Friday at 16:00 UTC
@@ -599,7 +611,8 @@ A weekly background agent that analyzes stealth payment patterns, sends Slack/em
 ### Step 1 — Create the monitoring agent
 
 ```typescript
-import { Wraith, Chain } from "@wraith-protocol/sdk";
+// create-monitor.ts
+import { Wraith, Chain } from "@wraith-protocol/sdk-agent";
 import { Keypair } from "@stellar/stellar-sdk";
 
 const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
@@ -638,7 +651,7 @@ curl -X POST https://api.usewraith.xyz/agent/create \
 
 ```tsx
 // privacy-analysis.ts
-import { Wraith } from "@wraith-protocol/sdk";
+import { Wraith } from "@wraith-protocol/sdk-agent";
 
 export interface PrivacyReport {
   agentId: string;
@@ -725,6 +738,7 @@ Best Practices:
 
 ```tsx
 // reporters.ts
+import type { PrivacyReport } from "./privacy-analysis.js";
 
 // Slack report
 export async function sendSlackReport(report: PrivacyReport) {
@@ -822,6 +836,8 @@ When the privacy score drops below a threshold, the agent suggests new `.wraith`
 
 ```typescript
 // auto-rotate.ts
+import { Wraith } from "@wraith-protocol/sdk-agent";
+import type { PrivacyReport } from "./privacy-analysis.js";
 export async function generateRotationPlan(
   agentId: string,
   report: PrivacyReport
@@ -865,6 +881,9 @@ export async function applyRotation(
 
 ```typescript
 // weekly-privacy-job.ts
+import { analyzePrivacy } from "./privacy-analysis.js";
+import { generateRotationPlan } from "./auto-rotate.js";
+import { sendEmailReport, sendSlackReport } from "./reporters.js";
 import cron from "node-cron";
 
 // Every Monday at 08:00 UTC
@@ -1024,11 +1043,15 @@ Or a name-transfer endpoint that moves ownership to a new agent without requirin
 All three recipes reconnect to a pre-created agent by ID. Store the agent ID in your environment after the first `createAgent` call:
 
 ```typescript
-// Reconnect — no new agent is created
+// reconnect.ts
+import { Wraith } from "@wraith-protocol/sdk-agent";
+const wraith = new Wraith({ apiKey: process.env.WRAITH_API_KEY! });
+
+// Reconnect by ID
 const agent = wraith.agent(process.env.AGENT_ID!);
 
 // Or by name
-const agent = await wraith.getAgentByName("payments");
+const byName = await wraith.getAgentByName("payments");
 ```
 
 ```bash
@@ -1058,6 +1081,7 @@ curl https://api.usewraith.xyz/agent/$AGENT_ID/status \
 ### Error handling
 
 ```typescript
+// reconnect.ts (continued)
 try {
   const res = await agent.chat("send 500 USDC to alice.wraith on stellar");
 } catch (err: any) {
@@ -1086,10 +1110,13 @@ All API errors follow:
 New stealth addresses on Stellar require a `createAccount` operation (not `payment`) to activate the account with the 1 XLM minimum balance. The Wraith agent handles this automatically. If you're using the low-level SDK:
 
 ```typescript
+// activate-account.ts
 import { generateStealthAddress } from "@wraith-protocol/sdk/chains/stellar";
 
-const stealth = generateStealthAddress(spendingPubKey, viewingPubKey);
-// stealth.stealthAddress is a G... address with no on-chain existence yet
+export function receivingAddress(spendingPubKey: Uint8Array, viewingPubKey: Uint8Array) {
+  return generateStealthAddress(spendingPubKey, viewingPubKey).stealthAddress;
+}
+// The returned G... address is an account with no on-chain existence yet
 // Use Operation.createAccount to fund it for the first time
 // Use stealth-sender contract for subsequent USDC transfers
 ```

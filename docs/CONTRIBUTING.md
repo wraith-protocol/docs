@@ -89,6 +89,30 @@ node scripts/check-nav-coverage.mjs
 Note: `docs.json` is strict JSON — do not add `//` comments to it, the Mintlify
 CLI rejects them. Keep this file comment-free.
 
+## Preview render and navigation tests
+
+The preview tests build an offline copy of the docs from `docs.json` and the
+shipped `.mdx` pages, then drive it with Playwright at desktop and mobile
+widths. They visit one page per navigation group, every generated reference
+family, and exercise direct load, client navigation, anchor navigation, tab
+state and the not-found route.
+
+```bash
+npm run build:preview
+npm run test:preview
+```
+
+The build fails on a nav entry that cannot render, a blank page, a local image
+that does not exist, or an internal link that points at no page. The tests fail
+on blank pages, console and page errors, missing hydration, missing assets,
+broken tab state, unresolved links and anchors, and any request to an external
+origin. Failures are reported with the route and navigation group in
+`test-results/preview-failures.json` and `test-results/preview-failures.md`.
+
+When you add a page, register it in `docs.json` as usual — the preview picks it
+up from the navigation tree. When you add a generator script, add its output
+family to `scripts/preview/fixtures.mjs` so the family keeps its render check.
+
 ## Contract registry
 
 [`reference/contract-registry.mdx`](/reference/contract-registry) is the canonical
@@ -163,3 +187,21 @@ GitHub also requires a `workflow_dispatch` workflow to exist on the default
 branch before it can be manually dispatched, so this PR uses the documented
 command against the preview URL instead of adding a workflow that cannot yet
 be run for this PR.
+
+### Managed agent examples
+
+The managed-agent workflow builds core 1.4.5 and sdk-agent 0.1.0 from a pinned
+SDK commit. To reproduce it with Node 22 and pnpm 10.34.4, run these commands
+from the docs root with a fresh SDK checkout:
+
+```sh
+git clone https://github.com/wraith-protocol/sdk.git /tmp/wraith-guide-sdk
+git -C /tmp/wraith-guide-sdk checkout af34393a7676a11876703a9e5e4ce5381bd08700
+pnpm --dir /tmp/wraith-guide-sdk install --frozen-lockfile
+pnpm --dir /tmp/wraith-guide-sdk run build
+bash scripts/managed-agent/check.sh /tmp/wraith-guide-sdk
+```
+
+The check installs both tarballs in a temporary consumer, compiles the
+TypeScript fences in the client, single-chain and Stellar cookbook pages,
+and runs their request/response fixtures. It needs no platform credentials.

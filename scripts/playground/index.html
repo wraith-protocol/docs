@@ -16,13 +16,14 @@
       --surface:   #181c27;
       --border:    #2a2f3d;
       --accent:    #7c6af7;
+      --accent-solid: #6a56e8;
       --accent-lo: #7c6af720;
       --green:     #34d399;
       --green-lo:  #34d39918;
       --red:       #f87171;
       --red-lo:    #f8717118;
       --text:      #e2e8f0;
-      --muted:     #64748b;
+      --muted:     #94a3b8;
       --mono:      'Fira Mono', 'Cascadia Code', 'Consolas', monospace;
     }
 
@@ -35,6 +36,32 @@
       padding: 20px 16px 32px;
       min-height: 100vh;
     }
+
+    /* ── Accessibility utilities ─────────────────────────── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    :focus-visible {
+      outline: 2px solid #c4bcff;
+      outline-offset: 2px;
+    }
+    .panel h2:focus { outline: none; }
+    .field-error {
+      margin-top: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--red);
+    }
+    [aria-invalid="true"] { border-color: var(--red); }
+    button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
 
     h1 {
       font-size: 17px;
@@ -92,7 +119,7 @@
       font-weight: 700;
       flex-shrink: 0;
     }
-    .stepper .step.active .step-num { background: var(--accent); color: #fff; }
+    .stepper .step.active .step-num { background: var(--accent-solid); color: #fff; }
 
     /* ── Panels ──────────────────────────────────────────── */
     .panel h2 {
@@ -147,7 +174,7 @@
 
     button {
       padding: 9px 14px;
-      background: var(--accent);
+      background: var(--accent-solid);
       border: none;
       border-radius: 6px;
       color: #fff;
@@ -168,6 +195,22 @@
     button.ghost:hover { border-color: var(--accent); }
     button.small { padding: 5px 10px; font-size: 11px; margin-top: 8px; }
 
+    .link-btn {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      flex: 0 0 auto;
+      padding: 0;
+      background: none;
+      border: none;
+      color: var(--accent);
+      font: inherit;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .link-btn:hover { text-decoration: underline; opacity: 1; }
+
     .hint {
       margin-top: 8px;
       font-size: 11px;
@@ -178,7 +221,9 @@
       text-decoration: none;
       cursor: pointer;
     }
+    .hint a { text-decoration: underline; }
     .hint a:hover { text-decoration: underline; }
+    .hint .link-btn { color: var(--accent); }
     .hint code {
       font-family: var(--mono);
       font-size: 10px;
@@ -372,7 +417,28 @@
       color: var(--muted);
       font-size: 11px;
     }
-    .privacy-note a { color: var(--accent); }
+    /* The privacy note sits inside a match card (tinted green), where the
+       default accent does not reach 4.5:1 for body text. */
+    .privacy-note a { color: #b9b0ff; text-decoration: underline; }
+
+    /* ── Motion + reflow preferences ─────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .dot-scanning { animation: none; }
+    }
+
+    @media (max-width: 480px) {
+      body { padding: 16px 12px 24px; }
+      .row { flex-wrap: wrap; }
+      .btn-row { flex-wrap: wrap; }
+      /* Two rows of two steps keep the labels on one line at 320–480px. */
+      .stepper { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stepper .step { min-width: 0; }
+    }
   </style>
 </head>
 <body>
@@ -380,27 +446,28 @@
 <h1>Wraith Stealth Playground</h1>
 <p class="subtitle">Run the full stealth payment flow client-side — no wallet, no network calls, nothing leaves your browser.</p>
 
-<div id="bootError" hidden></div>
+<div id="liveRegion" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+<div id="bootError" role="alert" hidden></div>
 
 <nav class="stepper" aria-label="Stealth payment steps">
-  <button class="step" id="stepper-derive" data-step="derive">
+  <button type="button" class="step" id="stepper-derive" data-step="derive" aria-controls="panel-derive">
     <span class="step-num">1</span><span class="step-label">Derive</span>
   </button>
-  <button class="step" id="stepper-send" data-step="send">
+  <button type="button" class="step" id="stepper-send" data-step="send" aria-controls="panel-send">
     <span class="step-num">2</span><span class="step-label">Send</span>
   </button>
-  <button class="step" id="stepper-scan" data-step="scan">
+  <button type="button" class="step" id="stepper-scan" data-step="scan" aria-controls="panel-scan">
     <span class="step-num">3</span><span class="step-label">Scan</span>
   </button>
-  <button class="step" id="stepper-withdraw" data-step="withdraw">
+  <button type="button" class="step" id="stepper-withdraw" data-step="withdraw" aria-controls="panel-withdraw">
     <span class="step-num">4</span><span class="step-label">Withdraw</span>
   </button>
 </nav>
 
 <main>
   <!-- ── Step 1: Derive ─────────────────────────────────── -->
-  <section class="panel" id="panel-derive">
-    <h2>1 · Derive stealth keys</h2>
+  <section class="panel" id="panel-derive" aria-labelledby="panel-derive-title">
+    <h2 id="panel-derive-title" tabindex="-1">1 · Derive stealth keys</h2>
     <p class="panel-desc">
       A wallet signs the canonical Wraith message; the 64-byte signature is split into two
       domain-separated seeds, and each seed expands into a key pair. The public halves form
@@ -408,22 +475,23 @@
     </p>
 
     <div class="field">
-      <label>Wallet signature <span>(128 hex chars — the demo signature is pre-filled)</span></label>
+      <label for="sigInput">Wallet signature <span>(128 hex chars — the demo signature is pre-filled)</span></label>
       <input type="text" id="sigInput" spellcheck="false" autocomplete="off"
-             placeholder="64-byte ed25519 signature as hex" />
+             placeholder="64-byte ed25519 signature as hex" aria-describedby="sigError" />
+      <p class="field-error" id="sigError" role="alert" hidden></p>
     </div>
 
     <div class="btn-row">
-      <button id="deriveBtn">Derive stealth keys</button>
-      <button class="ghost" id="reset-derive">Reset</button>
+      <button type="button" id="deriveBtn">Derive stealth keys</button>
+      <button type="button" class="ghost" id="reset-derive">Reset</button>
     </div>
-    <div id="deriveResults"></div>
-    <p class="hint"><a id="permalink-derive">Copy permalink</a> — share the current step + inputs.</p>
+    <div id="deriveResults" role="region" aria-label="Derive results" tabindex="-1"></div>
+    <p class="hint"><button type="button" class="link-btn" id="permalink-derive">Copy permalink</button> — share the current step + inputs.</p>
   </section>
 
   <!-- ── Step 2: Send ───────────────────────────────────── -->
-  <section class="panel" id="panel-send" hidden>
-    <h2>2 · Send a stealth payment</h2>
+  <section class="panel" id="panel-send" aria-labelledby="panel-send-title" hidden>
+    <h2 id="panel-send-title" tabindex="-1">2 · Send a stealth payment</h2>
     <p class="panel-desc">
       A fresh one-time ephemeral keypair is generated per payment. ECDH with the recipient's
       viewing key derives the one-time stealth address, and the <code>stealth-announcer</code>
@@ -431,36 +499,40 @@
     </p>
 
     <div class="field">
-      <label>Recipient meta-address <span>(st:xlm:…)</span></label>
+      <label for="sendMeta">Recipient meta-address <span>(st:xlm:…)</span></label>
       <input type="text" id="sendMeta" spellcheck="false" autocomplete="off"
-             placeholder="st:xlm:&lt;spending pubkey hex&gt;&lt;viewing pubkey hex&gt;" />
+             placeholder="st:xlm:&lt;spending pubkey hex&gt;&lt;viewing pubkey hex&gt;"
+             aria-describedby="sendMetaError" />
+      <p class="field-error" id="sendMetaError" role="alert" hidden></p>
     </div>
 
     <div class="row">
       <div class="field">
-        <label>Asset</label>
+        <label for="sendAsset">Asset</label>
         <select id="sendAsset">
           <option value="XLM">XLM</option>
           <option value="USDC">USDC</option>
         </select>
       </div>
       <div class="field">
-        <label>Amount</label>
-        <input type="number" id="sendAmount" min="0" step="any" placeholder="10.0" />
+        <label for="sendAmount">Amount</label>
+        <input type="number" id="sendAmount" min="0" step="any" placeholder="10.0"
+               aria-describedby="sendAmountError" />
+        <p class="field-error" id="sendAmountError" role="alert" hidden></p>
       </div>
     </div>
 
     <div class="btn-row">
-      <button id="constructBtn">Construct announcement</button>
-      <button class="ghost" id="reset-send">Reset</button>
+      <button type="button" id="constructBtn">Construct announcement</button>
+      <button type="button" class="ghost" id="reset-send">Reset</button>
     </div>
-    <div id="sendResults"></div>
-    <p class="hint"><a id="permalink-send">Copy permalink</a> — share the current step + inputs.</p>
+    <div id="sendResults" role="region" aria-label="Send results" tabindex="-1"></div>
+    <p class="hint"><button type="button" class="link-btn" id="permalink-send">Copy permalink</button> — share the current step + inputs.</p>
   </section>
 
   <!-- ── Step 3: Scan ───────────────────────────────────── -->
-  <section class="panel" id="panel-scan" hidden>
-    <h2>3 · Scan for incoming payments</h2>
+  <section class="panel" id="panel-scan" aria-labelledby="panel-scan-title" hidden>
+    <h2 id="panel-scan-title" tabindex="-1">3 · Scan for incoming payments</h2>
     <p class="panel-desc">
       Announcements are filtered by view tag (a single byte rejects ~255/256 non-matches), then
       matched with ECDH + Ed25519 point addition. The batch below is parsed from the fixture
@@ -468,42 +540,48 @@
     </p>
 
     <div class="field">
-      <label>Stealth meta-address <span>(st:xlm:…)</span></label>
+      <label for="scanMeta">Stealth meta-address <span>(st:xlm:…)</span></label>
       <input type="text" id="scanMeta" spellcheck="false" autocomplete="off"
-             placeholder="st:xlm:&lt;64-char spending pubkey hex&gt;&lt;64-char viewing pubkey hex&gt;" />
+             placeholder="st:xlm:&lt;64-char spending pubkey hex&gt;&lt;64-char viewing pubkey hex&gt;"
+             aria-describedby="scanMetaError" />
+      <p class="field-error" id="scanMetaError" role="alert" hidden></p>
     </div>
 
     <div class="row">
       <div class="field">
-        <label>Viewing key <span>(32-byte hex seed)</span></label>
-        <input type="text" id="scanVk" placeholder="64 hex chars" spellcheck="false" autocomplete="off" />
+        <label for="scanVk">Viewing key <span>(32-byte hex seed)</span></label>
+        <input type="text" id="scanVk" placeholder="64 hex chars" spellcheck="false" autocomplete="off"
+               aria-describedby="scanVkError" />
+        <p class="field-error" id="scanVkError" role="alert" hidden></p>
       </div>
       <div class="field">
-        <label>Spending scalar <span>(decimal bigint)</span></label>
-        <input type="text" id="scanScalar" placeholder="decimal integer" spellcheck="false" autocomplete="off" />
+        <label for="scanScalar">Spending scalar <span>(decimal bigint)</span></label>
+        <input type="text" id="scanScalar" placeholder="decimal integer" spellcheck="false" autocomplete="off"
+               aria-describedby="scanScalarError" />
+        <p class="field-error" id="scanScalarError" role="alert" hidden></p>
       </div>
     </div>
 
-    <p class="hint">No keys handy? <a id="loadFixture">Load the demo keys</a> that match the fixture announcements.</p>
+    <p class="hint">No keys handy? <button type="button" class="link-btn" id="loadFixture">Load the demo keys</button> that match the fixture announcements.</p>
 
     <div class="btn-row">
-      <button id="scanBtn">Scan announcements</button>
-      <button class="ghost" id="reset-scan">Reset</button>
+      <button type="button" id="scanBtn">Scan announcements</button>
+      <button type="button" class="ghost" id="reset-scan">Reset</button>
     </div>
-    <div id="scanResults"></div>
+    <div id="scanResults" role="region" aria-label="Scan results" tabindex="-1"></div>
 
     <details class="fixture-section">
       <summary>Announcement batch</summary>
-      <div class="fixture-table">
+      <div class="fixture-table" role="region" aria-label="Announcement batch table" tabindex="0">
         <table id="fixtureTable"></table>
       </div>
     </details>
-    <p class="hint"><a id="permalink-scan">Copy permalink</a> — share the current step + inputs.</p>
+    <p class="hint"><button type="button" class="link-btn" id="permalink-scan">Copy permalink</button> — share the current step + inputs.</p>
   </section>
 
   <!-- ── Step 4: Withdraw ───────────────────────────────── -->
-  <section class="panel" id="panel-withdraw" hidden>
-    <h2>4 · Withdraw to your wallet</h2>
+  <section class="panel" id="panel-withdraw" aria-labelledby="panel-withdraw-title" hidden>
+    <h2 id="panel-withdraw-title" tabindex="-1">4 · Withdraw to your wallet</h2>
     <p class="panel-desc">
       Only the recipient can spend from a stealth address: the stealth private scalar
       (<code>spendingScalar + hashToScalar(sharedSecret) mod L</code>) signs the withdrawal.
@@ -511,16 +589,16 @@
     </p>
 
     <div class="field">
-      <label>Destination wallet <span>(G…)</span></label>
+      <label for="wdDest">Destination wallet <span>(G…)</span></label>
       <input type="text" id="wdDest" spellcheck="false" autocomplete="off"
              placeholder="G… your Stellar wallet" />
     </div>
 
     <div class="btn-row">
-      <button class="ghost" id="reset-withdraw">Reset</button>
+      <button type="button" class="ghost" id="reset-withdraw">Reset</button>
     </div>
-    <div id="withdrawResults"></div>
-    <p class="hint"><a id="permalink-withdraw">Copy permalink</a> — share the current step + inputs.</p>
+    <div id="withdrawResults" role="region" aria-label="Withdraw results" tabindex="-1"></div>
+    <p class="hint"><button type="button" class="link-btn" id="permalink-withdraw">Copy permalink</button> — share the current step + inputs.</p>
   </section>
 </main>
 
