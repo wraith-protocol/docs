@@ -160,6 +160,14 @@ async function checkRust(snippets: Snippet[], tmp: string): Promise<CheckResult[
   const results: CheckResult[] = [];
 
   for (const snippet of snippets) {
+    // Cargo compiles this page's complete binary with its pinned dependencies.
+    // Require an exact match so edits to the reader-visible code cannot drift.
+    if (snippet.file === "guides/quickstarts/rust.mdx") {
+      const source = await readFile(path.join(repoRoot, "scripts/rust-quickstart/src/main.rs"), "utf8");
+      results.push({ snippet, passed: snippet.code === source, message: "Rust quickstart must match src/main.rs" });
+      continue;
+    }
+
     const basename = `rust_snippet_${snippet.index}.rs`;
     const file     = path.join(tmp, basename);
     await writeFile(file, wrapRust(snippet.code), "utf8");

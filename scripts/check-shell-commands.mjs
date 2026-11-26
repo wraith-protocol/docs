@@ -173,6 +173,7 @@ const NETWORK_ALLOWLIST = [
   /^\.\/deploy\.sh\s+/,
   // rustup target add — local toolchain change, no network effect.
   /^rustup\s+target\s+add\s+/,
+  /^cargo\s+test\s+--locked$/, // Compile and test the pinned Rust quickstart.
   // cargo build / run — local compilation.
   /^cargo\s+(build|run)\s+/,
   // promtool check rules — local linting, no network.
