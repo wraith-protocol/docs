@@ -28,17 +28,31 @@ const COMPONENT_CLASS = {
 const VOID_SELF_CLOSING = new Set(["Card"]);
 
 /**
- * Slugs match the production docs host: lowercase, punctuation removed,
- * then each space becomes a hyphen (so "A & B" links as "a--b").
+ * Slugs match the ids Mintlify renders: lowercase, Markdown formatting
+ * removed, sentence punctuation turned into dashes, and symbols such as
+ * `/`, `+`, `&` and `—` preserved. Keep this in sync with
+ * `scripts/check-broken-links.mjs`, which enforces the same rule for links.
  */
 export function slugify(text) {
   return text
-    .replace(/<[^>]+>/g, "")
-    .replace(/`/g, "")
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9_\s-]/g, "")
-    .replace(/\s/g, "-");
+    .replace(/<[^>]+>/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[`*~]/g, "")
+    .replace(/[.,:;!?()[\]#]/g, "-")
+    .replace(/\s/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Mintlify numbers duplicate heading ids from 2. */
+function uniqueId(base, ctx) {
+  let id = base;
+  let suffix = 2;
+  while (ctx.usedIds.has(id)) id = `${base}-${suffix++}`;
+  ctx.usedIds.add(id);
+  return id;
 }
 
 export function splitFrontmatter(source) {
@@ -248,7 +262,7 @@ export function renderMdx(source) {
   const lines = body.replace(/\r\n/g, "\n").split("\n");
   const anchors = [];
   const generated = [];
-  const result = renderLines(lines, { anchors, generated });
+  const result = renderLines(lines, { anchors, generated, usedIds: new Set() });
 
   const lead = frontmatter.description
     ? `<p class="page-description">${renderInline(frontmatter.description)}</p>`
@@ -262,7 +276,7 @@ export function renderMdx(source) {
   };
 }
 
-function renderLines(lines, ctx = { anchors: [], generated: [] }) {
+function renderLines(lines, ctx = { anchors: [], generated: [], usedIds: new Set() }) {
   const out = [];
   let i = 0;
   let inImport = false;
@@ -338,7 +352,7 @@ function renderLines(lines, ctx = { anchors: [], generated: [] }) {
       // Mintlify supports explicit heading IDs: `## Title {#custom-id}`.
       const explicitId = text.match(/\s*\{#([A-Za-z0-9_-]+)\}\s*$/);
       if (explicitId) text = text.slice(0, explicitId.index).trim();
-      const id = explicitId ? explicitId[1] : slugify(text);
+      const id = uniqueId(explicitId ? explicitId[1] : slugify(text), ctx);
       if (!ctx.anchors.includes(id)) ctx.anchors.push(id);
       out.push(`<h${level} id="${id}">${renderInline(text)}</h${level}>`);
       i += 1;

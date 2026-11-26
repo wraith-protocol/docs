@@ -19,16 +19,16 @@ All four chains are served by the same npm package. Only the chain entry point a
 | `@noble/hashes` | direct dependency | EVM, Stellar, Solana, CKB | SHA-256, SHA-512, keccak256, blake2b |
 | `viem` | direct dependency | EVM, agent client | EVM utilities and address encoding |
 
-Versions come from this repository's [`package.json`](https://github.com/wraith-protocol/docs/blob/main/package.json); the dependency roles come from [SDK Overview](/sdk/overview#dependencies).
+Versions come from this repository's [`package.json`](https://github.com/wraith-protocol/docs/blob/develop/package.json); the dependency roles come from [SDK Overview](/sdk/overview#dependencies).
 
 ## Chain and package matrix
 
 | Chain | `Chain` enum | SDK entry point | Curve | Framework / peer packages | Deployment IDs | Migration notes |
 |---|---|---|---|---|---|---|
-| EVM (Horizen, Ethereum, Polygon, Base) | `Chain.Horizen`, `Chain.Ethereum`, `Chain.Polygon`, `Chain.Base` | `@wraith-protocol/sdk/chains/evm` | secp256k1 | `viem` (bundled; any signer library works) | [Horizen Testnet table](#evm--horizen-testnet) | [Deployment order and per-chain redeploys](#evm-migration-notes) |
-| Stellar | `Chain.Stellar` | `@wraith-protocol/sdk/chains/stellar` | ed25519 | `@stellar/stellar-sdk` `^13.1.0` (optional peer) | [Stellar Testnet table](#stellar--testnet) | [Testnet resets and pending contracts](#stellar-migration-notes) |
-| Solana | `Chain.Solana` | `@wraith-protocol/sdk/chains/solana` | ed25519 | `@solana/web3.js` `^1.95.0` (optional peer), Anchor event logs | [Solana table](#solana--devnet) | [PDA and rent model](#solana-migration-notes) |
-| CKB | `Chain.CKB` | `@wraith-protocol/sdk/chains/ckb` | secp256k1 | none — native `fetch` RPC plus `@noble/hashes` blake2b | [CKB Testnet table](#ckb--testnet) | [Cell model, no peer dependency](#ckb-migration-notes) |
+| EVM (Horizen, Ethereum, Polygon, Base) | `Chain.Horizen`, `Chain.Ethereum`, `Chain.Polygon`, `Chain.Base` | `@wraith-protocol/sdk/chains/evm` | secp256k1 | `viem` (bundled; any signer library works) | [Horizen Testnet table](#evm-—-horizen-testnet) | [Deployment order and per-chain redeploys](#evm-migration-notes) |
+| Stellar | `Chain.Stellar` | `@wraith-protocol/sdk/chains/stellar` | ed25519 | `@stellar/stellar-sdk` `^13.1.0` (optional peer) | [Stellar Testnet table](#stellar-—-testnet) | [Testnet resets and pending contracts](#stellar-migration-notes) |
+| Solana | `Chain.Solana` | `@wraith-protocol/sdk/chains/solana` | ed25519 | `@solana/web3.js` `^1.95.0` (optional peer), Anchor event logs | [Solana table](#solana-—-devnet) | [PDA and rent model](#solana-migration-notes) |
+| CKB | `Chain.CKB` | `@wraith-protocol/sdk/chains/ckb` | secp256k1 | none — native `fetch` RPC plus `@noble/hashes` blake2b | [CKB Testnet table](#ckb-—-testnet) | [Cell model, no peer dependency](#ckb-migration-notes) |
 
 The `@stellar/stellar-sdk` and `@solana/web3.js` peer dependencies are only needed when you import their chain module; the CKB module adds none. See [SDK Overview](/sdk/overview#entry-points) for the full export list per entry point.
 

@@ -154,13 +154,50 @@ When a deployment lands, update `scripts/contract-registry.json` first, then upd
 the pages that quote it. Never ship a placeholder contract id such as
 `CPLACEHOLDER_*` or `C[TBD]` — CI fails on those patterns.
 
+## Link checks
+
+`scripts/check-broken-links.mjs` validates routes, anchors, redirects, and shipped
+assets. It runs offline, which makes it safe as a required check.
+
+```bash
+npm run check:broken-links            # internal only, blocking in CI
+npm run check:broken-links:external   # external URLs, advisory
+npm run test:broken-links             # checker unit tests
+npm run mint:broken-links             # Mintlify CLI, anchors + redirects
+```
+
+Internal resolution follows Mintlify, not the file system:
+
+- `/guides/one` and bare `guides/one` resolve from the site root. Bare paths are
+  not page-relative.
+- Only `./` and `../` resolve relative to the current page.
+- Anchors use the ids Mintlify renders, so sentence punctuation becomes a dash
+  while symbols are kept: `## Swap + Announce` is `#swap-+-announce`, and
+  `## Soroban RPC / Indexer Errors` is `#soroban-rpc-/-indexer-errors`.
+- A failing report names both the source page and the target.
+
+External checks are bounded: at most 300 URLs, six concurrent requests, three
+attempts with backoff, and one 120 second wall-clock budget for the entire pass.
+That budget becomes an absolute deadline at the start of the pass. The deadline
+is shared by DNS lookups, redirects, retries, request timeouts, and backoff
+sleeps; each wait is capped to the time still left. A check that is already in
+flight when the deadline arrives is skipped instead of starting another request.
+Private, loopback, link-local, and IPv4-mapped addresses are refused, DNS answers
+are pinned to the validated address, and every redirect hop is revalidated.
+Permanent failures are reported with their source page but do not fail the
+required job, because third-party sites go down without notice. Use
+`--strict-external` for an opt-in run that exits non-zero on permanent failures.
+
 ## CI
 
-Every pull request runs the snippet checker, the nav coverage check, and the
-contract registry check through GitHub Actions. A separate non-blocking Stellar
-testnet job is reserved for end-to-end snippet validation that depends on network
-availability. The workflow also runs extended snippet validation and the
-redirect and anchor checks, including their unit tests.
+Every pull request runs the snippet checker, the nav coverage check, the contract
+registry check, and the internal broken link check through GitHub Actions. The
+link check is deterministic and required; external URLs are checked in a
+separate advisory job on docs changes and on a weekly schedule, with the JSON
+report uploaded as an artifact. A separate non-blocking Stellar testnet job is
+reserved for end-to-end snippet validation that depends on network availability.
+The workflow also runs extended snippet validation and the redirect and anchor
+checks, including their unit tests.
 
 ## Mintlify preview redirect check
 
