@@ -146,7 +146,7 @@ const swapTx = new TransactionBuilder(senderAccount, {
   .build();
 ```
 
-> **Important:** Classic path payment operations do not call the `stealth-sender` contract. No announcement event is emitted. You need a separate announcement transaction for the recipient to detect the payment. See [Swap + Announce](#swap--announce) below.
+> **Important:** Classic path payment operations do not call the `stealth-sender` contract. No announcement event is emitted. You need a separate announcement transaction for the recipient to detect the payment. See [Swap + Announce](#swap-+-announce) below.
 
 ### Forcing a Pool Route
 
@@ -521,4 +521,4 @@ await server.submitTransaction(depositTx);
 - [Stellar Fee Estimation & Budgeting](/guides/stellar-fees) — inclusion fees, Soroban resource fees, and fee bumps
 - [Spectre + Stellar Cookbook](/guides/spectre-stellar-cookbook) — production recipes for Stellar agents
 - [Liquidity Pools on Stellar](https://developers.stellar.org/docs/glossary/liquidity-pool) — official Stellar docs on liquidity pools
-- [Path Payment](https://developers.stellar.org/docs/learn/fundamentals/path-payments) — official Stellar path payment documentation
+- [Path Payment](https://developers.stellar.org/docs/build/guides/transactions/path-payments) — official Stellar path payment documentation

@@ -1,0 +1,88 @@
+{
+  "groups": [
+    {
+      "tab": "Documentation",
+      "group": "Overview",
+      "representative": "introduction",
+      "count": 3
+    },
+    {
+      "tab": "Documentation",
+      "group": "Architecture",
+      "representative": "architecture/overview",
+      "count": 6
+    },
+    {
+      "tab": "Documentation",
+      "group": "Contracts",
+      "representative": "contracts/evm",
+      "count": 4
+    },
+    {
+      "tab": "Documentation",
+      "group": "Reference",
+      "representative": "reference/audits",
+      "count": 10
+    },
+    {
+      "tab": "SDK",
+      "group": "SDK",
+      "representative": "sdk/overview",
+      "count": 2
+    },
+    {
+      "tab": "SDK",
+      "group": "Chain Primitives",
+      "representative": "sdk/chains/evm",
+      "count": 4
+    },
+    {
+      "tab": "Guides",
+      "group": "Quickstarts",
+      "representative": "guides/quickstarts/python",
+      "count": 2
+    },
+    {
+      "tab": "Guides",
+      "group": "Guides",
+      "representative": "guides/stealth-payments",
+      "count": 11
+    },
+    {
+      "tab": "Guides",
+      "group": "Integrations",
+      "representative": "guides/integrations/aquarius",
+      "count": 11
+    },
+    {
+      "tab": "Guides",
+      "group": "Operations",
+      "representative": "guides/stellar-mainnet-deployment",
+      "count": 19
+    },
+    {
+      "tab": "API Reference",
+      "group": "API Reference",
+      "representative": "api-reference/endpoints",
+      "count": 4
+    }
+  ],
+  "groupCount": 11,
+  "generatedReferenceFamilies": [
+    "reference/contract-registry",
+    "reference/compatibility-matrix"
+  ],
+  "stellarReferencePresent": false,
+  "viewports": [
+    {
+      "name": "desktop",
+      "width": 1280,
+      "height": 800
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844
+    }
+  ]
+}

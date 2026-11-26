@@ -1,0 +1,86 @@
+name: Broken link check
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "**/*.mdx"
+      - "docs.json"
+      - "assets/**"
+      - "scripts/check-broken-links.mjs"
+      - "scripts/check-broken-links.test.mjs"
+      - "package.json"
+      - ".github/workflows/broken-links.yml"
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - "**/*.md"
+      - "**/*.mdx"
+      - "docs.json"
+      - "assets/**"
+      - "scripts/check-broken-links.mjs"
+      - "scripts/check-broken-links.test.mjs"
+      - "package.json"
+      - ".github/workflows/broken-links.yml"
+  schedule:
+    # Weekly drift check: external sites move and expire even when our pages
+    # do not change.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  internal-links:
+    name: Internal links and anchors
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check routes, anchors, redirects, and assets
+        run: node scripts/check-broken-links.mjs --internal-only
+
+      - name: Test the broken link checker
+        run: node --test scripts/check-broken-links.test.mjs
+
+  external-links:
+    name: External links (advisory)
+    runs-on: ubuntu-latest
+    needs: internal-links
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Bounded on purpose: at most 300 URLs, six concurrent requests, three
+      # attempts each, and a 120 second wall-clock budget. Redirects are
+      # followed manually and every hop is revalidated against private address
+      # space. Permanent failures are reported here but never block a merge —
+      # third-party sites go down without notice. Run
+      # `node scripts/check-broken-links.mjs --external-only --strict-external`
+      # locally when you want those failures to exit non-zero.
+      - name: Check external links
+        continue-on-error: true
+        run: node scripts/check-broken-links.mjs --external-only --json broken-links-report.json
+
+      - name: Upload external link report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: external-link-report
+          path: broken-links-report.json
+          if-no-files-found: warn
+          retention-days: 30

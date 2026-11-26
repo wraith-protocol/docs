@@ -96,6 +96,15 @@ jobs:
           DOCS_DIFF_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: pnpm run check:redirects-and-anchors
 
+      # Deterministic link check: routes, anchors, redirects, and shipped assets.
+      # Uses this repository's own checker so failures name the source page and
+      # the target; no network access is involved.
+      - name: Check internal links
+        run: pnpm run check:broken-links:internal
+
+      - name: Test broken link checker
+        run: pnpm run test:broken-links
+
       - name: Test redirects and anchors check
         run: pnpm run test:redirects-and-anchors
 
@@ -279,8 +288,28 @@ jobs:
       - name: Validate Mint navigation and configuration
         run: npx --yes mintlify@4.2.1082 validate
 
+      # Mintlify's own resolver catches links we might model incorrectly.
+      # Anchors and redirects are deterministic and need no network access.
+      - name: Check broken links with the Mintlify CLI
+        run: npx --yes mintlify@4.2.1082 broken-links --check-anchors --check-redirects
+
       - name: Run preview redirect unit tests
         run: pnpm run test:preview-redirect
+
+      - name: Install promtool (operator runbook)
+        run: |
+          curl -sSfL https://github.com/prometheus/prometheus/releases/download/v2.53.0/prometheus-2.53.0.linux-amd64.tar.gz | tar -xz -C /tmp
+          sudo cp /tmp/prometheus-2.53.0.linux-amd64/promtool /usr/local/bin/promtool
+          promtool --version
+
+      - name: Check operator runbook
+        run: pnpm run check:operator-runbook
+
+      - name: Test operator runbook checker (missing tools, source locations)
+        run: pnpm run test:operator-runbook
+
+      - name: Check nav smoke coverage
+        run: pnpm run check:nav-smoke
 
       # The live preview check needs a deployed Mintlify preview. It is only
       # required when that URL is actually supplied — without one there is
@@ -332,8 +361,65 @@ jobs:
       - name: Install Playwright browser
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run playground smoke tests
+      - name: Run playground smoke and accessibility tests
         run: pnpm run test:playground
+
+  # ---------------------------------------------------------------------------
+  # Docs preview render and navigation smoke tests.
+  #
+  # The preview is built from docs.json and the shipped .mdx pages and served
+  # from 127.0.0.1, so this job exercises real rendering, client navigation,
+  # anchors and generated reference sections without a live deployment.
+  # ---------------------------------------------------------------------------
+  preview-render-smoke:
+    name: Docs preview render and navigation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build docs preview
+        run: pnpm run build:preview
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run docs preview smoke tests
+        run: pnpm run test:preview
+
+      # The nav smoke gate builds and serves its own disposable preview (see
+      # scripts/playground/tests/nav-smoke.config.ts) and has no skip path, so
+      # it always exercises real rendering at desktop and mobile widths.
+      - name: Run docs navigation smoke tests
+        run: pnpm run test:nav-smoke
+
+      # Failure artifacts name the route and navigation group for every failed
+      # check (test-results/preview-failures.* and
+      # test-results/nav-smoke/nav-smoke-failures.*).
+      - name: Upload preview failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-preview-failures
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
 
   check-stellar-reference:
     name: Stellar contract reference check

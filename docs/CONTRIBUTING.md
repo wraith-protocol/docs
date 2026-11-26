@@ -119,6 +119,30 @@ node scripts/check-nav-coverage.mjs
 Note: `docs.json` is strict JSON — do not add `//` comments to it, the Mintlify
 CLI rejects them. Keep this file comment-free.
 
+## Preview render and navigation tests
+
+The preview tests build an offline copy of the docs from `docs.json` and the
+shipped `.mdx` pages, then drive it with Playwright at desktop and mobile
+widths. They visit one page per navigation group, every generated reference
+family, and exercise direct load, client navigation, anchor navigation, tab
+state and the not-found route.
+
+```bash
+npm run build:preview
+npm run test:preview
+```
+
+The build fails on a nav entry that cannot render, a blank page, a local image
+that does not exist, or an internal link that points at no page. The tests fail
+on blank pages, console and page errors, missing hydration, missing assets,
+broken tab state, unresolved links and anchors, and any request to an external
+origin. Failures are reported with the route and navigation group in
+`test-results/preview-failures.json` and `test-results/preview-failures.md`.
+
+When you add a page, register it in `docs.json` as usual — the preview picks it
+up from the navigation tree. When you add a generator script, add its output
+family to `scripts/preview/fixtures.mjs` so the family keeps its render check.
+
 ## Contract registry
 
 [`reference/contract-registry.mdx`](/reference/contract-registry) is the canonical
@@ -160,13 +184,50 @@ When a deployment lands, update `scripts/contract-registry.json` first, then upd
 the pages that quote it. Never ship a placeholder contract id such as
 `CPLACEHOLDER_*` or `C[TBD]` — CI fails on those patterns.
 
+## Link checks
+
+`scripts/check-broken-links.mjs` validates routes, anchors, redirects, and shipped
+assets. It runs offline, which makes it safe as a required check.
+
+```bash
+npm run check:broken-links            # internal only, blocking in CI
+npm run check:broken-links:external   # external URLs, advisory
+npm run test:broken-links             # checker unit tests
+npm run mint:broken-links             # Mintlify CLI, anchors + redirects
+```
+
+Internal resolution follows Mintlify, not the file system:
+
+- `/guides/one` and bare `guides/one` resolve from the site root. Bare paths are
+  not page-relative.
+- Only `./` and `../` resolve relative to the current page.
+- Anchors use the ids Mintlify renders, so sentence punctuation becomes a dash
+  while symbols are kept: `## Swap + Announce` is `#swap-+-announce`, and
+  `## Soroban RPC / Indexer Errors` is `#soroban-rpc-/-indexer-errors`.
+- A failing report names both the source page and the target.
+
+External checks are bounded: at most 300 URLs, six concurrent requests, three
+attempts with backoff, and one 120 second wall-clock budget for the entire pass.
+That budget becomes an absolute deadline at the start of the pass. The deadline
+is shared by DNS lookups, redirects, retries, request timeouts, and backoff
+sleeps; each wait is capped to the time still left. A check that is already in
+flight when the deadline arrives is skipped instead of starting another request.
+Private, loopback, link-local, and IPv4-mapped addresses are refused, DNS answers
+are pinned to the validated address, and every redirect hop is revalidated.
+Permanent failures are reported with their source page but do not fail the
+required job, because third-party sites go down without notice. Use
+`--strict-external` for an opt-in run that exits non-zero on permanent failures.
+
 ## CI
 
-Every pull request runs the snippet checker, the nav coverage check, and the
-contract registry check through GitHub Actions. A separate non-blocking Stellar
-testnet job is reserved for end-to-end snippet validation that depends on network
-availability. The workflow also runs extended snippet validation and the
-redirect and anchor checks, including their unit tests.
+Every pull request runs the snippet checker, the nav coverage check, the contract
+registry check, and the internal broken link check through GitHub Actions. The
+link check is deterministic and required; external URLs are checked in a
+separate advisory job on docs changes and on a weekly schedule, with the JSON
+report uploaded as an artifact. A separate non-blocking Stellar testnet job is
+reserved for end-to-end snippet validation that depends on network availability.
+The workflow also runs extended snippet validation and the redirect and anchor
+checks, including their unit tests.
 
 ## Mintlify preview redirect check
 
@@ -193,3 +254,21 @@ GitHub also requires a `workflow_dispatch` workflow to exist on the default
 branch before it can be manually dispatched, so this PR uses the documented
 command against the preview URL instead of adding a workflow that cannot yet
 be run for this PR.
+
+### Managed agent examples
+
+The managed-agent workflow builds core 1.4.5 and sdk-agent 0.1.0 from a pinned
+SDK commit. To reproduce it with Node 22 and pnpm 10.34.4, run these commands
+from the docs root with a fresh SDK checkout:
+
+```sh
+git clone https://github.com/wraith-protocol/sdk.git /tmp/wraith-guide-sdk
+git -C /tmp/wraith-guide-sdk checkout af34393a7676a11876703a9e5e4ce5381bd08700
+pnpm --dir /tmp/wraith-guide-sdk install --frozen-lockfile
+pnpm --dir /tmp/wraith-guide-sdk run build
+bash scripts/managed-agent/check.sh /tmp/wraith-guide-sdk
+```
+
+The check installs both tarballs in a temporary consumer, compiles the
+TypeScript fences in the client, single-chain and Stellar cookbook pages,
+and runs their request/response fixtures. It needs no platform credentials.
