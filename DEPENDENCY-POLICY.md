@@ -39,8 +39,9 @@ bar as shipped code.
 | [GHSA-mjw6-4jj6-33hc](https://github.com/advisories/GHSA-mjw6-4jj6-33hc) | `stream-json` | `@solana/web3.js` → `jayson` | Same compatibility constraint as above. Affects the `Assembler` convenience stream, which `jayson` does not use. |
 
 The high-severity Stellar path findings (`axios`, `follow-redirects`, `toml`) and the Solana path
-`uuid` finding are fixed by the `overrides` entries in `pnpm-workspace.yaml`; see
-the pull request that added them for the resolution details.
+`uuid` finding are fixed by the overrides in `pnpm-workspace.yaml`. The redirect and TOML
+overrides require patched releases (`follow-redirects >=1.16.2`, `toml >=5.0.1`); see the pull
+request that added them for the resolution details.
 
 ## Running the check locally
 
