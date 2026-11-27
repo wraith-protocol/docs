@@ -391,7 +391,7 @@ The agent core, AI engine, storage, notifications, and scheduling work automatic
 
 The server-side `ChainConnector` interface above is an internal server boundary; it is not exported by the SDK. This strict fixture checks the public agent scanner and the chain-specific announcement and scanner types against the published SDK declarations.
 
-<!-- architecture-fixture:chain-connectors -->
+{/* architecture-fixture:chain-connectors */}
 ```typescript
 import { Chain, type Payment, type WraithAgent } from "@wraith-protocol/sdk";
 import {

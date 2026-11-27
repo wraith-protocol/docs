@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requiredPages = new Set(["overview.mdx", "chain-connectors.mdx", "tee.mdx"]);
-const fixtureFence = /^<!-- architecture-fixture:([a-z0-9-]+) -->\r?\n```typescript\s*\r?\n([\s\S]*?)^```[ \t]*$/gm;
+const fixtureFence = /^\{\/\* architecture-fixture:([a-z0-9-]+) \*\/\}\r?\n```typescript\s*\r?\n([\s\S]*?)^```[ \t]*$/gm;
 const allowedSdkEntryPoint = /^@wraith-protocol\/sdk(?:\/chains\/(?:evm|stellar|solana|ckb))?$/;
 
 export async function inspectArchitectureFixtures(root = repoRoot) {

@@ -176,7 +176,7 @@ The DStack socket (`/var/run/dstack.sock`) connects the container to the TEE har
 
 Agent-client methods do not declare a Wraith-specific error class. Treat caught values as `unknown` and narrow them before reading `Error` fields. The example is compiled against the published SDK package in CI.
 
-<!-- architecture-fixture:tee -->
+{/* architecture-fixture:tee */}
 ```typescript
 import { type WraithAgent } from "@wraith-protocol/sdk";
 
