@@ -27,7 +27,9 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import process from "node:process";
+import { replaceShellPlaceholders } from "./shell-snippet-utils.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -258,7 +260,7 @@ async function checkShell(snippets: Snippet[], tmp: string): Promise<CheckResult
   for (const snippet of snippets) {
     const basename = `sh_snippet_${snippet.index}.sh`;
     const file     = path.join(tmp, basename);
-    await writeFile(file, stripShellPrompts(snippet.code), "utf8");
+    await writeFile(file, stripShellPrompts(replaceShellPlaceholders(snippet.code)), "utf8");
 
     const r = await run("bash", ["-n", file]);
 
@@ -365,14 +367,14 @@ function lintToml(src: string): string | null {
 async function checkYaml(snippets: Snippet[]): Promise<CheckResult[]> {
   // Try to resolve a YAML parser from the project's node_modules.
   let parse: ((src: string) => unknown) | null = null;
+  const require = createRequire(import.meta.url);
 
   for (const [pkg, exported] of [
     ["js-yaml",                    "load"],
     ["yaml",                       "parse"],
   ] as const) {
     try {
-      const modPath = path.join(repoRoot, "node_modules", pkg);
-      const mod = await import(modPath) as Record<string, unknown>;
+      const mod = require(pkg) as Record<string, unknown>;
       const fn  = mod[exported] ?? mod["default"];
       if (typeof fn === "function") {
         parse = fn as (src: string) => unknown;
