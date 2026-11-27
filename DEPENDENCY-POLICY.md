@@ -11,13 +11,13 @@ bar as shipped code.
 ## Requirements
 
 - **No high or critical advisories** on any production dependency path. This is
-  enforced by the [`Dependency audit`](.github/workflows/dependency-audit.yml)
+  enforced by the [`Dependency audit`](https://github.com/wraith-protocol/docs/blob/develop/.github/workflows/dependency-audit.yml)
   workflow, which runs `pnpm audit --prod --audit-level high` on every pull
   request, on every push to `develop` and `main`, and weekly against the live
   advisory database. A high or critical finding blocks merge until the
   dependency is upgraded or the vulnerable path is removed. Do not waive it.
 - **Moderate and low findings** are reviewed case by case. A finding may be
-  recorded in `pnpm.auditConfig.ignoreGhsas` in `package.json` only when both of
+  recorded in `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml` only when both of
   the following hold:
   1. no patched release exists that is compatible with the pinned parent ranges
      and the SDK's declared peer dependencies, and
@@ -39,7 +39,7 @@ bar as shipped code.
 | [GHSA-mjw6-4jj6-33hc](https://github.com/advisories/GHSA-mjw6-4jj6-33hc) | `stream-json` | `@solana/web3.js` → `jayson` | Same compatibility constraint as above. Affects the `Assembler` convenience stream, which `jayson` does not use. |
 
 The high-severity Stellar path findings (`axios`, `follow-redirects`, `toml`) and the Solana path
-`uuid` finding are fixed by the `pnpm.overrides` entries in `package.json`; see
+`uuid` finding are fixed by the `overrides` entries in `pnpm-workspace.yaml`; see
 the pull request that added them for the resolution details.
 
 ## Running the check locally

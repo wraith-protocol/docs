@@ -4,7 +4,7 @@ name: Dependency audit
 # pulls in the chain SDKs as production dependencies. This job enforces the
 # policy in DEPENDENCY-POLICY.md: no high or critical advisories on any
 # production dependency path. Moderate findings may be recorded in
-# `pnpm.auditConfig.ignoreGhsas` in package.json with a documented reason.
+# `auditConfig.ignoreGhsas` in pnpm-workspace.yaml with a documented reason.
 #
 # The weekly run re-checks against the live advisory database so a newly
 # disclosed advisory fails the build even without a dependency change.

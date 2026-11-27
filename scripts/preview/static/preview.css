@@ -1,0 +1,388 @@
+/* Offline docs preview styles. Mirrors the production docs shell closely
+   enough to exercise desktop and mobile navigation, tabs and code blocks. */
+:root {
+  --bg: #ffffff;
+  --bg-muted: #f5f5f4;
+  --border: #e4e4e7;
+  --text: #18181b;
+  --text-muted: #52525b;
+  --accent: #6d28d9;
+  --note: #2563eb;
+  --warning: #b45309;
+  --info: #0e7490;
+  --tip: #15803d;
+  --radius: 8px;
+  --sidebar-width: 272px;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--accent);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  z-index: 20;
+}
+
+.skip-link:focus {
+  left: 0.5rem;
+  top: 0.5rem;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.topbar-tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+}
+
+.topbar-tabs [role="tab"] {
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.topbar-tabs [role="tab"][aria-selected="true"] {
+  color: var(--text);
+  background: var(--bg-muted);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+#preview-menu-button {
+  display: none;
+  margin-left: auto;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font: inherit;
+}
+
+.shell {
+  display: flex;
+  gap: 2.5rem;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+}
+
+.sidebar {
+  width: var(--sidebar-width);
+  flex: 0 0 var(--sidebar-width);
+}
+
+#preview-sidebar .nav-group {
+  margin-bottom: 1.5rem;
+}
+
+#preview-sidebar h2 {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+
+#preview-sidebar ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#preview-sidebar a {
+  display: block;
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.94rem;
+}
+
+#preview-sidebar a[aria-current="page"] {
+  color: var(--text);
+  background: var(--bg-muted);
+  font-weight: 600;
+}
+
+#preview-main {
+  min-width: 0;
+  max-width: 860px;
+  flex: 1;
+}
+
+.page-eyebrow {
+  margin: 0 0 0.25rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+#preview-main h1 {
+  margin-top: 0;
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+#preview-main h2 {
+  margin-top: 2.25rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.35rem;
+}
+
+#preview-main h3,
+#preview-main h4 {
+  margin-top: 1.75rem;
+}
+
+.page-description {
+  font-size: 1.1rem;
+  color: var(--text-muted);
+}
+
+.code-block {
+  background: #18181b;
+  color: #f4f4f5;
+  padding: 1rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  font-size: 0.875rem;
+}
+
+.code-block code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre;
+}
+
+:not(pre) > code {
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.9em;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 1.25rem 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.92rem;
+}
+
+th,
+td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: var(--bg-muted);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.callout {
+  border-left: 3px solid var(--note);
+  background: #eff6ff;
+  padding: 0.85rem 1rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 1.25rem 0;
+}
+
+.callout-warning {
+  border-color: var(--warning);
+  background: #fffbeb;
+}
+
+.callout-info {
+  border-color: var(--info);
+  background: #ecfeff;
+}
+
+.callout-tip {
+  border-color: var(--tip);
+  background: #f0fdf4;
+}
+
+.card-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.25rem 0;
+}
+
+.card {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  color: var(--text);
+}
+
+a.card:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.card-title {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.card-body {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+}
+
+.accordion {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.65rem 0.9rem;
+  margin: 1rem 0;
+}
+
+.accordion summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.tabs {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 1.25rem 0;
+}
+
+.tablist {
+  display: flex;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem;
+  overflow-x: auto;
+}
+
+.tablist [role="tab"] {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  font: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tablist [role="tab"][aria-selected="true"] {
+  background: var(--bg-muted);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tabpanels {
+  padding: 0.5rem 1rem;
+}
+
+.tabs-error {
+  border: 1px solid #dc2626;
+  background: #fef2f2;
+  padding: 0.5rem;
+}
+
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 1.25rem 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.not-found {
+  padding: 3rem 0;
+}
+
+@media (max-width: 860px) {
+  #preview-menu-button {
+    display: block;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .topbar-tabs {
+    order: 3;
+    width: 100%;
+  }
+
+  .shell {
+    display: block;
+    padding: 1.25rem 1rem 3rem;
+  }
+
+  .sidebar {
+    display: none;
+    width: auto;
+    flex-basis: auto;
+  }
+
+  body[data-menu-open="true"] .sidebar {
+    display: block;
+    position: fixed;
+    inset: 56px 0 0 0;
+    z-index: 9;
+    background: var(--bg);
+    padding: 1rem;
+    overflow-y: auto;
+  }
+}

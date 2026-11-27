@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
 
-// Playwright config for the Wraith Stealth Playground smoke tests.
+// Playwright config for the Wraith Stealth Playground smoke and accessibility tests.
 // The playground is served over HTTP (not file://) because module script
 // loading and CSP behave differently on file://.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -10,6 +10,9 @@ const repoRoot = path.resolve(__dirname, "..", "..", "..");
 
 export default defineConfig({
   testDir: ".",
+  // Only the playground spec. The nav smoke spec needs a deployed preview
+  // (MINTLIFY_PREVIEW_URL) and is run through nav-smoke.config.ts.
+  testMatch: "playground.spec.ts",
   timeout: 60_000,
   expect: { timeout: 10_000 },
   fullyParallel: false,
