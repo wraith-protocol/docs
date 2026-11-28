@@ -1,0 +1,196 @@
+---
+title: "Consume the deployment manifest"
+description: "Select networks and deployed contracts from Wraith's generated cross-chain manifest, and verify artifact and source provenance."
+keywords: "deployment manifest, schema, provenance, network identity, indexer, operator, contract deployment"
+---
+
+The contracts repository publishes a generated manifest for EVM, Stellar, Solana, and CKB deployments. Use it as the deployment source of truth instead of copying contract IDs from prose or application configuration.
+
+The examples use the generated [schema v1](https://github.com/wraith-protocol/contracts/blob/acaa2e7a7f2c18d84ec6cdc18f5e31b67de4d153/deployments/schema/v1.json) and [manifest fixture](https://github.com/wraith-protocol/contracts/blob/acaa2e7a7f2c18d84ec6cdc18f5e31b67de4d153/deployments/manifest.json), pinned to contracts commit `acaa2e7a7f2c18d84ec6cdc18f5e31b67de4d153`. The checked-in copies under `scripts/fixtures/deployment-manifest/` make validation repeatable offline.
+
+<Warning>
+  A manifest record is not proof that its source is reproducible. Records marked
+  `unverifiable` have a known on-chain artifact hash but no verified source commit.
+  Do not treat them as source-verified.
+</Warning>
+
+## What the manifest records
+
+Each deployment identifies a chain, stable network slug, and chain-native `networkId`. A contract record contains its chain-specific ID, deployment height, artifact hash, and source provenance. The optional `external: true` flag marks third-party code; it is not a Wraith-built contract. Contracts not deployed on a supported network appear in `undeployed` with a reason.
+
+| Field | Consumer rule |
+|---|---|
+| `chain`, `network`, `networkId` | Match all three to the network selected by your application or operator configuration. |
+| `contracts[].id` | Use only after finding the named contract in the selected deployment. |
+| `contracts[].deployment.height` | Begin indexer backfills at this chain-specific height. |
+| `contracts[].external` | Keep third-party dependencies distinct from first-party deployments. |
+| `contracts[].artifactHash` | Recompute with the declared algorithm and compare before trusting downloaded or on-chain code. |
+| `contracts[].sourceCommit`, `contracts[].provenance` | Claim first-party source provenance only when status is `source-verified` and the full commit reproduces the artifact hash. |
+| `undeployed[]` | Fail closed. Never fill in a guessed ID or use an older network's deployment. |
+
+`networkId` has different meanings by chain: EVM uses a decimal chain ID, Stellar uses its network passphrase, Solana uses the genesis hash, and CKB uses the genesis block hash. Do not compare IDs across chains or infer a deployment from a matching name alone.
+
+## Validate and select a deployment
+
+Install the schema validator and hash primitives used by the tested example:
+
+```bash
+pnpm add ajv @noble/hashes
+```
+
+The tested consumer implementation lives at `scripts/deployment-manifest-consumer.ts`. The snippets below use that helper; when copied into this repository under `guides/`, import it as `../scripts/deployment-manifest-consumer.js`. In your application, copy the helper into your project or change the import path. It validates JSON against schema v1 and checks additional invariants the schema alone cannot express: unique network records, no contract listed as both deployed and undeployed, and explicit provenance for every first-party contract.
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+import {
+  loadManifest,
+  manifestChainForSdk,
+  selectContract,
+  selectDeployment,
+} from "../scripts/deployment-manifest-consumer.js";
+
+const commit = "acaa2e7a7f2c18d84ec6cdc18f5e31b67de4d153";
+const root = `https://raw.githubusercontent.com/wraith-protocol/contracts/${commit}/deployments`;
+
+async function fetchJson(url: string): Promise<unknown> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Could not load ${url}: HTTP ${response.status}`);
+  return response.json();
+}
+
+const [schema, document] = await Promise.all([
+  fetchJson(`${root}/schema/v1.json`),
+  fetchJson(`${root}/manifest.json`),
+]);
+const manifest = loadManifest(document, schema);
+
+const chain = manifestChainForSdk(Chain.Ethereum);
+const deployment = selectDeployment(manifest, chain, "horizen-testnet", "2651420");
+const announcer = selectContract(deployment, "ERC5564Announcer");
+
+console.log(announcer.id, announcer.deployment.height);
+```
+
+Pin the schema and manifest to the same immutable contracts commit. For production, update that commit through your normal review and release process; do not fetch `develop` at runtime. The `Chain` enum identifies SDK chains, while `network` and `networkId` distinguish deployments of those chains.
+
+`selectContract` throws for an explicitly undeployed contract and for a name missing from both lists. For example, `WraithSender` is explicitly undeployed in the checked-in Horizen fixture. Treat either error as a stop condition.
+
+## Application and indexer consumers
+
+Applications should resolve a contract from the exact selected deployment instead of falling back to a hard-coded ID:
+
+```typescript
+import { Chain } from "@wraith-protocol/sdk";
+import {
+  ManifestChain,
+  manifestChainForSdk,
+  selectContract,
+  selectDeployment,
+} from "../scripts/deployment-manifest-consumer.js";
+
+const selected = selectDeployment(
+  manifest,
+  manifestChainForSdk(Chain.Ethereum),
+  "horizen-testnet",
+  "2651420",
+);
+const announcer = selectContract(selected, "ERC5564Announcer");
+const ckbDeployment = selectDeployment(
+  manifest,
+  ManifestChain.Ckb,
+  "ckb-testnet",
+  "0x10639e0895502b5688a6be8cf69460d76541bfa4821629d86d62ba0aae3f9606",
+);
+```
+
+The SDK `Chain` enum currently has no CKB member, so select that manifest-only chain with `ManifestChain.Ckb`. Selecting the undeployed `WraithSender` instead throws with its recorded reason.
+
+Indexers should use the deployment height as their start point and avoid treating third-party artifacts as Wraith-owned code:
+
+```typescript
+const indexTargets = deployment.contracts
+  .filter((contract) => !contract.external)
+  .map(({ name, id, deployment: { height } }) => ({ name, id, startBlock: height }));
+```
+
+`external` does not mean “ignore this dependency when verifying the network.” It means do not attribute its source, build, or release provenance to Wraith.
+
+## Verify artifact and source provenance
+
+The manifest uses Keccak-256 for EVM runtime bytecode, SHA-256 for Stellar WASM and Solana ELF, and CKB-personalized BLAKE2b-256 for CKB cell data. `verifyArtifactHash` computes each algorithm and fails on any mismatch:
+
+```typescript
+import {
+  verifyArtifactHash,
+  verifySourceProvenance,
+} from "../scripts/deployment-manifest-consumer.js";
+
+async function readRuntimeCode(address: string, rpcUrl: string): Promise<Uint8Array> {
+  const response = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "eth_getCode",
+      params: [address, "latest"],
+    }),
+  });
+  if (!response.ok) throw new Error(`RPC request failed: HTTP ${response.status}`);
+
+  const payload: unknown = await response.json();
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !("result" in payload) ||
+    typeof payload.result !== "string" ||
+    !/^0x(?:[0-9a-f]{2})+$/i.test(payload.result)
+  ) {
+    throw new Error("RPC returned no deployed runtime bytecode");
+  }
+  const pairs = payload.result.slice(2).match(/.{2}/g);
+  if (!pairs) throw new Error("RPC returned empty runtime bytecode");
+  return Uint8Array.from(pairs, (pair) => Number.parseInt(pair, 16));
+}
+
+if (!deployment.rpcUrl) throw new Error("The selected deployment has no RPC URL");
+const runtimeCode = await readRuntimeCode(announcer.id, deployment.rpcUrl);
+verifyArtifactHash(announcer, runtimeCode);
+
+// The current fixture is historical and unverifiable, so this intentionally stops.
+if (announcer.provenance?.status !== "source-verified") {
+  throw new Error("Release policy requires source-verified provenance");
+}
+const verifiedCommit = verifySourceProvenance(announcer, runtimeCode);
+console.log(`Artifact matches source commit ${verifiedCommit}`);
+```
+
+`readRuntimeCode` must query the selected chain and return the deployed artifact bytes. Use the correct chain-specific source; an EVM address, Stellar contract ID, Solana program ID, and CKB script hash are not interchangeable. The consumer test exercises the hash checks with deterministic bytes.
+
+`source-verified` means a clean build of `sourceCommit` reproduced `artifactHash`. To independently establish that claim, check out the pinned contracts commit and run the contracts repository's `npm run verify-source`. `verifyArtifactHash` alone verifies only the artifact bytes; it does not build or prove the source. When provenance is `unverifiable`, fail any workflow that requires reproducible first-party source and report the limitation rather than promoting it to verified.
+
+External records such as `ckb-auth` have no first-party source commit. You can compare their artifact hash to the on-chain artifact, but `verifySourceProvenance` deliberately rejects them.
+
+## Operator upgrade workflow
+
+Before deploying or changing an indexer:
+
+1. Pin and review the manifest commit.
+2. Verify the selected chain, network slug, and network identity against the RPC endpoint.
+3. Confirm each required contract is deployed; stop if it is in `undeployed` or missing.
+4. Compare the on-chain artifact hash with `artifactHash`.
+5. Require `source-verified` provenance when your release policy requires reproducible source.
+6. On an upgrade, review changes to contract IDs, artifact hashes, source commits, and deployment heights. Reconfigure the indexer from the new deployment height and backfill as needed.
+
+The CI check validates the pinned real fixture against its published schema, type-checks the SDK-backed consumer, and tests mismatched networks, missing and undeployed contracts, external artifacts, and hash/provenance failures:
+
+```bash
+pnpm run check:deployment-manifest
+```
+
+## Related references
+
+- [Chain and Package Compatibility Matrix](/reference/compatibility-matrix) — SDK entry points, chain deployments, and compatibility notes
+- [Contract Registry](/reference/contract-registry) — existing Stellar contract addresses and hashes
+- [Stellar Networks](/reference/stellar-networks) — Stellar passphrases and RPC endpoints
+- [Self-hosted deployment](/guides/ops/self-hosted-deployment) — operator setup

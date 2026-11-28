@@ -84,6 +84,9 @@ jobs:
       - name: Check compatibility matrix
         run: pnpm run check:compatibility-matrix
 
+      - name: Check deployment manifest consumer
+        run: pnpm run check:deployment-manifest
+
       - name: Check redirects and anchors
         env:
           DOCS_DIFF_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}

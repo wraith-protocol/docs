@@ -1,0 +1,248 @@
+{
+  "$schema": "./schema/v1.json",
+  "schemaVersion": 1,
+  "deployments": [
+    {
+      "chain": "evm",
+      "network": "horizen-testnet",
+      "networkId": "2651420",
+      "rpcUrl": "https://horizen-testnet.rpc.caldera.xyz/http",
+      "recordedBy": "chain-query",
+      "contracts": [
+        {
+          "name": "ERC5564Announcer",
+          "id": "0x8AE65c05E7eb48B9bA652781Bc0a3DBA09A484F3",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "keccak256",
+            "value": "0x9b846a07b17d019277a06764e6d0281dac81741c9a64944ede50ddc23ef10be0"
+          },
+          "abi": {
+            "path": "evm/subgraph/abis/ERC5564Announcer.json",
+            "sha256": "0x2ddba580bf506dd79d90f06eda6db7d1311cc772768332c8eed67a3cca5811c5"
+          },
+          "deployment": {
+            "height": 14202900,
+            "txHash": "0xf5122f56ffad88133ee86b35a77f478a9ea21aa42ce063e66a2a4b22cf31017c",
+            "deployer": "0x2e3af2ef5bc195fdefa6bc2b0ed0465d129616df",
+            "timestamp": "2026-04-10T03:34:50Z"
+          }
+        },
+        {
+          "name": "ERC6538Registry",
+          "id": "0x953E6cEdcdfAe321796e7637d33653F6Ce05c527",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "keccak256",
+            "value": "0x81d5bdf8d1ccb3ced05fde681ae45ecd6ae51dde1e368fed331eeb1684a383e2"
+          },
+          "abi": {
+            "path": "evm/subgraph/abis/ERC6538Registry.json",
+            "sha256": "0xc539d41563bb044dc6b8c0cbd0db0a84b7949292fd88b48c2aa0707f3ef8e429"
+          },
+          "deployment": {
+            "height": 14202905,
+            "txHash": "0x6f71fd75d4a92e78a9e8dc72cac7dd7f7c36dd81b69ecb94a4f7db83c73e296c",
+            "deployer": "0x2e3af2ef5bc195fdefa6bc2b0ed0465d129616df",
+            "timestamp": "2026-04-10T03:34:55Z"
+          }
+        }
+      ],
+      "undeployed": [
+        {
+          "name": "WraithSender",
+          "reason": "Not deployed on horizen-testnet yet; the README lists its address as TBD."
+        },
+        {
+          "name": "WraithNames",
+          "reason": "Not deployed on horizen-testnet yet; the README lists its address as TBD."
+        },
+        {
+          "name": "WraithWithdrawer",
+          "reason": "Not deployed on horizen-testnet yet; the README lists its address as TBD."
+        }
+      ]
+    },
+    {
+      "chain": "solana",
+      "network": "solana-devnet",
+      "networkId": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
+      "rpcUrl": "https://api.devnet.solana.com",
+      "recordedBy": "chain-query",
+      "contracts": [
+        {
+          "name": "wraith_announcer",
+          "id": "9Ko7TuXHpLUH1ZsZWQEpeA9Tv7hX325ooWk5SD7Y9nuq",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "sha256",
+            "value": "0x2be5d2b1e9d08926ab515829c7f72b16367f59a8b0fd4241318762dd184dec67"
+          },
+          "deployment": {
+            "height": 456215445,
+            "txHash": null,
+            "deployer": "C8Qaq6WeAjhSizcEMFstN2BaAp15ypR76bfvhX6skDvG",
+            "timestamp": "2026-04-17T18:59:39Z"
+          },
+          "solana": {
+            "programData": "DQJ8YU4PrKU3E7ZWSJUgXBM5fW5ztWfsymdjEgr4ep73",
+            "upgradeAuthority": "C8Qaq6WeAjhSizcEMFstN2BaAp15ypR76bfvhX6skDvG"
+          }
+        },
+        {
+          "name": "wraith_sender",
+          "id": "E6J7GBSTjKbYANWjfTo5HfnXZ4Tg3LAasN7NrvCwn5Dq",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "sha256",
+            "value": "0xc77d61231a088a54ac6be18ea21b20f10d48c3b47e890bda517ee8e059a593b9"
+          },
+          "deployment": {
+            "height": 456215353,
+            "txHash": null,
+            "deployer": "C8Qaq6WeAjhSizcEMFstN2BaAp15ypR76bfvhX6skDvG",
+            "timestamp": "2026-04-17T18:59:04Z"
+          },
+          "solana": {
+            "programData": "DVtt1mMXZtSxHB8a1XGrvBrfQYh8sstehfNWs4X2CME5",
+            "upgradeAuthority": "C8Qaq6WeAjhSizcEMFstN2BaAp15ypR76bfvhX6skDvG"
+          }
+        },
+        {
+          "name": "wraith_names",
+          "id": "4JrrQh5aK7iLvx6MgtEQk7K7X3SsWfTLxVJu1jXEwNjD",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "sha256",
+            "value": "0x2583b2cd9cfa7dafd4a1710f61654b34796ef1932bde1c4f44f706d3821a0ea4"
+          },
+          "deployment": {
+            "height": 456215508,
+            "txHash": null,
+            "deployer": "C8Qaq6WeAjhSizcEMFstN2BaAp15ypR76bfvhX6skDvG",
+            "timestamp": "2026-04-17T19:00:02Z"
+          },
+          "solana": {
+            "programData": "8YhdNGQvQmjFvcViCYxdoCBRnQjwgRpWpVH7uG82YcJM",
+            "upgradeAuthority": "C8Qaq6WeAjhSizcEMFstN2BaAp15ypR76bfvhX6skDvG"
+          }
+        }
+      ]
+    },
+    {
+      "chain": "ckb",
+      "network": "ckb-testnet",
+      "networkId": "0x10639e0895502b5688a6be8cf69460d76541bfa4821629d86d62ba0aae3f9606",
+      "rpcUrl": "https://testnet.ckbapp.dev",
+      "recordedBy": "chain-query",
+      "contracts": [
+        {
+          "name": "wraith-stealth-lock",
+          "id": "0x31f6ab9c7e7a26ecba980b838ac3b5bd6c3a2f1b945e75b7cf7e6a46cb19cb87",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "blake2b-256",
+            "value": "0x31f6ab9c7e7a26ecba980b838ac3b5bd6c3a2f1b945e75b7cf7e6a46cb19cb87"
+          },
+          "deployment": {
+            "height": 20799673,
+            "txHash": "0xde1e8e4bed2d1d7102b9ad3d7a74925ace007800ae49498f9c374cb4968dd32b",
+            "deployer": null,
+            "timestamp": "2026-04-17T20:05:54Z"
+          },
+          "ckb": {
+            "hashType": "data2",
+            "cellDep": {
+              "txHash": "0xde1e8e4bed2d1d7102b9ad3d7a74925ace007800ae49498f9c374cb4968dd32b",
+              "index": 0,
+              "depType": "code"
+            }
+          }
+        },
+        {
+          "name": "wraith-names-type",
+          "id": "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d",
+          "version": null,
+          "sourceCommit": null,
+          "provenance": {
+            "status": "unverifiable",
+            "reason": "Historical record reconstructed from chain state; no source commit has been shown to reproduce the artifact hash."
+          },
+          "artifactHash": {
+            "algorithm": "blake2b-256",
+            "value": "0xc133817d433f72ea16a2404adaf961524e9572c8378829a21968710d6182e20d"
+          },
+          "deployment": {
+            "height": 20801517,
+            "txHash": "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8",
+            "deployer": null,
+            "timestamp": "2026-04-18T00:02:06Z"
+          },
+          "ckb": {
+            "hashType": "data2",
+            "cellDep": {
+              "txHash": "0x9acd640d35eadd893b358dddd415f4061fe81cb249e8ace51a866fee314141b8",
+              "index": 0,
+              "depType": "code"
+            }
+          }
+        },
+        {
+          "name": "ckb-auth",
+          "id": "0x0915983bb31584df4566e0946fd00ef1e9a75ad37a39ce70fec9b5cbf3b87021",
+          "version": null,
+          "sourceCommit": null,
+          "external": true,
+          "artifactHash": {
+            "algorithm": "blake2b-256",
+            "value": "0x24cbc0576afd0bb1e73871363d4724d5a09f428c16090a0f2cb71de6a4221372"
+          },
+          "deployment": {
+            "height": 20101199,
+            "txHash": "0xa0e99b29fd154385815142b76668d5f4ecf30ae85bc2942bd21e9e51b9066f97",
+            "deployer": null,
+            "timestamp": "2026-02-12T02:40:29Z"
+          },
+          "ckb": {
+            "hashType": "type",
+            "cellDep": {
+              "txHash": "0xa0e99b29fd154385815142b76668d5f4ecf30ae85bc2942bd21e9e51b9066f97",
+              "index": 0,
+              "depType": "code"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

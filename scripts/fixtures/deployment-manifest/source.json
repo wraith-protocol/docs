@@ -1,0 +1,6 @@
+{
+  "repository": "https://github.com/wraith-protocol/contracts",
+  "commit": "acaa2e7a7f2c18d84ec6cdc18f5e31b67de4d153",
+  "schema": "deployments/schema/v1.json",
+  "manifest": "deployments/manifest.json"
+}
