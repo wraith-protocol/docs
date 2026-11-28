@@ -18,6 +18,7 @@
     "test:nav-smoke": "playwright test --config scripts/playground/tests/nav-smoke.config.ts",
     "check:contract-registry": "node --test scripts/check-contract-registry.test.mjs && node scripts/check-contract-registry.mjs",
     "check:compatibility-matrix": "node scripts/check-compatibility-matrix.mjs",
+    "check:deployment-manifest": "pnpm exec tsc --noEmit --project scripts/deployment-manifest-consumer/tsconfig.json && node --import tsx --test scripts/deployment-manifest-consumer.test.ts",
     "check:redirects-and-anchors": "node scripts/check-redirects-and-anchors.mjs",
     "check:broken-links": "node scripts/check-broken-links.mjs --internal-only",
     "check:broken-links:internal": "node scripts/check-broken-links.mjs --internal-only",
@@ -38,7 +39,7 @@
     "test:preview": "playwright test --config scripts/preview/tests/playwright.config.ts",
     "mint:validate": "mint validate",
     "mint:broken-links": "npx --yes mintlify@4.2.1082 broken-links --check-anchors --check-redirects",
-    "test": "npm run check:snippets && npm run check:integration-guides && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run check:broken-links:internal && npm run test:broken-links && npm run test:redirects-and-anchors && npm run test:compatibility-matrix"
+    "test": "npm run check:snippets && npm run check:integration-guides && npm run check:nav-coverage && npm run check:contract-registry && npm run check:compatibility-matrix && npm run check:broken-links:internal && npm run test:broken-links && npm run test:redirects-and-anchors && npm run test:compatibility-matrix && npm run check:deployment-manifest"
   },
   "dependencies": {
     "@solana/web3.js": "^1.99.0",
@@ -47,9 +48,11 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.14.0",
+    "@noble/hashes": "1.8.0",
     "@playwright/test": "^1.49.1",
     "@types/js-yaml": "4.0.9",
     "@types/node": "^22.10.2",
+    "ajv": "8.17.1",
     "js-yaml": "4.3.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
